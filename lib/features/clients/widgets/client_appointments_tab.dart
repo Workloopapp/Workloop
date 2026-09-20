@@ -38,14 +38,14 @@ class ClientAppointmentsTab extends ConsumerWidget {
     final appointments = ref.watch(clientAppointmentsProvider(clientId));
 
     return appointments.when(
-      loading: () => const Center(
-        child: CircularProgressIndicator(color: AppColors.green),
+      loading: () => Center(
+        child: CircularProgressIndicator(color: AppColors.of(context).green),
       ),
       error: (_, _) => Padding(
         padding: const EdgeInsets.all(AppSpacing.lg),
         child: SlateErrorState(
           message: 'Bookings could not be loaded.',
-          onRetry: () => ref.invalidate(clientAppointmentsProvider(clientId)),
+          onRetry: () => refreshClientAppointments(ref, clientId),
         ),
       ),
       data: (appts) => appts.isEmpty
@@ -62,6 +62,7 @@ class ClientAppointmentsTab extends ConsumerWidget {
                         AddAppointmentScreen(initialClientId: clientId),
                   ),
                 );
+                if (!context.mounted) return;
                 ref.invalidate(clientAppointmentsProvider(clientId));
               },
             )
@@ -77,14 +78,14 @@ class ClientAppointmentsTab extends ConsumerWidget {
                             AddAppointmentScreen(initialClientId: clientId),
                       ),
                     );
+                    if (!context.mounted) return;
                     ref.invalidate(clientAppointmentsProvider(clientId));
                   },
                 ),
                 Expanded(
                   child: RefreshIndicator(
-                    onRefresh: () async =>
-                        ref.invalidate(clientAppointmentsProvider(clientId)),
-                    color: AppColors.green,
+                    onRefresh: () => refreshClientAppointments(ref, clientId),
+                    color: AppColors.of(context).green,
                     child: ListView.separated(
                       padding: const EdgeInsets.fromLTRB(
                         AppSpacing.pageX,
@@ -104,8 +105,8 @@ class ClientAppointmentsTab extends ConsumerWidget {
                         )?.toLocal();
                         final status = appt['status'] as String? ?? 'scheduled';
                         final statusColor = status == 'completed'
-                            ? AppColors.success
-                            : AppColors.t3;
+                            ? AppColors.of(context).success
+                            : AppColors.of(context).t3;
 
                         return WorkloopListRow(
                           onTap: () async {
@@ -116,6 +117,7 @@ class ClientAppointmentsTab extends ConsumerWidget {
                                     AppointmentDetailScreen(appointment: appt),
                               ),
                             );
+                            if (!context.mounted) return;
                             ref.invalidate(
                               clientAppointmentsProvider(clientId),
                             );
@@ -129,10 +131,10 @@ class ClientAppointmentsTab extends ConsumerWidget {
                             appt['services']?['name'] as String? ?? 'Booking',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 14,
                               fontWeight: FontWeight.w600,
-                              color: AppColors.t1,
+                              color: AppColors.of(context).t1,
                             ),
                           ),
                           subtitle: Text(
@@ -143,9 +145,9 @@ class ClientAppointmentsTab extends ConsumerWidget {
                                 : 'No date set',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 12,
-                              color: AppColors.t3,
+                              color: AppColors.of(context).t3,
                             ),
                           ),
                           trailing: Row(
@@ -154,10 +156,10 @@ class ClientAppointmentsTab extends ConsumerWidget {
                               if (appt['price'] != null)
                                 Text(
                                   formatPounds(appt['price'] as num),
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                     fontSize: 13,
                                     fontWeight: FontWeight.w600,
-                                    color: AppColors.t2,
+                                    color: AppColors.of(context).t2,
                                   ),
                                 ),
                               const SizedBox(width: 10),
@@ -170,9 +172,9 @@ class ClientAppointmentsTab extends ConsumerWidget {
                                 ),
                               ),
                               const SizedBox(width: 8),
-                              const Icon(
+                              Icon(
                                 LucideIcons.chevronRight,
-                                color: AppColors.t3,
+                                color: AppColors.of(context).t3,
                                 size: 14,
                               ),
                             ],
@@ -207,8 +209,8 @@ class _AppointmentsToolbar extends StatelessWidget {
         children: [
           Text(
             '$count ${count == 1 ? 'booking' : 'bookings'}',
-            style: const TextStyle(
-              color: AppColors.t2,
+            style: TextStyle(
+              color: AppColors.of(context).t2,
               fontSize: 13,
               fontWeight: FontWeight.w600,
             ),

@@ -78,16 +78,17 @@ void main() {
     expect(find.text('Share'), findsOneWidget);
     expect(find.text('Page readiness'), findsOneWidget);
     expect(find.text('1 service shown'), findsOneWidget);
+    expect(
+      tester.getTopLeft(find.text('Booking requests')).dy,
+      lessThan(tester.getTopLeft(find.text('Page readiness')).dy),
+    );
 
     await tester.scrollUntilVisible(find.text('Booking requests'), 220);
     expect(find.text('1 request waiting for a response'), findsOneWidget);
-    await tester.scrollUntilVisible(
-      find.textContaining('also appear in Today and Notifications'),
-      120,
-    );
-    expect(
-      find.textContaining('also appear in Today and Notifications'),
-      findsOneWidget,
-    );
+    await tester.tap(find.text('Booking requests'));
+    await tester.pumpAndSettle();
+    expect(find.byType(BookingRequestsScreen), findsOneWidget);
+    expect(find.text('Aisha Morgan'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 }

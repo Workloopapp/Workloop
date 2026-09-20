@@ -34,6 +34,7 @@ class _ControlledTasksRepository extends TasksRepository {
   final deletion = Completer<void>();
   int statusCalls = 0;
   int editCalls = 0;
+  String? savedAppointmentId;
   int deleteCalls = 0;
 
   @override
@@ -57,6 +58,7 @@ class _ControlledTasksRepository extends TasksRepository {
     String? appointmentId,
   }) {
     editCalls += 1;
+    savedAppointmentId = appointmentId;
     return editMutation.future;
   }
 
@@ -93,10 +95,12 @@ class _ControlledExpensesRepository extends ExpensesRepository {
 
   final deletion = Completer<void>();
   int deleteCalls = 0;
+  String? lastDeletedId;
 
   @override
   Future<void> delete(String expenseId) {
     deleteCalls += 1;
+    lastDeletedId = expenseId;
     return deletion.future;
   }
 }
@@ -122,6 +126,7 @@ void main() {
     id: 'task-1',
     workspaceId: 'workspace-1',
     title: 'Launch checklist',
+    appointmentId: 'booking-linked',
   );
 
   setUp(() {
@@ -333,6 +338,28 @@ void main() {
     );
   });
 
+  testWidgets('task edit retains booking link through normal route close', (
+    tester,
+  ) async {
+    final repository = _ControlledTasksRepository();
+    await pumpTasks(tester, repository);
+    await tester.tap(find.text('Launch checklist'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.bySemanticsLabel('Edit task'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).first, 'Updated linked task');
+    await tester.tap(find.text('Save'));
+    await tester.pump();
+    expect(repository.savedAppointmentId, 'booking-linked');
+    repository.editMutation.complete();
+    await tester.pumpAndSettle();
+    expect(find.text('Edit task'), findsNothing);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('failed task deletion keeps confirmation open and announced', (
     tester,
   ) async {
@@ -341,6 +368,7 @@ void main() {
 
     await tester.tap(find.text('Launch checklist'));
     await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Delete Task'));
     await tester.tap(find.text('Delete Task'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Delete Task').last);
@@ -463,6 +491,7 @@ void main() {
       workspaceId: 'workspace-1',
       amount: 45,
       category: 'Materials',
+      notes: 'Window-cleaning materials',
       expenseDate: now,
     );
     await pumpFinance(
@@ -475,14 +504,16 @@ void main() {
 
     await tester.tap(find.text('Spent'));
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('Materials').last);
+    final expenseRow = find.text('Window-cleaning materials');
+    await tester.ensureVisible(expenseRow);
     await tester.pumpAndSettle();
-    await tester.longPress(find.text('Materials').last);
+    await tester.longPress(expenseRow);
     await tester.pumpAndSettle();
     await tester.tap(find.text('Delete Expense'));
     await tester.pump();
 
     expect(expensesRepository.deleteCalls, 1);
+    expect(expensesRepository.lastDeletedId, 'expense-1');
     expect(find.text('Delete expense?'), findsOneWidget);
     expect(find.text('Deleting...'), findsOneWidget);
 
@@ -499,6 +530,7 @@ void main() {
 
     await tester.tap(find.text('Cancel'));
     await tester.pumpAndSettle();
+    expect(expenseRow, findsOneWidget);
   });
 
   testWidgets('failed income deletion keeps confirmation open', (tester) async {
@@ -523,6 +555,11 @@ void main() {
       expensesRepository: expensesRepository,
     );
 
+    final history = find.byKey(const ValueKey('money-history-toggle'));
+    await tester.ensureVisible(history);
+    await tester.pumpAndSettle();
+    await tester.tap(history);
+    await tester.pumpAndSettle();
     final incomeCard = find.text('Launch Client');
     await tester.ensureVisible(incomeCard);
     await tester.pumpAndSettle();

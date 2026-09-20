@@ -95,7 +95,7 @@ void main() {
   }
 
   testWidgets(
-    'failed note deletion stays in context and reports that nothing was removed',
+    'failed note deletion stays in context and offers a retry',
     (tester) async {
       final repository = _ControlledNotesRepository();
       await openDeleteDialog(tester, repository);
@@ -114,7 +114,7 @@ void main() {
       expect(find.text('Delete note?'), findsOneWidget);
       expect(
         find.text(
-          'Couldn’t delete this note. Nothing was removed. Please try again.',
+          'Couldn’t finish deleting this note and its files. Please try again.',
         ),
         findsOneWidget,
       );

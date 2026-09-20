@@ -10,6 +10,7 @@ import 'package:workloop/shared/models/slate_models.dart';
 import 'package:workloop/shared/providers/notifications_provider.dart';
 import 'package:workloop/shared/providers/workspace_provider.dart';
 import 'package:workloop/shared/repositories/notifications_repository.dart';
+import 'package:workloop/shared/widgets/slate_ui.dart';
 
 class _FailingNotificationsRepository extends NotificationsRepository {
   _FailingNotificationsRepository()
@@ -47,8 +48,16 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Could not load notification settings.'), findsOneWidget);
-    final retry = find.widgetWithText(TextButton, 'Try again');
+    expect(
+      find.text(
+        'Could not load your saved choices. Check your connection and try again.',
+      ),
+      findsOneWidget,
+    );
+    final retry = find.descendant(
+      of: find.byType(SlateErrorState),
+      matching: find.widgetWithText(TextButton, 'Try again'),
+    );
     expect(retry, findsOneWidget);
 
     await tester.tap(retry);
@@ -70,7 +79,7 @@ void main() {
                 type: 'booking',
                 title: 'New booking',
                 body: 'Alex booked a consultation.',
-                deepLink: '/work',
+                deepLink: '/bookings/a1111111-1111-4111-8111-111111111111',
               ),
             ],
           ),

@@ -41,6 +41,11 @@ insert into auth.users (
     ''
   );
 
+-- Authenticated fixtures use real sessions, as production access requires.
+insert into auth.sessions(id,user_id,created_at,updated_at) values
+('10000000-0000-4000-8000-000000000101','10000000-0000-4000-8000-000000000001',now(),now()),
+('20000000-0000-4000-8000-000000000102','20000000-0000-4000-8000-000000000002',now(),now());
+
 insert into public.workspaces (id, name) values
   ('11000000-0000-4000-8000-000000000001', 'Quality Workspace A'),
   ('22000000-0000-4000-8000-000000000002', 'Quality Workspace B');
@@ -94,7 +99,7 @@ select set_config(
 );
 select set_config(
   'request.jwt.claims',
-  '{"sub":"10000000-0000-4000-8000-000000000001","role":"authenticated"}',
+  '{"sub":"10000000-0000-4000-8000-000000000001","role":"authenticated","session_id":"10000000-0000-4000-8000-000000000101"}',
   true
 );
 
@@ -203,7 +208,7 @@ select set_config(
 );
 select set_config(
   'request.jwt.claims',
-  '{"sub":"20000000-0000-4000-8000-000000000002","role":"authenticated"}',
+  '{"sub":"20000000-0000-4000-8000-000000000002","role":"authenticated","session_id":"20000000-0000-4000-8000-000000000102"}',
   true
 );
 select is(
@@ -236,7 +241,7 @@ insert into auth.mfa_factors (
 set local role authenticated;
 select set_config(
   'request.jwt.claims',
-  '{"sub":"20000000-0000-4000-8000-000000000002","role":"authenticated","aal":"aal1"}',
+  '{"sub":"20000000-0000-4000-8000-000000000002","role":"authenticated","aal":"aal1","session_id":"20000000-0000-4000-8000-000000000102"}',
   true
 );
 select is(
@@ -247,7 +252,7 @@ select is(
 
 select set_config(
   'request.jwt.claims',
-  '{"sub":"20000000-0000-4000-8000-000000000002","role":"authenticated","aal":"aal2"}',
+  '{"sub":"20000000-0000-4000-8000-000000000002","role":"authenticated","aal":"aal2","session_id":"20000000-0000-4000-8000-000000000102"}',
   true
 );
 select is(

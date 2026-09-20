@@ -13,19 +13,19 @@ class _TaskFormSectionLabel extends StatelessWidget {
       children: [
         Text(
           text,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 20,
             fontWeight: FontWeight.w600,
             height: 1.12,
-            color: AppColors.t1,
+            color: AppColors.of(context).t1,
           ),
         ),
         if (subtitle != null) ...[
           const SizedBox(height: AppSpacing.sm),
           Text(
             subtitle!,
-            style: const TextStyle(
-              color: AppColors.t3,
+            style: TextStyle(
+              color: AppColors.of(context).t3,
               fontSize: 14,
               fontWeight: FontWeight.w400,
               height: 1.35,
@@ -54,7 +54,7 @@ class _TaskSaveAction extends StatelessWidget {
   Widget build(BuildContext context) {
     return Material(
       color: enabled
-          ? AppColors.modTasks.withValues(alpha: 0.14)
+          ? AppColors.of(context).modTasks.withValues(alpha: 0.14)
           : Colors.transparent,
       borderRadius: BorderRadius.circular(AppRadius.md),
       child: InkWell(
@@ -67,18 +67,20 @@ class _TaskSaveAction extends StatelessWidget {
           ),
           child: Center(
             child: loading
-                ? const SizedBox(
+                ? SizedBox(
                     width: 16,
                     height: 16,
                     child: CircularProgressIndicator(
-                      color: AppColors.modTasks,
+                      color: AppColors.of(context).modTasks,
                       strokeWidth: 2,
                     ),
                   )
                 : Text(
                     label,
                     style: TextStyle(
-                      color: enabled ? AppColors.modTasks : AppColors.t3,
+                      color: enabled
+                          ? AppColors.of(context).modTasks
+                          : AppColors.of(context).t3,
                       fontSize: 14,
                       fontWeight: FontWeight.w600,
                     ),
@@ -100,12 +102,13 @@ class _TaskTemplatePicker extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
+        WorkloopFieldLabel(
           'Start with',
+          isRequired: false,
           style: TextStyle(
             fontSize: 12,
             fontWeight: FontWeight.w600,
-            color: AppColors.t3,
+            color: AppColors.of(context).t3,
           ),
         ),
         const SizedBox(height: 8),
@@ -144,25 +147,32 @@ class _DraftChecklistEditor extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Row(
+        Row(
           children: [
-            Icon(LucideIcons.listChecks, size: 15, color: AppColors.t3),
+            Icon(
+              LucideIcons.listChecks,
+              size: 15,
+              color: AppColors.of(context).t3,
+            ),
             SizedBox(width: 8),
-            Text(
-              'Checklist',
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: AppColors.t1,
+            Expanded(
+              child: WorkloopFieldLabel(
+                'Checklist',
+                isRequired: false,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.of(context).t1,
+                ),
               ),
             ),
-            Spacer(),
+            const SizedBox(width: AppSpacing.sm),
             Text(
               'Saved with task',
               style: TextStyle(
                 fontSize: 11,
                 fontWeight: FontWeight.w600,
-                color: AppColors.t3,
+                color: AppColors.of(context).t3,
               ),
             ),
           ],
@@ -175,7 +185,7 @@ class _DraftChecklistEditor extends StatelessWidget {
                 controller: controller,
                 textInputAction: TextInputAction.done,
                 onSubmitted: (_) => onAdd(),
-                style: const TextStyle(color: AppColors.t1),
+                style: TextStyle(color: AppColors.of(context).t1),
                 decoration: const InputDecoration(
                   hintText: 'Add a step',
                   contentPadding: EdgeInsets.symmetric(
@@ -198,13 +208,13 @@ class _DraftChecklistEditor extends StatelessWidget {
                     width: AppSpacing.minTouch,
                     height: AppSpacing.minTouch,
                     decoration: BoxDecoration(
-                      color: AppColors.slateLight,
+                      color: AppColors.of(context).slateLight,
                       borderRadius: BorderRadius.circular(AppRadius.md),
                     ),
-                    child: const Icon(
+                    child: Icon(
                       LucideIcons.plus,
                       size: 18,
-                      color: AppColors.panelInk,
+                      color: AppColors.of(context).panelInk,
                     ),
                   ),
                 ),
@@ -219,15 +229,19 @@ class _DraftChecklistEditor extends StatelessWidget {
               padding: const EdgeInsets.only(bottom: 8),
               child: Row(
                 children: [
-                  const Icon(LucideIcons.circle, size: 16, color: AppColors.t3),
+                  Icon(
+                    LucideIcons.circle,
+                    size: 16,
+                    color: AppColors.of(context).t3,
+                  ),
                   const SizedBox(width: 9),
                   Expanded(
                     child: Text(
                       entry.value,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: AppColors.t2,
+                      style: TextStyle(
+                        color: AppColors.of(context).t2,
                         fontSize: 13,
                         fontWeight: FontWeight.w600,
                       ),
@@ -270,27 +284,31 @@ class _ClientPicker extends StatelessWidget {
         clients.any((client) => client.id == selectedClientId);
     final safeSelectedClientId = hasSelectedClient ? selectedClientId : null;
 
-    return WorkloopPickerField<String?>(
-      value: safeSelectedClientId,
-      title: 'Link a client',
-      hint: 'Link to client',
-      searchHint: 'Search clients',
-      searchable: true,
-      leadingIcon: LucideIcons.users,
-      options: [
-        const WorkloopPickerOption<String?>(
-          value: null,
-          label: 'No client',
-          subtitle: 'Keep this as a general task',
-        ),
-        ...clients.map(
-          (client) => WorkloopPickerOption<String?>(
-            value: client.id as String,
-            label: client.name as String,
+    return WorkloopFormField(
+      label: 'Client',
+      isRequired: false,
+      child: WorkloopPickerField<String?>(
+        value: safeSelectedClientId,
+        title: 'Link a client',
+        hint: 'Link to client',
+        searchHint: 'Search clients',
+        searchable: true,
+        leadingIcon: LucideIcons.users,
+        options: [
+          const WorkloopPickerOption<String?>(
+            value: null,
+            label: 'No client',
+            subtitle: 'Keep this as a general task',
           ),
-        ),
-      ],
-      onChanged: onChanged,
+          ...clients.map(
+            (client) => WorkloopPickerOption<String?>(
+              value: client.id as String,
+              label: client.name as String,
+            ),
+          ),
+        ],
+        onChanged: onChanged,
+      ),
     );
   }
 }
@@ -316,12 +334,13 @@ class _DueDatePicker extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
+        WorkloopFieldLabel(
           'Due date',
+          isRequired: false,
           style: TextStyle(
             fontSize: 12,
             fontWeight: FontWeight.w600,
-            color: AppColors.t3,
+            color: AppColors.of(context).t3,
           ),
         ),
         const SizedBox(height: 8),
@@ -357,8 +376,8 @@ class _DueDatePicker extends StatelessWidget {
           const SizedBox(height: 8),
           Text(
             'Selected: ${_formatDate(dueDate!)}',
-            style: const TextStyle(
-              color: AppColors.t2,
+            style: TextStyle(
+              color: AppColors.of(context).t2,
               fontSize: 13,
               fontWeight: FontWeight.w500,
             ),
@@ -401,17 +420,17 @@ class _TaskOptionsDisclosure extends StatelessWidget {
             constraints: const BoxConstraints(minHeight: AppSpacing.minTouch),
             child: Row(
               children: [
-                const Icon(
+                Icon(
                   LucideIcons.slidersHorizontal,
                   size: 16,
-                  color: AppColors.t3,
+                  color: AppColors.of(context).t3,
                 ),
                 const SizedBox(width: 10),
-                const Expanded(
+                Expanded(
                   child: Text(
                     'More options',
                     style: TextStyle(
-                      color: AppColors.t2,
+                      color: AppColors.of(context).t2,
                       fontSize: 14,
                       fontWeight: FontWeight.w600,
                     ),
@@ -420,10 +439,10 @@ class _TaskOptionsDisclosure extends StatelessWidget {
                 AnimatedRotation(
                   turns: expanded ? 0.5 : 0,
                   duration: AppMotion.responsive(context, AppMotion.standard),
-                  child: const Icon(
+                  child: Icon(
                     LucideIcons.chevronDown,
                     size: 16,
-                    color: AppColors.t3,
+                    color: AppColors.of(context).t3,
                   ),
                 ),
               ],
@@ -463,12 +482,13 @@ class _ReminderPicker extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
+            WorkloopFieldLabel(
               'Reminder',
+              isRequired: false,
               style: TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w600,
-                color: AppColors.t3,
+                color: AppColors.of(context).t3,
               ),
             ),
             const SizedBox(height: 8),
@@ -486,15 +506,15 @@ class _ReminderPicker extends StatelessWidget {
             ),
             if (enabled) ...[
               const SizedBox(height: 8),
-              const Text(
+              Text(
                 'Reminders normally arrive on this device at 09:00.',
-                style: TextStyle(fontSize: 12, color: AppColors.t3),
+                style: TextStyle(fontSize: 12, color: AppColors.of(context).t3),
               ),
             ] else ...[
               const SizedBox(height: 8),
-              const Text(
+              Text(
                 'Choose a due date before adding a reminder.',
-                style: TextStyle(fontSize: 12, color: AppColors.t3),
+                style: TextStyle(fontSize: 12, color: AppColors.of(context).t3),
               ),
             ],
           ],
@@ -557,7 +577,7 @@ class _PriorityChoice extends StatelessWidget {
               decoration: BoxDecoration(
                 color: active
                     ? color.withValues(alpha: 0.15)
-                    : AppColors.bgInteract,
+                    : AppColors.of(context).bgInteract,
                 borderRadius: BorderRadius.circular(AppRadius.md),
                 border: Border.all(color: active ? color : Colors.transparent),
               ),
@@ -566,7 +586,7 @@ class _PriorityChoice extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
-                  color: active ? color : AppColors.t2,
+                  color: active ? color : AppColors.of(context).t2,
                 ),
               ),
             ),

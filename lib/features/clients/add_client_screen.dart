@@ -62,6 +62,7 @@ class _AddClientScreenState extends ConsumerState<AddClientScreen> {
       _birthday != null;
 
   Future<void> _handleBack() async {
+    if (_saving) return;
     FocusManager.instance.primaryFocus?.unfocus();
     if (!_hasChanges) {
       await _leaveScreen();
@@ -90,7 +91,7 @@ class _AddClientScreenState extends ConsumerState<AddClientScreen> {
   Future<void> _leaveScreen() async {
     if (!_allowPop && mounted) setState(() => _allowPop = true);
     await WidgetsBinding.instance.endOfFrame;
-    if (mounted) Navigator.pop(context);
+    if (mounted) workloopGoBack(context, fallbackLocation: '/clients');
   }
 
   Future<void> _save() async {
@@ -105,7 +106,7 @@ class _AddClientScreenState extends ConsumerState<AddClientScreen> {
           setState(() => _saving = false);
           _showMessage(
             '${duplicate.name} already uses this phone number or email.',
-            AppColors.t2,
+            AppColors.of(context).t2,
           );
         }
         return;
@@ -136,7 +137,10 @@ class _AddClientScreenState extends ConsumerState<AddClientScreen> {
       ref.invalidate(clientsProvider);
       ref.invalidate(clientCrmRecordsProvider);
       if (mounted) {
-        _showMessage('${_nameController.text.trim()} added', AppColors.green);
+        _showMessage(
+          '${_nameController.text.trim()} added',
+          AppColors.of(context).green,
+        );
         await _leaveScreen();
       }
     } catch (_) {
@@ -144,7 +148,7 @@ class _AddClientScreenState extends ConsumerState<AddClientScreen> {
         setState(() => _saving = false);
         _showMessage(
           'Couldn’t add this client. Please try again.',
-          AppColors.error,
+          AppColors.of(context).error,
         );
       }
     }
@@ -187,7 +191,7 @@ class _AddClientScreenState extends ConsumerState<AddClientScreen> {
         if (!didPop) _handleBack();
       },
       child: Scaffold(
-        backgroundColor: AppColors.bg,
+        backgroundColor: Colors.transparent,
         body: Stack(
           children: [
             const Positioned.fill(child: WorkloopTexturedBackdrop()),
@@ -197,7 +201,7 @@ class _AddClientScreenState extends ConsumerState<AddClientScreen> {
                   Padding(
                     padding: const EdgeInsets.fromLTRB(
                       AppSpacing.pageX,
-                      AppSpacing.lg,
+                      AppSpacing.screenTop,
                       AppSpacing.pageX,
                       0,
                     ),
@@ -280,7 +284,7 @@ class _SaveAction extends StatelessWidget {
   Widget build(BuildContext context) {
     return Material(
       color: enabled
-          ? AppColors.accentPrimary.withValues(alpha: 0.14)
+          ? AppColors.of(context).accentPrimary.withValues(alpha: 0.14)
           : Colors.transparent,
       borderRadius: BorderRadius.circular(AppRadius.md),
       child: InkWell(
@@ -293,18 +297,20 @@ class _SaveAction extends StatelessWidget {
           ),
           child: Center(
             child: loading
-                ? const SizedBox(
+                ? SizedBox(
                     width: 16,
                     height: 16,
                     child: CircularProgressIndicator(
-                      color: AppColors.accentPrimary,
+                      color: AppColors.of(context).accentPrimary,
                       strokeWidth: 2,
                     ),
                   )
                 : Text(
                     label,
                     style: TextStyle(
-                      color: enabled ? AppColors.accentPrimary : AppColors.t4,
+                      color: enabled
+                          ? AppColors.of(context).accentPrimary
+                          : AppColors.of(context).t4,
                       fontSize: 13,
                       fontWeight: FontWeight.w600,
                     ),

@@ -158,20 +158,19 @@ class _ContactsImportScreenState extends ConsumerState<ContactsImportScreen> {
     }
     setState(() => _reviewing = true);
     try {
-      final confirmed = await showModalBottomSheet<bool>(
+      final confirmed = await showWorkloopBottomSheet<bool>(
         context: context,
         isScrollControlled: true,
-        backgroundColor: Colors.transparent,
-        barrierColor: SlateTheme.of(context).scrim,
         builder: (context) => SlateSheetFrame(
+          scrollable: true,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
+              Text(
                 'Review contact import',
                 style: TextStyle(
-                  color: AppColors.t1,
+                  color: AppColors.of(context).t1,
                   fontSize: 22,
                   fontWeight: FontWeight.w600,
                 ),
@@ -179,8 +178,8 @@ class _ContactsImportScreenState extends ConsumerState<ContactsImportScreen> {
               const SizedBox(height: AppSpacing.xs),
               Text(
                 '${candidates.length} ${candidates.length == 1 ? 'client' : 'clients'} will be created with available name, phone, email and postal address details.',
-                style: const TextStyle(
-                  color: AppColors.t3,
+                style: TextStyle(
+                  color: AppColors.of(context).t3,
                   fontSize: 14,
                   height: 1.45,
                 ),
@@ -315,25 +314,32 @@ class _ContactsImportScreenState extends ConsumerState<ContactsImportScreen> {
             onBack: () => workloopGoBack(context),
           ),
           const SizedBox(height: AppSpacing.xs),
-          const Text(
+          Text(
             'Choose exactly which device contacts to bring in. Only the people you confirm are added to your workspace.',
-            style: TextStyle(color: AppColors.t2, fontSize: 15, height: 1.45),
+            style: TextStyle(
+              color: AppColors.of(context).t2,
+              fontSize: 15,
+              height: 1.45,
+            ),
           ),
           const SizedBox(height: AppSpacing.lg),
           if (_contacts.isEmpty && !_loading) ...[
             WorkloopSurface(
               child: Column(
                 children: [
-                  const Icon(
+                  Icon(
                     LucideIcons.contact,
                     size: 30,
-                    color: AppColors.t2,
+                    color: AppColors.of(context).t2,
                   ),
                   const SizedBox(height: AppSpacing.sm),
                   Text(
                     _message ?? 'Contact access has not been requested.',
                     textAlign: TextAlign.center,
-                    style: const TextStyle(color: AppColors.t2, height: 1.4),
+                    style: TextStyle(
+                      color: AppColors.of(context).t2,
+                      height: 1.4,
+                    ),
                   ),
                   const SizedBox(height: AppSpacing.md),
                   WorkloopPrimaryButton(
@@ -368,8 +374,8 @@ class _ContactsImportScreenState extends ConsumerState<ContactsImportScreen> {
                 Expanded(
                   child: Text(
                     '${_selected.length} selected',
-                    style: const TextStyle(
-                      color: AppColors.t2,
+                    style: TextStyle(
+                      color: AppColors.of(context).t2,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
@@ -397,12 +403,12 @@ class _ContactsImportScreenState extends ConsumerState<ContactsImportScreen> {
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxHeight: 520),
                 child: visible.isEmpty
-                    ? const Padding(
+                    ? Padding(
                         padding: EdgeInsets.symmetric(vertical: AppSpacing.xl),
                         child: Text(
                           'No contacts match this search.',
                           textAlign: TextAlign.center,
-                          style: TextStyle(color: AppColors.t3),
+                          style: TextStyle(color: AppColors.of(context).t3),
                         ),
                       )
                     : ListView.builder(
@@ -454,8 +460,8 @@ class _ContactsImportScreenState extends ConsumerState<ContactsImportScreen> {
                 child: ExcludeSemantics(
                   child: Text(
                     _message!,
-                    style: const TextStyle(
-                      color: AppColors.t3,
+                    style: TextStyle(
+                      color: AppColors.of(context).t3,
                       fontSize: 13,
                       height: 1.4,
                     ),
@@ -504,6 +510,7 @@ class _ContactRow extends StatelessWidget {
       contact.email,
     ].whereType<String>().where((value) => value.isNotEmpty).join(' · ');
     return WorkloopListRow(
+      flat: true,
       onTap: enabled ? () => onChanged(!selected) : null,
       showDivider: showDivider,
       leading: Checkbox.adaptive(
@@ -512,8 +519,8 @@ class _ContactRow extends StatelessWidget {
       ),
       title: Text(
         contact.name,
-        style: const TextStyle(
-          color: AppColors.t1,
+        style: TextStyle(
+          color: AppColors.of(context).t1,
           fontWeight: FontWeight.w600,
         ),
       ),
@@ -523,13 +530,13 @@ class _ContactRow extends StatelessWidget {
               subtitle,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: AppColors.t3),
+              style: TextStyle(color: AppColors.of(context).t3),
             ),
       trailing: contact.likelyDuplicate
-          ? const Text(
+          ? Text(
               'Possible match',
               style: TextStyle(
-                color: AppColors.warning,
+                color: AppColors.of(context).warning,
                 fontSize: 11,
                 fontWeight: FontWeight.w600,
               ),

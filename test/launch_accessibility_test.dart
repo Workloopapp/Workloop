@@ -22,16 +22,16 @@ void main() {
           builder: (context, setState) => Scaffold(
             bottomNavigationBar: WorkloopBottomNav(
               currentIndex: selectedIndex,
-              items: const [
+              items: [
                 WorkloopNavItem(
                   label: 'Home',
                   icon: Icons.home_outlined,
-                  color: AppColors.accentPrimary,
+                  color: AppColors.dark.accentPrimary,
                 ),
                 WorkloopNavItem(
                   label: 'Clients',
                   icon: Icons.people_outline,
-                  color: AppColors.accentPrimary,
+                  color: AppColors.dark.accentPrimary,
                 ),
               ],
               onTap: (index) {

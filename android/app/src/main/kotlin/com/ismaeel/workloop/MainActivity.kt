@@ -3,6 +3,9 @@ package com.ismaeel.workloop
 import android.Manifest
 import android.content.pm.PackageManager
 import android.content.pm.ApplicationInfo
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
 import android.nfc.NfcAdapter
 import android.os.Build
 import androidx.core.app.ActivityCompat
@@ -44,9 +47,33 @@ class MainActivity : FlutterActivity(), TapToPayReaderListener {
     private val paymentScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private lateinit var paymentChannel: MethodChannel
     private var activeResult: MethodChannel.Result? = null
+    private var receiptTextBridge: ReceiptTextBridge? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        receiptTextBridge = ReceiptTextBridge(applicationContext, flutterEngine.dartExecutor.binaryMessenger)
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "workloop/notifications",
+        ).setMethodCallHandler { call, result ->
+            if (call.method != "openSettings") {
+                result.notImplemented()
+            } else {
+                try {
+                    val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                            .putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+                    } else {
+                        Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                            Uri.parse("package:$packageName"))
+                    }
+                    startActivity(intent)
+                    result.success(true)
+                } catch (_: Exception) {
+                    result.success(false)
+                }
+            }
+        }
         paymentChannel = MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             "com.ismaeel.workloop/payments",
@@ -80,7 +107,6 @@ class MainActivity : FlutterActivity(), TapToPayReaderListener {
                 else -> result.notImplemented()
             }
         }
-        initializeTerminal()
     }
 
     private fun initializeTerminal() {
@@ -118,6 +144,7 @@ class MainActivity : FlutterActivity(), TapToPayReaderListener {
     private fun collectPayment(clientSecret: String, locationId: String) {
         paymentScope.launch {
             try {
+                initializeTerminal()
                 val terminal = Terminal.getInstance()
                 if (terminal.connectionStatus != ConnectionStatus.CONNECTED) {
                     val reader = terminal.discoverReaders(
@@ -216,6 +243,7 @@ class MainActivity : FlutterActivity(), TapToPayReaderListener {
     override fun onReaderReconnectFailed(reader: Reader) = Unit
 
     override fun onDestroy() {
+        receiptTextBridge?.close()
         paymentScope.cancel()
         super.onDestroy()
     }

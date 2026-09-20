@@ -1,6 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../attachments/record_attachment.dart';
+import '../attachments/record_attachments_repository.dart';
 import '../models/slate_models.dart';
 import 'repository_pagination.dart';
 import 'supabase_client_provider.dart';
@@ -137,6 +139,21 @@ class ClientsRepository {
   }
 
   Future<void> delete(String clientId) async {
-    await _client.from('contacts').delete().eq('id', clientId);
+    final client = await _client
+        .from('contacts')
+        .select('workspace_id')
+        .eq('id', clientId)
+        .maybeSingle();
+    if (client == null) return;
+    final workspaceId = client['workspace_id'] as String;
+    await RecordAttachmentsRepository(_client).deleteForTarget(
+      workspaceId: workspaceId,
+      target: AttachmentTarget.client(clientId),
+    );
+    await _client
+        .from('contacts')
+        .delete()
+        .eq('workspace_id', workspaceId)
+        .eq('id', clientId);
   }
 }

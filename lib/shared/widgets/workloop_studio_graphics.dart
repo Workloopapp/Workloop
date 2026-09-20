@@ -3,14 +3,95 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../../core/theme/app_theme.dart';
+import 'workloop_quiet_warm.dart';
 
-/// Four connected nodes representing Client, Booking, Work and Payment.
+const workloopAppIconAsset =
+    'ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-1024x1024@1x.png';
+
+/// The canonical app artwork, shared with the installed Workloop app.
+///
+/// This intentionally reads the existing iOS source artwork so Flutter and the
+/// platform icon cannot silently drift into two different brand marks.
+class WorkloopStudioAppIcon extends StatefulWidget {
+  final double size;
+  final double radius;
+
+  const WorkloopStudioAppIcon({
+    super.key,
+    this.size = 72,
+    this.radius = AppRadius.lg,
+  });
+
+  @override
+  State<WorkloopStudioAppIcon> createState() => _WorkloopStudioAppIconState();
+}
+
+class _WorkloopStudioAppIconState extends State<WorkloopStudioAppIcon> {
+  Future<void>? _ready;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _ready ??= precacheImage(const AssetImage(workloopAppIconAsset), context);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final tokens =
+        theme.extension<WorkloopThemeTokens>() ??
+        (theme.brightness == Brightness.dark
+            ? WorkloopThemeTokens.dark
+            : WorkloopThemeTokens.light);
+    return Semantics(
+      image: true,
+      label: 'Workloop',
+      child: ExcludeSemantics(
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(widget.radius),
+          child: SizedBox.square(
+            dimension: widget.size,
+            child: FutureBuilder<void>(
+              future: _ready,
+              builder: (context, snapshot) {
+                if (snapshot.connectionState != ConnectionState.done) {
+                  return ColoredBox(
+                    color: tokens.paperBlue,
+                    child: Center(
+                      child: Text(
+                        'W',
+                        style: TextStyle(
+                          color: tokens.onAccent,
+                          fontSize: widget.size * 0.52,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: -1,
+                          height: 1,
+                        ),
+                      ),
+                    ),
+                  );
+                }
+                return Image.asset(
+                  workloopAppIconAsset,
+                  fit: BoxFit.cover,
+                  filterQuality: FilterQuality.medium,
+                );
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Compatibility wrapper for the original workflow illustration API.
+/// A paper folder replaces the retired abstract Studio loop artwork.
 class WorkloopStudioLoopMark extends StatelessWidget {
   final double size;
   final Color? color;
   final Color? secondaryColor;
   final bool animate;
-
   const WorkloopStudioLoopMark({
     super.key,
     this.size = 112,
@@ -20,37 +101,12 @@ class WorkloopStudioLoopMark extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
-    final reducedMotion =
-        MediaQuery.maybeOf(context)?.disableAnimations == true;
-    final theme = Theme.of(context);
-    final tokens =
-        theme.extension<WorkloopThemeTokens>() ??
-        (theme.brightness == Brightness.dark
-            ? WorkloopThemeTokens.dark
-            : WorkloopThemeTokens.light);
-    final primary = color ?? tokens.accent;
-    final secondary = secondaryColor ?? AppColors.modClients;
-    return Semantics(
-      image: true,
-      label: 'Client, Booking, Work and Payment connected in one loop',
-      child: ExcludeSemantics(
-        child: TweenAnimationBuilder<double>(
-          tween: Tween(begin: animate && !reducedMotion ? 0 : 1, end: 1),
-          duration: AppMotion.responsive(context, AppMotion.deliberate),
-          curve: AppMotion.emphasized,
-          builder: (context, progress, _) => CustomPaint(
-            size: Size.square(size),
-            painter: _StudioLoopPainter(
-              primary: primary,
-              secondary: secondary,
-              progress: progress,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => WorkloopIllustration(
+    kind: WorkloopIllustrationKind.folder,
+    size: size,
+    color: color,
+    semanticLabel: 'Your business in one place',
+  );
 }
 
 class WorkloopStudioProgressArc extends StatelessWidget {
@@ -121,14 +177,22 @@ class WorkloopStudioModuleIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final kind = WorkloopIllustration.forIcon(icon);
+    if (kind != null) return WorkloopIllustration(kind: kind, size: size);
+    final tokens =
+        Theme.of(context).extension<WorkloopThemeTokens>() ??
+        (Theme.of(context).brightness == Brightness.dark
+            ? WorkloopThemeTokens.dark
+            : WorkloopThemeTokens.light);
     return Container(
       width: size,
       height: size,
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.14),
-        borderRadius: BorderRadius.circular(AppRadius.md),
+        color: tokens.surface,
+        border: Border.all(color: tokens.frame),
+        borderRadius: BorderRadius.circular(AppRadius.sm),
       ),
-      child: Icon(icon, color: color, size: size * 0.42),
+      child: Icon(icon, color: tokens.textPrimary, size: size * 0.46),
     );
   }
 }
@@ -282,71 +346,6 @@ class WorkloopStudioBarChart extends StatelessWidget {
       ),
     );
   }
-}
-
-class _StudioLoopPainter extends CustomPainter {
-  final Color primary;
-  final Color secondary;
-  final double progress;
-
-  const _StudioLoopPainter({
-    required this.primary,
-    required this.secondary,
-    required this.progress,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-    final radius = size.shortestSide * 0.34;
-    final path = Path();
-    for (var index = 0; index <= 48; index++) {
-      final angle = -math.pi / 2 + math.pi * 2 * index / 48;
-      final wobble = math.sin(angle * 2) * size.shortestSide * 0.035;
-      final point =
-          center +
-          Offset(
-            math.cos(angle) * (radius + wobble),
-            math.sin(angle) * (radius - wobble),
-          );
-      if (index == 0) {
-        path.moveTo(point.dx, point.dy);
-      } else {
-        path.lineTo(point.dx, point.dy);
-      }
-    }
-    final metric = path.computeMetrics().first;
-    canvas.drawPath(
-      metric.extractPath(0, metric.length * progress),
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = size.shortestSide * 0.055
-        ..strokeCap = StrokeCap.round
-        ..color = primary,
-    );
-    for (var index = 0; index < 4; index++) {
-      final nodeProgress = (progress * 5 - index).clamp(0.0, 1.0);
-      final angle = -math.pi / 2 + math.pi * 2 * index / 4;
-      final point =
-          center + Offset(math.cos(angle) * radius, math.sin(angle) * radius);
-      canvas.drawCircle(
-        point,
-        size.shortestSide * 0.075 * nodeProgress,
-        Paint()..color = index.isEven ? secondary : primary,
-      );
-      canvas.drawCircle(
-        point,
-        size.shortestSide * 0.032 * nodeProgress,
-        Paint()..color = Colors.white,
-      );
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _StudioLoopPainter oldDelegate) =>
-      oldDelegate.primary != primary ||
-      oldDelegate.secondary != secondary ||
-      oldDelegate.progress != progress;
 }
 
 class _ProgressArcPainter extends CustomPainter {

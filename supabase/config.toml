@@ -68,6 +68,67 @@ max_frequency = "1s"
 otp_length = 6
 otp_expiry = 3600
 
+# Version-controlled local mirrors of the branded templates configured in the
+# hosted Supabase project. Keep subjects and bodies in sync with Auth > Emails.
+[auth.email.template.confirmation]
+subject = "Confirm your Workloop email"
+content_path = "./supabase/templates/confirmation.html"
+
+[auth.email.template.invite]
+subject = "You’re invited to Workloop"
+content_path = "./supabase/templates/invite.html"
+
+[auth.email.template.magic_link]
+subject = "Your secure Workloop sign-in link"
+content_path = "./supabase/templates/magic_link.html"
+
+[auth.email.template.email_change]
+subject = "Confirm your new Workloop email"
+content_path = "./supabase/templates/email_change.html"
+
+[auth.email.template.recovery]
+subject = "Reset your Workloop password"
+content_path = "./supabase/templates/recovery.html"
+
+[auth.email.template.reauthentication]
+subject = "{{ .Token }} is your Workloop security code"
+content_path = "./supabase/templates/reauthentication.html"
+
+[auth.email.notification.password_changed]
+enabled = true
+subject = "Your Workloop password was changed"
+content_path = "./templates/password_changed.html"
+
+[auth.email.notification.email_changed]
+enabled = true
+subject = "Your Workloop email address was changed"
+content_path = "./templates/email_changed.html"
+
+[auth.email.notification.phone_changed]
+enabled = true
+subject = "Your Workloop phone number was changed"
+content_path = "./templates/phone_changed.html"
+
+[auth.email.notification.identity_linked]
+enabled = true
+subject = "A sign-in method was added to Workloop"
+content_path = "./templates/identity_linked.html"
+
+[auth.email.notification.identity_unlinked]
+enabled = true
+subject = "A sign-in method was removed from Workloop"
+content_path = "./templates/identity_unlinked.html"
+
+[auth.email.notification.mfa_factor_enrolled]
+enabled = true
+subject = "A verification method was added to Workloop"
+content_path = "./templates/mfa_enrolled.html"
+
+[auth.email.notification.mfa_factor_unenrolled]
+enabled = true
+subject = "A verification method was removed from Workloop"
+content_path = "./templates/mfa_unenrolled.html"
+
 [auth.mfa]
 max_enrolled_factors = 3
 
@@ -78,8 +139,55 @@ verify_enabled = true
 [analytics]
 enabled = false
 
+# Flutter public-profile callers use the configured project key through the
+# Supabase client. Keep these explicit so deployment cannot silently change the
+# live gateway contract when other public functions disable JWT verification.
+[functions.get-public-profile]
+verify_jwt = true
+
+[functions.create-booking-request]
+verify_jwt = true
+
 # This worker uses its own constant-time, 32+ character Edge secret so an
 # external scheduler does not need a user or service-role JWT. Deploy it with
 # `--no-verify-jwt`; other authenticated functions keep gateway JWT checks.
 [functions.drain-booking-confirmation-emails]
+verify_jwt = false
+
+# Resend signs every provider callback with a per-endpoint Svix secret. The
+# function verifies that signature before writing service-only aggregates.
+[functions.resend-webhook]
+verify_jwt = false
+
+# Public subscription/confirmation links; drain requires the existing server token.
+[functions.learning-series]
+verify_jwt = false
+
+# The scheduled Apple collector validates a private, Vault-backed request token
+# before contacting App Store Connect. It never exposes tester identity.
+[functions.collect-apple-reporting]
+verify_jwt = false
+
+# Public customers do not have a Workloop session. The function validates a
+# published profile/service, rate limits by a one-way source hash, and calls a
+# service-role-only RPC that returns no private diary data.
+[functions.get-public-booking-availability]
+verify_jwt = false
+
+# Stripe webhooks authenticate the raw payload signature, not a user JWT.
+# Keep this explicit so a deploy cannot turn provider receipts into 401s.
+[functions.stripe-webhook]
+verify_jwt = false
+
+[functions.stripe-payments]
+verify_jwt = true
+
+# Provider callbacks validate the Twilio SDK signature against the configured
+# public webhook URL. The capabilities action validates the signed-in Auth user.
+[functions.sms-booking-reminders]
+verify_jwt = false
+
+# Apple callbacks verify their signed certificate chain and payload. The app
+# purchase path separately requires a verified user, active session and MFA.
+[functions.workloop-subscription]
 verify_jwt = false

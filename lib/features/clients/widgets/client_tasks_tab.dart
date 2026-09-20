@@ -4,12 +4,14 @@ import 'package:go_router/go_router.dart';
 import 'package:lucide_flutter/lucide_flutter.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../shared/models/slate_models.dart';
+import '../../../shared/notifications/notification_route.dart';
 import '../../../shared/providers/clients_provider.dart';
 import '../../../shared/providers/notifications_provider.dart';
 import '../../../shared/providers/tasks_provider.dart';
 import '../../../shared/providers/workspace_provider.dart';
 import '../../../shared/repositories/slate_repositories.dart';
 import '../../../shared/widgets/slate_ui.dart';
+import '../../../shared/widgets/workloop_form_field.dart';
 import '../providers/client_detail_providers.dart';
 
 class ClientTasksTab extends ConsumerStatefulWidget {
@@ -34,318 +36,306 @@ class _ClientTasksTabState extends ConsumerState<ClientTasksTab> {
     var saving = false;
     String? error;
 
-    showModalBottomSheet(
+    showWorkloopBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: AppColors.bgCard,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setModal) => PopScope(
           canPop: !saving,
-          child: Padding(
-            padding: EdgeInsets.fromLTRB(
-              24,
-              20,
-              24,
-              MediaQuery.of(ctx).viewInsets.bottom + 24,
+          child: AnimatedPadding(
+            duration: AppMotion.responsive(context, AppMotion.fast),
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.viewInsetsOf(ctx).bottom,
             ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _handle(),
-                const SizedBox(height: 20),
-                const Text(
-                  'New Task',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.t1,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Row(
-                  children: [
-                    const Icon(
-                      LucideIcons.user,
-                      size: 12,
-                      color: AppColors.green,
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      'Linked to ${widget.clientName}',
-                      style: const TextStyle(
-                        fontSize: 13,
-                        color: AppColors.green,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: titleController,
-                  autofocus: true,
-                  style: const TextStyle(color: AppColors.t1),
-                  decoration: InputDecoration(
-                    hintText: 'Task title',
-                    hintStyle: const TextStyle(color: AppColors.t3),
-                    filled: true,
-                    fillColor: AppColors.bgInteract,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide.none,
-                    ),
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 14,
+            child: SlateSheetFrame(
+              scrollable: true,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'New Task',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.of(ctx).t1,
                     ),
                   ),
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    _PriorityChip(
-                      value: 'high',
-                      label: 'High',
-                      color: AppColors.error,
-                      selected: priority,
-                      onTap: (v) => setModal(() => priority = v),
-                    ),
-                    const SizedBox(width: 8),
-                    _PriorityChip(
-                      value: 'medium',
-                      label: 'Medium',
-                      color: AppColors.warning,
-                      selected: priority,
-                      onTap: (v) => setModal(() => priority = v),
-                    ),
-                    const SizedBox(width: 8),
-                    _PriorityChip(
-                      value: 'low',
-                      label: 'Low',
-                      color: AppColors.t3,
-                      selected: priority,
-                      onTap: (v) => setModal(() => priority = v),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Semantics(
-                  button: true,
-                  label: 'Task due date',
-                  value: dueDate == null ? 'Not set' : _formatDate(dueDate!),
-                  onTap: () async {
-                    final picked = await showWorkloopDatePicker(
-                      context: context,
-                      initialDate: DateTime.now(),
-                      firstDate: DateTime.now(),
-                      lastDate: DateTime.now().add(const Duration(days: 365)),
-                      builder: (context, child) => Theme(
-                        data: Theme.of(context).copyWith(
-                          colorScheme: ColorScheme.dark(
-                            primary: AppColors.green,
-                            surface: AppColors.bgCard,
-                            onSurface: AppColors.t1,
-                          ),
-                        ),
-                        child: child!,
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      Icon(
+                        LucideIcons.user,
+                        size: 12,
+                        color: AppColors.of(ctx).green,
                       ),
-                    );
-                    if (picked != null) setModal(() => dueDate = picked);
-                  },
-                  child: ExcludeSemantics(
-                    child: GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onTap: () async {
-                        final picked = await showWorkloopDatePicker(
-                          context: context,
-                          initialDate: DateTime.now(),
-                          firstDate: DateTime.now(),
-                          lastDate: DateTime.now().add(
-                            const Duration(days: 365),
-                          ),
-                          builder: (context, child) => Theme(
-                            data: Theme.of(context).copyWith(
-                              colorScheme: ColorScheme.dark(
-                                primary: AppColors.green,
-                                surface: AppColors.bgCard,
-                                onSurface: AppColors.t1,
-                              ),
-                            ),
-                            child: child!,
-                          ),
-                        );
-                        if (picked != null) setModal(() => dueDate = picked);
-                      },
-                      child: Container(
-                        constraints: const BoxConstraints(
-                          minHeight: AppSpacing.minTouch,
-                        ),
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        decoration: BoxDecoration(
-                          color: AppColors.bgInteract,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(
-                              LucideIcons.calendar,
-                              color: dueDate != null
-                                  ? AppColors.green
-                                  : AppColors.t3,
-                              size: 16,
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Text(
-                                dueDate == null
-                                    ? 'Set due date (optional)'
-                                    : _formatDate(dueDate!),
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  color: dueDate != null
-                                      ? AppColors.t1
-                                      : AppColors.t3,
-                                  fontSize: 14,
-                                ),
-                              ),
-                            ),
-                          ],
+                      const SizedBox(width: 6),
+                      Text(
+                        'Linked to ${widget.clientName}',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: AppColors.of(ctx).green,
+                          fontWeight: FontWeight.w500,
                         ),
                       ),
-                    ),
+                    ],
                   ),
-                ),
-                const SizedBox(height: 20),
-                if (error != null) ...[
-                  Semantics(
-                    liveRegion: true,
-                    child: Text(
-                      error!,
-                      style: const TextStyle(
-                        color: AppColors.error,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500,
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: titleController,
+                    autofocus: true,
+                    style: TextStyle(color: AppColors.of(ctx).t1),
+                    decoration: InputDecoration(
+                      label: const WorkloopFieldLabel(
+                        'Task title',
+                        isRequired: true,
+                      ),
+                      floatingLabelBehavior: FloatingLabelBehavior.always,
+                      hintText: 'Task title',
+                      hintStyle: TextStyle(color: AppColors.of(ctx).t3),
+                      filled: true,
+                      fillColor: AppColors.of(ctx).bgInteract,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide.none,
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 14,
                       ),
                     ),
                   ),
                   const SizedBox(height: 12),
-                ],
-                SizedBox(
-                  width: double.infinity,
-                  height: 50,
-                  child: ElevatedButton(
-                    onPressed: saving
-                        ? null
-                        : () async {
-                            final title = titleController.text.trim();
-                            if (title.isEmpty) {
-                              setModal(
-                                () => error = 'Add a task title to continue.',
-                              );
-                              return;
-                            }
-                            setModal(() {
-                              saving = true;
-                              error = null;
-                            });
-                            try {
-                              final workspaceId = await ref.read(
-                                workspaceIdProvider.future,
-                              );
-                              if (workspaceId == null) {
-                                if (ctx.mounted) {
-                                  setModal(() {
-                                    saving = false;
-                                    error =
-                                        'Your workspace is not ready yet. Please try again.';
-                                  });
-                                }
-                                return;
-                              }
-
-                              await ref
-                                  .read(tasksRepositoryProvider)
-                                  .create(
-                                    workspaceId: workspaceId,
-                                    title: title,
-                                    priority: priority,
-                                    contactId: widget.clientId,
-                                    dueDate: dueDate,
-                                  );
-
-                              var notificationFailed = false;
-                              if (dueDate != null &&
-                                  _isDueWithinTwoDays(dueDate!)) {
-                                try {
-                                  await ref
-                                      .read(notificationsRepositoryProvider)
-                                      .create(
-                                        workspaceId: workspaceId,
-                                        type: 'task_due',
-                                        title: 'Client task due soon',
-                                        body: '${widget.clientName}: $title',
-                                        deepLink: '/tasks',
-                                      );
-                                } catch (_) {
-                                  notificationFailed = true;
-                                }
-                              }
-
-                              ref.invalidate(
-                                clientTasksProvider(widget.clientId),
-                              );
-                              ref.invalidate(allTasksProvider);
-                              ref.invalidate(tasksProvider);
-                              ref.invalidate(clientCrmRecordsProvider);
-                              ref.invalidate(notificationsProvider);
-                              ref.invalidate(unreadNotificationsProvider);
-                              if (ctx.mounted) Navigator.pop(ctx);
-                              if (notificationFailed && mounted) {
-                                _snack(
-                                  'Task added, but its in-app notification could not be created.',
-                                  AppColors.warning,
+                  const WorkloopFieldLabel('Priority', isRequired: false),
+                  const SizedBox(height: AppSpacing.xs),
+                  Row(
+                    children: [
+                      _PriorityChip(
+                        value: 'high',
+                        label: 'High',
+                        color: AppColors.of(ctx).error,
+                        selected: priority,
+                        onTap: (v) => setModal(() => priority = v),
+                      ),
+                      const SizedBox(width: 8),
+                      _PriorityChip(
+                        value: 'medium',
+                        label: 'Medium',
+                        color: AppColors.of(ctx).warning,
+                        selected: priority,
+                        onTap: (v) => setModal(() => priority = v),
+                      ),
+                      const SizedBox(width: 8),
+                      _PriorityChip(
+                        value: 'low',
+                        label: 'Low',
+                        color: AppColors.of(ctx).t3,
+                        selected: priority,
+                        onTap: (v) => setModal(() => priority = v),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  const WorkloopFieldLabel('Due date', isRequired: false),
+                  const SizedBox(height: AppSpacing.xs),
+                  Semantics(
+                    button: true,
+                    label: 'Task due date',
+                    value: dueDate == null ? 'Not set' : _formatDate(dueDate!),
+                    onTap: () async {
+                      final picked = await showWorkloopDatePicker(
+                        context: context,
+                        initialDate: DateTime.now(),
+                        firstDate: DateTime.now(),
+                        lastDate: DateTime.now().add(const Duration(days: 365)),
+                      );
+                      if (picked != null) setModal(() => dueDate = picked);
+                    },
+                    child: ExcludeSemantics(
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: () async {
+                          final picked = await showWorkloopDatePicker(
+                            context: context,
+                            initialDate: DateTime.now(),
+                            firstDate: DateTime.now(),
+                            lastDate: DateTime.now().add(
+                              const Duration(days: 365),
+                            ),
+                          );
+                          if (picked != null) setModal(() => dueDate = picked);
+                        },
+                        child: Container(
+                          constraints: const BoxConstraints(
+                            minHeight: AppSpacing.minTouch,
+                          ),
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          decoration: BoxDecoration(
+                            color: AppColors.of(ctx).bgInteract,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                LucideIcons.calendar,
+                                color: dueDate != null
+                                    ? AppColors.of(ctx).green
+                                    : AppColors.of(ctx).t3,
+                                size: 16,
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  dueDate == null
+                                      ? 'Set due date (optional)'
+                                      : _formatDate(dueDate!),
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: dueDate != null
+                                        ? AppColors.of(ctx).t1
+                                        : AppColors.of(ctx).t3,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  if (error != null) ...[
+                    Semantics(
+                      liveRegion: true,
+                      child: Text(
+                        error!,
+                        style: TextStyle(
+                          color: AppColors.of(ctx).error,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                  SizedBox(
+                    width: double.infinity,
+                    height: 50,
+                    child: ElevatedButton(
+                      onPressed: saving
+                          ? null
+                          : () async {
+                              final title = titleController.text.trim();
+                              if (title.isEmpty) {
+                                setModal(
+                                  () => error = 'Add a task title to continue.',
                                 );
-                              }
-                            } catch (_) {
-                              if (!ctx.mounted) {
-                                if (mounted) {
-                                  _snack(
-                                    'Couldn’t add this task. Nothing was saved. Please try again.',
-                                    AppColors.error,
-                                  );
-                                }
                                 return;
                               }
                               setModal(() {
-                                saving = false;
-                                error =
-                                    'Couldn’t add this task. Nothing was saved. Please try again.';
+                                saving = true;
+                                error = null;
                               });
-                            }
-                          },
-                    child: saving
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(
-                              color: AppColors.onBrandAccent,
-                              strokeWidth: 2,
+                              try {
+                                final workspaceId = await ref.read(
+                                  workspaceIdProvider.future,
+                                );
+                                if (workspaceId == null) {
+                                  if (ctx.mounted) {
+                                    setModal(() {
+                                      saving = false;
+                                      error =
+                                          'Your workspace is not ready yet. Please try again.';
+                                    });
+                                  }
+                                  return;
+                                }
+
+                                final taskId = await ref
+                                    .read(tasksRepositoryProvider)
+                                    .create(
+                                      workspaceId: workspaceId,
+                                      title: title,
+                                      priority: priority,
+                                      contactId: widget.clientId,
+                                      dueDate: dueDate,
+                                    );
+
+                                var notificationFailed = false;
+                                if (dueDate != null &&
+                                    _isDueWithinTwoDays(dueDate!)) {
+                                  try {
+                                    await ref
+                                        .read(notificationsRepositoryProvider)
+                                        .create(
+                                          workspaceId: workspaceId,
+                                          type: 'task_due',
+                                          title: 'Client task due soon',
+                                          body: '${widget.clientName}: $title',
+                                          deepLink:
+                                              workloopNotificationEntityRoute(
+                                                WorkloopNotificationEntity.task,
+                                                taskId,
+                                              ),
+                                        );
+                                  } catch (_) {
+                                    notificationFailed = true;
+                                  }
+                                }
+
+                                ref.invalidate(
+                                  clientTasksProvider(widget.clientId),
+                                );
+                                ref.invalidate(allTasksProvider);
+                                ref.invalidate(tasksProvider);
+                                ref.invalidate(clientCrmRecordsProvider);
+                                ref.invalidate(notificationsProvider);
+                                ref.invalidate(unreadNotificationsProvider);
+                                if (ctx.mounted) Navigator.pop(ctx);
+                                if (notificationFailed && mounted) {
+                                  _snack(
+                                    'Task added, but its in-app notification could not be created.',
+                                    AppColors.of(context).warning,
+                                  );
+                                }
+                              } catch (_) {
+                                if (!ctx.mounted) {
+                                  if (mounted) {
+                                    _snack(
+                                      'Couldn’t add this task. Nothing was saved. Please try again.',
+                                      AppColors.of(context).error,
+                                    );
+                                  }
+                                  return;
+                                }
+                                setModal(() {
+                                  saving = false;
+                                  error =
+                                      'Couldn’t add this task. Nothing was saved. Please try again.';
+                                });
+                              }
+                            },
+                      child: saving
+                          ? SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                color: AppColors.of(ctx).onBrandAccent,
+                                strokeWidth: 2,
+                              ),
+                            )
+                          : const Text(
+                              'Add Task',
+                              style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
-                          )
-                        : const Text(
-                            'Add Task',
-                            style: TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
@@ -357,106 +347,94 @@ class _ClientTasksTabState extends ConsumerState<ClientTasksTab> {
     var deleting = false;
     String? deleteError;
 
-    await showModalBottomSheet<void>(
+    await showWorkloopBottomSheet<void>(
       context: context,
       isDismissible: false,
       enableDrag: false,
-      backgroundColor: AppColors.bgCard,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setModal) => PopScope(
           canPop: !deleting,
-          child: SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(
-                AppSpacing.pageX,
-                AppSpacing.sm,
-                AppSpacing.pageX,
-                AppSpacing.xl,
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _handle(),
-                  const SizedBox(height: 24),
-                  const Text(
-                    'Delete task?',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.t1,
-                    ),
+          child: SlateSheetFrame(
+            scrollable: true,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Delete task?',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.of(ctx).t1,
                   ),
-                  const SizedBox(height: 8),
-                  Text(
-                    task.title,
-                    style: const TextStyle(fontSize: 14, color: AppColors.t3),
-                    textAlign: TextAlign.center,
-                  ),
-                  if (deleteError != null) ...[
-                    const SizedBox(height: 16),
-                    Semantics(
-                      liveRegion: true,
-                      child: Text(
-                        deleteError!,
-                        style: const TextStyle(
-                          color: AppColors.error,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w500,
-                        ),
-                        textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  task.title,
+                  style: TextStyle(fontSize: 14, color: AppColors.of(ctx).t3),
+                  textAlign: TextAlign.center,
+                ),
+                if (deleteError != null) ...[
+                  const SizedBox(height: 16),
+                  Semantics(
+                    liveRegion: true,
+                    child: Text(
+                      deleteError!,
+                      style: TextStyle(
+                        color: AppColors.of(ctx).error,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
                       ),
-                    ),
-                  ],
-                  const SizedBox(height: 24),
-                  _actionBtn(
-                    label: 'Delete Task',
-                    color: AppColors.error,
-                    loading: deleting,
-                    onTap: () async {
-                      if (deleting) return;
-                      setModal(() {
-                        deleting = true;
-                        deleteError = null;
-                      });
-                      try {
-                        await ref.read(tasksRepositoryProvider).delete(task.id);
-                      } catch (_) {
-                        if (!ctx.mounted) return;
-                        setModal(() {
-                          deleting = false;
-                          deleteError =
-                              'Couldn’t delete this task. Nothing was removed. Please try again.';
-                        });
-                        return;
-                      }
-                      ref.invalidate(clientTasksProvider(widget.clientId));
-                      ref.invalidate(allTasksProvider);
-                      ref.invalidate(tasksProvider);
-                      ref.invalidate(clientCrmRecordsProvider);
-                      if (ctx.mounted) Navigator.pop(ctx);
-                    },
-                  ),
-                  const SizedBox(height: 10),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 52,
-                    child: TextButton(
-                      onPressed: deleting ? null : () => Navigator.pop(ctx),
-                      child: const Text(
-                        'Cancel',
-                        style: TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w500,
-                          color: AppColors.t3,
-                        ),
-                      ),
+                      textAlign: TextAlign.center,
                     ),
                   ),
                 ],
-              ),
+                const SizedBox(height: 24),
+                _actionBtn(
+                  ctx,
+                  label: 'Delete Task',
+                  color: AppColors.of(ctx).error,
+                  loading: deleting,
+                  onTap: () async {
+                    if (deleting) return;
+                    setModal(() {
+                      deleting = true;
+                      deleteError = null;
+                    });
+                    try {
+                      await ref.read(tasksRepositoryProvider).delete(task.id);
+                    } catch (_) {
+                      if (!ctx.mounted) return;
+                      setModal(() {
+                        deleting = false;
+                        deleteError =
+                            'Couldn’t delete this task. Nothing was removed. Please try again.';
+                      });
+                      return;
+                    }
+                    ref.invalidate(clientTasksProvider(widget.clientId));
+                    ref.invalidate(allTasksProvider);
+                    ref.invalidate(tasksProvider);
+                    ref.invalidate(clientCrmRecordsProvider);
+                    if (ctx.mounted) Navigator.pop(ctx);
+                  },
+                ),
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  height: 52,
+                  child: TextButton(
+                    onPressed: deleting ? null : () => Navigator.pop(ctx),
+                    child: Text(
+                      'Cancel',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w500,
+                        color: AppColors.of(ctx).t3,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ),
@@ -468,14 +446,13 @@ class _ClientTasksTabState extends ConsumerState<ClientTasksTab> {
     final isDone = task.status == 'done';
     var mutating = false;
     String? actionError;
-    showModalBottomSheet(
+    showWorkloopBottomSheet(
       context: context,
-      backgroundColor: Colors.transparent,
-      barrierColor: Colors.black.withValues(alpha: 0.45),
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setModal) => PopScope(
           canPop: !mutating,
           child: SlateSheetFrame(
+            scrollable: true,
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -485,7 +462,7 @@ class _ClientTasksTabState extends ConsumerState<ClientTasksTab> {
                   style: TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.w600,
-                    color: isDone ? AppColors.t3 : AppColors.t1,
+                    color: isDone ? AppColors.of(ctx).t3 : AppColors.of(ctx).t1,
                     decoration: isDone ? TextDecoration.lineThrough : null,
                   ),
                 ),
@@ -494,7 +471,7 @@ class _ClientTasksTabState extends ConsumerState<ClientTasksTab> {
                   task.dueDate == null
                       ? 'No due date'
                       : _formatDue(task.dueDate!),
-                  style: const TextStyle(fontSize: 13, color: AppColors.t3),
+                  style: TextStyle(fontSize: 13, color: AppColors.of(ctx).t3),
                 ),
                 if (actionError != null) ...[
                   const SizedBox(height: 12),
@@ -502,8 +479,8 @@ class _ClientTasksTabState extends ConsumerState<ClientTasksTab> {
                     liveRegion: true,
                     child: Text(
                       actionError!,
-                      style: const TextStyle(
-                        color: AppColors.error,
+                      style: TextStyle(
+                        color: AppColors.of(ctx).error,
                         fontSize: 13,
                         fontWeight: FontWeight.w500,
                       ),
@@ -576,14 +553,14 @@ class _ClientTasksTabState extends ConsumerState<ClientTasksTab> {
     final tasks = ref.watch(clientTasksProvider(widget.clientId));
 
     return tasks.when(
-      loading: () => const Center(
-        child: CircularProgressIndicator(color: AppColors.green),
+      loading: () => Center(
+        child: CircularProgressIndicator(color: AppColors.of(context).green),
       ),
       error: (_, _) => Padding(
         padding: const EdgeInsets.all(AppSpacing.lg),
         child: SlateErrorState(
           message: 'Tasks could not be loaded.',
-          onRetry: () => ref.invalidate(clientTasksProvider(widget.clientId)),
+          onRetry: () => refreshClientTasks(ref, widget.clientId),
         ),
       ),
       data: (tks) => Column(
@@ -598,9 +575,8 @@ class _ClientTasksTabState extends ConsumerState<ClientTasksTab> {
           else
             Expanded(
               child: RefreshIndicator(
-                onRefresh: () async =>
-                    ref.invalidate(clientTasksProvider(widget.clientId)),
-                color: AppColors.green,
+                onRefresh: () => refreshClientTasks(ref, widget.clientId),
+                color: AppColors.of(context).green,
                 child: ListView.separated(
                   padding: const EdgeInsets.fromLTRB(
                     AppSpacing.pageX,
@@ -628,19 +604,19 @@ class _ClientTasksTabState extends ConsumerState<ClientTasksTab> {
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
                           color: isDone
-                              ? AppColors.success
+                              ? AppColors.of(context).success
                               : Colors.transparent,
                           border: Border.all(
                             color: isDone
-                                ? AppColors.success
-                                : AppColors.border,
+                                ? AppColors.of(context).success
+                                : AppColors.of(context).border,
                             width: 2,
                           ),
                         ),
                         child: isDone
-                            ? const Icon(
+                            ? Icon(
                                 Icons.check_rounded,
-                                color: AppColors.bg,
+                                color: AppColors.of(context).bg,
                                 size: 13,
                               )
                             : null,
@@ -652,31 +628,33 @@ class _ClientTasksTabState extends ConsumerState<ClientTasksTab> {
                         style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w600,
-                          color: isDone ? AppColors.t3 : AppColors.t1,
+                          color: isDone
+                              ? AppColors.of(context).t3
+                              : AppColors.of(context).t1,
                           decoration: isDone
                               ? TextDecoration.lineThrough
                               : null,
                         ),
                       ),
                       subtitle: dueDate == null
-                          ? const Text(
+                          ? Text(
                               'No due date',
                               style: TextStyle(
                                 fontSize: 12,
-                                color: AppColors.t3,
+                                color: AppColors.of(context).t3,
                               ),
                             )
                           : Text(
                               _formatDue(dueDate),
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontSize: 12,
-                                color: AppColors.t3,
+                                color: AppColors.of(context).t3,
                               ),
                             ),
                       trailing: Text(
                         isDone ? 'Done' : 'Open',
-                        style: const TextStyle(
-                          color: AppColors.t3,
+                        style: TextStyle(
+                          color: AppColors.of(context).t3,
                           fontSize: 11,
                           fontWeight: FontWeight.w600,
                         ),
@@ -778,8 +756,8 @@ class _TasksToolbar extends StatelessWidget {
         children: [
           Text(
             '$openCount open',
-            style: const TextStyle(
-              color: AppColors.t2,
+            style: TextStyle(
+              color: AppColors.of(context).t2,
               fontSize: 13,
               fontWeight: FontWeight.w600,
             ),
@@ -828,7 +806,7 @@ class _PriorityChip extends StatelessWidget {
             decoration: BoxDecoration(
               color: active
                   ? color.withValues(alpha: 0.15)
-                  : AppColors.bgInteract,
+                  : AppColors.of(context).bgInteract,
               borderRadius: BorderRadius.circular(AppRadius.md),
               border: Border.all(color: active ? color : Colors.transparent),
             ),
@@ -837,7 +815,7 @@ class _PriorityChip extends StatelessWidget {
               style: TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w500,
-                color: active ? color : AppColors.t2,
+                color: active ? color : AppColors.of(context).t2,
               ),
             ),
           ),
@@ -868,48 +846,43 @@ class _EmptyState extends StatelessWidget {
   }
 }
 
-// ── Shared sheet helpers ──────────────────────────────────────────────────────
-Widget _handle() => Center(
-  child: Container(
-    width: 40,
-    height: 4,
-    decoration: BoxDecoration(
-      color: AppColors.border,
-      borderRadius: BorderRadius.circular(2),
-    ),
-  ),
-);
-
-Widget _actionBtn({
+Widget _actionBtn(
+  BuildContext context, {
   required String label,
   required VoidCallback? onTap,
   bool loading = false,
-  Color color = AppColors.brandAccent,
-}) => SizedBox(
-  width: double.infinity,
-  height: 52,
-  child: ElevatedButton(
-    onPressed: loading ? null : onTap,
-    style: ElevatedButton.styleFrom(
-      backgroundColor: color,
-      foregroundColor: color == AppColors.error
-          ? AppColors.bg
-          : AppColors.onBrandAccent,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-      elevation: 0,
-    ),
-    child: loading
-        ? const SizedBox(
-            width: 18,
-            height: 18,
-            child: CircularProgressIndicator(
-              color: AppColors.bg,
-              strokeWidth: 2,
+  Color? color,
+}) {
+  final colors = AppColors.of(context);
+  final resolvedColor = color ?? colors.brandAccent;
+  return SizedBox(
+    width: double.infinity,
+    height: 52,
+    child: ElevatedButton(
+      onPressed: loading ? null : onTap,
+      style: ElevatedButton.styleFrom(
+        backgroundColor: resolvedColor,
+        foregroundColor: resolvedColor == colors.error
+            ? colors.bg
+            : colors.onBrandAccent,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadius.md),
+        ),
+        elevation: 0,
+      ),
+      child: loading
+          ? SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(
+                color: colors.bg,
+                strokeWidth: 2,
+              ),
+            )
+          : Text(
+              label,
+              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
             ),
-          )
-        : Text(
-            label,
-            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
-          ),
-  ),
-);
+    ),
+  );
+}

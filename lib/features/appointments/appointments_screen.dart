@@ -5,7 +5,9 @@ import '../../core/theme/app_theme.dart';
 import '../../shared/models/slate_models.dart';
 import '../../shared/providers/appointments_provider.dart';
 import '../../shared/utils/currency_format.dart';
+import '../../shared/providers/workspace_provider.dart';
 import '../../shared/widgets/slate_ui.dart';
+import '../../shared/widgets/record_link_unavailable.dart';
 import '../public_profile/booking_requests_screen.dart';
 import '../work/work_workspace_switcher.dart';
 import 'add_appointment_screen.dart';
@@ -51,7 +53,9 @@ class AppointmentsScreen extends ConsumerStatefulWidget {
   final VoidCallback? onOpenTasks;
   final VoidCallback? onOpenNotes;
   final bool embedded;
+  final bool showBackButton;
   final int createRequest;
+  final String? initialAppointmentId;
 
   const AppointmentsScreen({
     super.key,
@@ -60,7 +64,9 @@ class AppointmentsScreen extends ConsumerStatefulWidget {
     this.onOpenTasks,
     this.onOpenNotes,
     this.embedded = false,
+    this.showBackButton = false,
     this.createRequest = 0,
+    this.initialAppointmentId,
   });
 
   @override
@@ -74,6 +80,8 @@ class _AppointmentsScreenState extends ConsumerState<AppointmentsScreen>
   late DateTime _calendarToday;
   bool _calendarMode = false;
   int _selectedListTab = 0;
+  String? _initialWorkspaceId;
+  Map<String, dynamic>? _initialAppointment;
 
   @override
   void initState() {
@@ -94,6 +102,10 @@ class _AppointmentsScreenState extends ConsumerState<AppointmentsScreen>
   @override
   void didUpdateWidget(covariant AppointmentsScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (widget.initialAppointmentId != oldWidget.initialAppointmentId) {
+      _initialWorkspaceId = null;
+      _initialAppointment = null;
+    }
     if (widget.createRequest == 0 ||
         widget.createRequest == oldWidget.createRequest) {
       return;
@@ -119,10 +131,112 @@ class _AppointmentsScreenState extends ConsumerState<AppointmentsScreen>
     await Navigator.push(
       context,
       MaterialPageRoute(
+        settings: RouteSettings(name: '/bookings/${appt['id']}'),
         builder: (_) => AppointmentDetailScreen(appointment: appt),
       ),
     );
+    if (!mounted) return;
     ref.invalidate(appointmentsProvider);
+  }
+
+  Widget _initialAppointmentView(
+    String id,
+    AsyncValue<List<Map<String, dynamic>>> appointments,
+  ) {
+    final workspace = ref.watch(workspaceIdProvider);
+    final workspaceId = workspace.value;
+    if (workspace.isLoading || workspace.hasError || workspaceId == null) {
+      _initialWorkspaceId = null;
+      _initialAppointment = null;
+      return _bookingLinkStatus(
+        hasError: workspace.hasError,
+        unavailable: !workspace.isLoading && !workspace.hasError,
+        onRetry: () => ref.invalidate(workspaceIdProvider),
+      );
+    }
+    if (_initialWorkspaceId != workspaceId) {
+      _initialWorkspaceId = workspaceId;
+      _initialAppointment = null;
+    }
+    // Resolve on this route, never by pushing a detail after rendering Today.
+    // Once open, the existing detail screen owns refreshes and editing drafts.
+    if (_initialAppointment == null &&
+        !appointments.isLoading &&
+        !appointments.hasError &&
+        appointments.hasValue) {
+      for (final record in appointments.value!) {
+        if (record['id']?.toString() == id &&
+            record['workspace_id']?.toString() == workspaceId) {
+          _initialAppointment = Map<String, dynamic>.from(record);
+          break;
+        }
+      }
+      if (_initialAppointment == null) {
+        return WorkloopRecordLinkUnavailable(
+          recordName: 'Booking',
+          onRetry: () => ref.invalidate(appointmentsProvider),
+        );
+      }
+    }
+    if (_initialAppointment != null) {
+      return AppointmentDetailScreen(
+        key: ValueKey('$workspaceId:$id'),
+        appointment: _initialAppointment!,
+      );
+    }
+    return _bookingLinkStatus(
+      hasError: appointments.hasError,
+      onRetry: () => ref.invalidate(appointmentsProvider),
+    );
+  }
+
+  Widget _bookingLinkStatus({
+    required bool hasError,
+    bool unavailable = false,
+    required VoidCallback onRetry,
+  }) {
+    if (unavailable) {
+      return WorkloopRecordLinkUnavailable(
+        recordName: 'Booking',
+        onRetry: onRetry,
+      );
+    }
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      body: Stack(
+        children: [
+          const Positioned.fill(child: WorkloopTexturedBackdrop()),
+          SafeArea(
+            child: Column(
+              children: [
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(
+                    AppSpacing.pageX,
+                    AppSpacing.screenTop,
+                    AppSpacing.pageX,
+                    AppSpacing.sm,
+                  ),
+                  child: WorkloopRouteHeader(title: 'Booking'),
+                ),
+                Expanded(
+                  child: Center(
+                    child: hasError
+                        ? SingleChildScrollView(
+                            child: SlateErrorState(
+                              message:
+                                  'Could not load this booking. Check your connection.',
+                              onRetry: onRetry,
+                            ),
+                          )
+                        : const CircularProgressIndicator(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _addAppointment({DateTime? date}) async {
@@ -132,6 +246,7 @@ class _AppointmentsScreenState extends ConsumerState<AppointmentsScreen>
         builder: (_) => AddAppointmentScreen(initialDate: date),
       ),
     );
+    if (!mounted) return;
     ref.invalidate(appointmentsProvider);
   }
 
@@ -140,12 +255,26 @@ class _AppointmentsScreenState extends ConsumerState<AppointmentsScreen>
       context,
       MaterialPageRoute(builder: (_) => const BookingRequestsScreen()),
     );
+    if (!mounted) return;
     ref.invalidate(bookingRequestsProvider);
+  }
+
+  Future<void> _refreshAppointments() async {
+    ref.invalidate(appointmentsProvider);
+    try {
+      await ref.read(appointmentsProvider.future);
+    } catch (_) {
+      // The provider's visible error state offers retry.
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final appointments = ref.watch(appointmentsProvider);
+    final initialId = widget.initialAppointmentId?.trim();
+    if (initialId != null && initialId.isNotEmpty) {
+      return _initialAppointmentView(initialId, appointments);
+    }
     final bookingRequests = ref.watch(bookingRequestsProvider);
     final activeRequestCount = bookingRequests.maybeWhen(
       data: (items) => _activeRequests(items).length,
@@ -170,11 +299,12 @@ class _AppointmentsScreenState extends ConsumerState<AppointmentsScreen>
                     onRequests: _openRequests,
                     requestCount: activeRequestCount,
                     workMode: widget.onOpenTasks != null,
+                    showBackButton: widget.showBackButton,
                   ),
                 ),
                 if (widget.onOpenTasks != null &&
                     widget.onOpenNotes != null) ...[
-                  const SizedBox(height: AppSpacing.lg),
+                  const SizedBox(height: AppSpacing.sm),
                   Padding(
                     padding: const EdgeInsets.symmetric(
                       horizontal: AppSpacing.pageX,
@@ -194,7 +324,7 @@ class _AppointmentsScreenState extends ConsumerState<AppointmentsScreen>
                     ),
                   ),
                 ],
-                const SizedBox(height: AppSpacing.lg),
+                const SizedBox(height: AppSpacing.xs),
               ],
               Padding(
                 padding: const EdgeInsets.symmetric(
@@ -216,7 +346,7 @@ class _AppointmentsScreenState extends ConsumerState<AppointmentsScreen>
                   },
                 ),
               ),
-              const SizedBox(height: AppSpacing.sm),
+              const SizedBox(height: AppSpacing.xs),
             ],
           ),
         ),
@@ -271,7 +401,7 @@ class _AppointmentsScreenState extends ConsumerState<AppointmentsScreen>
                 setState(() => _selectedCalendarDate = date);
               },
               onTap: _openDetail,
-              onRefresh: () => ref.invalidate(appointmentsProvider),
+              onRefresh: _refreshAppointments,
               onEmptyAction: () => _addAppointment(date: _selectedCalendarDate),
             );
           }
@@ -285,7 +415,7 @@ class _AppointmentsScreenState extends ConsumerState<AppointmentsScreen>
                 emptyTitle: 'Nothing scheduled today',
                 emptySubtitle: 'Add a booking when work is agreed.',
                 onTap: _openDetail,
-                onRefresh: () => ref.invalidate(appointmentsProvider),
+                onRefresh: _refreshAppointments,
                 groupByDate: false,
               ),
               _AppointmentListView(
@@ -294,7 +424,7 @@ class _AppointmentsScreenState extends ConsumerState<AppointmentsScreen>
                 emptyTitle: 'No upcoming bookings',
                 emptySubtitle: 'Your future schedule is clear',
                 onTap: _openDetail,
-                onRefresh: () => ref.invalidate(appointmentsProvider),
+                onRefresh: _refreshAppointments,
                 groupByDate: true,
               ),
               _AppointmentListView(
@@ -303,7 +433,7 @@ class _AppointmentsScreenState extends ConsumerState<AppointmentsScreen>
                 emptyTitle: 'No past bookings',
                 emptySubtitle: 'Completed work will appear here',
                 onTap: _openDetail,
-                onRefresh: () => ref.invalidate(appointmentsProvider),
+                onRefresh: _refreshAppointments,
                 groupByDate: true,
                 showStatusBadge: true,
               ),
@@ -315,7 +445,7 @@ class _AppointmentsScreenState extends ConsumerState<AppointmentsScreen>
     if (widget.embedded) return content;
 
     return Scaffold(
-      backgroundColor: AppColors.bg,
+      backgroundColor: Colors.transparent,
       body: Stack(
         children: [
           const Positioned.fill(child: WorkloopTexturedBackdrop()),
@@ -388,68 +518,79 @@ class _BookingsHeader extends StatelessWidget {
   final VoidCallback onRequests;
   final int requestCount;
   final bool workMode;
+  final bool showBackButton;
 
   const _BookingsHeader({
     required this.onAdd,
     required this.onRequests,
     required this.requestCount,
     required this.workMode,
+    required this.showBackButton,
   });
 
   @override
   Widget build(BuildContext context) {
     final tokens = SlateTheme.of(context);
-    return WorkloopPageHeader(
-      title: workMode ? 'Work' : 'Bookings',
-      subtitle: workMode
-          ? 'Schedule it, do it, and keep the context.'
-          : 'Run today. Plan ahead.',
-      color: AppColors.modCalendar,
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          WorkloopIconButton(
-            icon: LucideIcons.inbox,
-            semanticLabel: requestCount == 0
-                ? 'Booking requests'
-                : 'Booking requests, $requestCount active',
-            onTap: onRequests,
-            size: AppSpacing.minTouch,
-            badge: requestCount == 0
-                ? null
-                : Positioned(
-                    right: -3,
-                    top: -3,
-                    child: Container(
-                      constraints: const BoxConstraints(minWidth: 18),
-                      height: 18,
-                      alignment: Alignment.center,
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
-                      decoration: BoxDecoration(
-                        color: tokens.accentStrong,
-                        borderRadius: BorderRadius.circular(AppRadius.capsule),
-                        border: Border.all(color: tokens.background, width: 2),
-                      ),
-                      child: Text(
-                        requestCount > 99 ? '99+' : '$requestCount',
-                        style: TextStyle(
-                          color: tokens.onAccent,
-                          fontSize: 9,
-                          fontWeight: FontWeight.w700,
-                          height: 1,
-                        ),
+    final trailing = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        WorkloopIconButton(
+          icon: LucideIcons.inbox,
+          semanticLabel: requestCount == 0
+              ? 'Booking requests'
+              : 'Booking requests, $requestCount active',
+          onTap: onRequests,
+          size: AppSpacing.minTouch,
+          badge: requestCount == 0
+              ? null
+              : Positioned(
+                  right: -3,
+                  top: -3,
+                  child: Container(
+                    constraints: const BoxConstraints(minWidth: 18),
+                    height: 18,
+                    alignment: Alignment.center,
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    decoration: BoxDecoration(
+                      color: tokens.accentStrong,
+                      borderRadius: BorderRadius.circular(AppRadius.capsule),
+                      border: Border.all(color: tokens.background, width: 2),
+                    ),
+                    child: Text(
+                      requestCount > 99 ? '99+' : '$requestCount',
+                      style: TextStyle(
+                        color: tokens.onAccent,
+                        fontSize: 9,
+                        fontWeight: FontWeight.w700,
+                        height: 1,
                       ),
                     ),
                   ),
-          ),
-          const SizedBox(width: AppSpacing.xs),
-          WorkloopTopAction(
-            label: 'New booking',
-            semanticLabel: 'New booking',
-            onTap: onAdd,
-          ),
-        ],
-      ),
+                ),
+        ),
+        const SizedBox(width: AppSpacing.xs),
+        WorkloopTopAction(
+          label: 'New booking',
+          semanticLabel: 'New booking',
+          onTap: onAdd,
+        ),
+      ],
+    );
+    if (showBackButton) {
+      return WorkloopRouteHeader(
+        title: 'Bookings',
+        backSemanticLabel: 'Back to work',
+        onBack: () => workloopGoBack(context, fallbackLocation: '/work'),
+        trailing: trailing,
+      );
+    }
+    return WorkloopPageHeader(
+      title: workMode ? 'Work' : 'Bookings',
+      subtitle: workMode
+          ? 'Your schedule, tasks and notes.'
+          : 'Run today. Plan ahead.',
+      color: AppColors.of(context).modCalendar,
+      trailing: trailing,
     );
   }
 }

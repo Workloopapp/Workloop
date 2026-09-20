@@ -1,4 +1,5 @@
 import '../models/slate_models.dart';
+import 'notification_route.dart';
 
 const workloopReminderPayloadPrefix = 'workloop-reminder:';
 const workloopMaximumPendingReminders = 60;
@@ -51,13 +52,12 @@ LocalReminderPlan? planTaskReminder(SlateTask task, {required DateTime now}) {
   final reminderAt = DateTime(
     dueDay.year,
     dueDay.month,
-    dueDay.day,
+    dueDay.day - daysBefore,
     9,
-  ).subtract(Duration(days: daysBefore));
+  );
   if (!reminderAt.isAfter(localNow)) return null;
 
-  final daysUntilDue = dueDay.difference(today).inDays;
-  final title = switch (daysUntilDue) {
+  final title = switch (daysBefore) {
     0 => 'Task due today',
     1 => 'Task due tomorrow',
     _ => 'Task reminder',
@@ -70,8 +70,11 @@ LocalReminderPlan? planTaskReminder(SlateTask task, {required DateTime now}) {
     kind: LocalReminderKind.task,
     scheduledAtUtc: reminderAt.toUtc(),
     title: title,
-    body: task.title,
-    route: '/tasks',
+    body: 'Open Workloop to review this task.',
+    route: workloopNotificationEntityRoute(
+      WorkloopNotificationEntity.task,
+      task.id,
+    ),
   );
 }
 
@@ -86,13 +89,6 @@ LocalReminderPlan? planBookingReminder(
   );
   if (!reminderAt.isAfter(now.toLocal())) return null;
 
-  final service = _firstUsefulText([
-    appointment.serviceName,
-    appointment.title,
-    'Booking',
-  ]);
-  final client = _firstUsefulText([appointment.clientName]);
-  final body = client == null ? service! : '$service with $client';
   final key = 'booking:${appointment.id}';
 
   return LocalReminderPlan(
@@ -101,8 +97,11 @@ LocalReminderPlan? planBookingReminder(
     kind: LocalReminderKind.booking,
     scheduledAtUtc: reminderAt.toUtc(),
     title: 'Booking in about 15 minutes',
-    body: body,
-    route: '/work',
+    body: 'Open Workloop to review this booking.',
+    route: workloopNotificationEntityRoute(
+      WorkloopNotificationEntity.booking,
+      appointment.id,
+    ),
   );
 }
 
@@ -136,13 +135,5 @@ String? routeFromReminderPayload(String? payload) {
     return null;
   }
   final route = payload.substring(workloopReminderPayloadPrefix.length);
-  return route.startsWith('/') ? route : null;
-}
-
-String? _firstUsefulText(List<String?> values) {
-  for (final value in values) {
-    final text = value?.trim();
-    if (text?.isNotEmpty == true) return text;
-  }
-  return null;
+  return workloopNotificationRoute(route);
 }

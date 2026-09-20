@@ -26,7 +26,9 @@ class PaymentsRepository {
         return List<Map<String, dynamic>>.from(page);
       },
     );
-    return rows.map<Payment>(Payment.fromMap).toList();
+    return (await _withDocumentReceipts(
+      rows,
+    )).map<Payment>(Payment.fromMap).toList();
   }
 
   Future<List<Payment>> outstanding(String workspaceId) async {
@@ -43,7 +45,9 @@ class PaymentsRepository {
         return List<Map<String, dynamic>>.from(page);
       },
     );
-    return rows.map<Payment>(Payment.fromMap).toList();
+    return (await _withDocumentReceipts(
+      rows,
+    )).map<Payment>(Payment.fromMap).toList();
   }
 
   Future<List<Payment>> listForBusinessFeed(
@@ -85,18 +89,52 @@ class PaymentsRepository {
           .limit(limitPerGroup),
     ]);
 
-    final byId = <String, Payment>{};
+    final recentDocumentInvoices = <Map<String, dynamic>>[];
+    try {
+      final receipts = await _client
+          .from('business_document_receipts')
+          .select('invoice_id')
+          .eq('workspace_id', workspaceId)
+          .gte('received_at', paidFromUtc)
+          .order('received_at', ascending: false)
+          .order('id')
+          .limit(limitPerGroup);
+      final ids = receipts
+          .map((row) => row['invoice_id'] as String)
+          .toSet()
+          .toList();
+      if (ids.isNotEmpty) {
+        recentDocumentInvoices.addAll(
+          List<Map<String, dynamic>>.from(
+            await _client
+                .from('invoices')
+                .select('*, contacts(name,email)')
+                .eq('workspace_id', workspaceId)
+                .inFilter('id', ids),
+          ),
+        );
+      }
+    } on PostgrestException catch (error) {
+      // Compatible with the earlier backend until the additive document
+      // migration is deployed; do not hide permission or transport failures.
+      if (!['42P01', 'PGRST205'].contains(error.code)) rethrow;
+    }
+    final byId = <String, Map<String, dynamic>>{};
     for (final result in results) {
       for (final row in result) {
-        final payment = Payment.fromMap(Map<String, dynamic>.from(row));
-        byId[payment.id] = payment;
+        byId[row['id'] as String] = Map<String, dynamic>.from(row);
       }
     }
-    return byId.values.toList();
+    for (final row in recentDocumentInvoices) {
+      byId[row['id'] as String] = row;
+    }
+    return (await _withDocumentReceipts(
+      byId.values.toList(),
+    )).map(Payment.fromMap).toList();
   }
 
   Future<List<Map<String, dynamic>>> forClientRows(String clientId) async {
-    return fetchAllRepositoryPages<Map<String, dynamic>>(
+    final rows = await fetchAllRepositoryPages<Map<String, dynamic>>(
       loadPage: (from, to) async {
         final page = await _client
             .from('invoices')
@@ -108,6 +146,7 @@ class PaymentsRepository {
         return List<Map<String, dynamic>>.from(page);
       },
     );
+    return _withDocumentReceipts(rows);
   }
 
   Future<List<Payment>> forClient(String clientId) async {
@@ -128,10 +167,58 @@ class PaymentsRepository {
         return List<Map<String, dynamic>>.from(page);
       },
     );
-    return rows.map<Payment>(Payment.fromMap).toList();
+    return (await _withDocumentReceipts(
+      rows,
+    )).map<Payment>(Payment.fromMap).toList();
   }
 
-  Future<void> create({
+  Future<List<Map<String, dynamic>>> _withDocumentReceipts(
+    List<Map<String, dynamic>> rows,
+  ) async {
+    final ids = rows
+        .where((row) => row['source_document_id'] != null)
+        .map((row) => row['id'] as String)
+        .toList();
+    if (ids.isEmpty) return rows;
+    final grouped = <String, List<Map<String, dynamic>>>{};
+    // Batch invoice IDs and page receipts. Legacy installations do not query
+    // the new table until a managed document actually exists.
+    for (var start = 0; start < ids.length; start += 100) {
+      final chunk = ids.sublist(
+        start,
+        start + 100 < ids.length ? start + 100 : ids.length,
+      );
+      final receipts = await fetchAllRepositoryPages<Map<String, dynamic>>(
+        loadPage: (from, to) async => List<Map<String, dynamic>>.from(
+          await _client
+              .from('business_document_receipts')
+              .select('id,invoice_id,amount,received_at')
+              .inFilter('invoice_id', chunk)
+              .order('received_at')
+              .order('id')
+              .range(from, to),
+        ),
+      );
+      for (final receipt in receipts) {
+        grouped
+            .putIfAbsent(receipt['invoice_id'] as String, () => [])
+            .add(receipt);
+      }
+    }
+    return rows
+        .map(
+          (row) => row['source_document_id'] == null
+              ? row
+              : {
+                  ...row,
+                  'payment_receipts':
+                      grouped[row['id']] ?? <Map<String, dynamic>>[],
+                },
+        )
+        .toList();
+  }
+
+  Future<String> create({
     required String workspaceId,
     required double amount,
     required String status,
@@ -140,12 +227,14 @@ class PaymentsRepository {
     String? contactId,
     String? appointmentId,
     String? notes,
+    String? paymentId,
   }) async {
     final dateString = date.toIso8601String().split('T').first;
     final dueDateString = (dueDate ?? date).toIso8601String().split('T').first;
     final isPaid = status == 'paid';
 
-    await _client.from('invoices').insert({
+    final values = {
+      'id': ?paymentId,
       'workspace_id': workspaceId,
       'contact_id': contactId,
       'appointment_id': appointmentId,
@@ -161,7 +250,25 @@ class PaymentsRepository {
       'amount_paid': isPaid ? amount : 0,
       'income_recorded_at': isPaid ? date.toUtc().toIso8601String() : null,
       'notes': notes?.trim().isEmpty ?? true ? null : notes!.trim(),
-    });
+    };
+    if (paymentId == null) {
+      final row = await _client
+          .from('invoices')
+          .insert(values)
+          .select('id')
+          .single();
+      return row['id'] as String;
+    }
+    // Retain one identity while this new-entry form is open, including any
+    // corrections the owner made after an uncertain response.
+    await _client.from('invoices').upsert(values);
+    final row = await _client
+        .from('invoices')
+        .select('id')
+        .eq('id', paymentId)
+        .eq('workspace_id', workspaceId)
+        .single();
+    return row['id'] as String;
   }
 
   Future<void> markPaid(Payment payment) async {

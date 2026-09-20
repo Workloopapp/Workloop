@@ -1,0 +1,220 @@
+{
+  "palette": {
+    "cream": "#F5EDD9",
+    "paper": "#FBF7ED",
+    "blue": "#91B4C8",
+    "powder": "#C3D7E4",
+    "ink": "#443C32",
+    "yellow": "#F0D18B",
+    "dark": "#24231F",
+    "selected": "#286280"
+  },
+  "masters": [
+    {
+      "name": "wordmark-ink",
+      "width": 1200,
+      "height": 283,
+      "usage": "Transparent wordmark; vector lettering prevents font substitution.",
+      "source": "wordmark-ink.svg"
+    },
+    {
+      "name": "symbol-ink",
+      "width": 512,
+      "height": 448,
+      "usage": "Single-colour compact mark.",
+      "source": "symbol-ink.svg"
+    },
+    {
+      "name": "wordmark-cream",
+      "width": 1200,
+      "height": 283,
+      "usage": "Transparent wordmark; vector lettering prevents font substitution.",
+      "source": "wordmark-cream.svg"
+    },
+    {
+      "name": "symbol-cream",
+      "width": 512,
+      "height": 448,
+      "usage": "Single-colour compact mark.",
+      "source": "symbol-cream.svg"
+    },
+    {
+      "name": "wordmark-black",
+      "width": 1200,
+      "height": 283,
+      "usage": "Transparent wordmark; vector lettering prevents font substitution.",
+      "source": "wordmark-black.svg"
+    },
+    {
+      "name": "symbol-black",
+      "width": 512,
+      "height": 448,
+      "usage": "Single-colour compact mark.",
+      "source": "symbol-black.svg"
+    },
+    {
+      "name": "wordmark-white",
+      "width": 1200,
+      "height": 283,
+      "usage": "Transparent wordmark; vector lettering prevents font substitution.",
+      "source": "wordmark-white.svg"
+    },
+    {
+      "name": "symbol-white",
+      "width": 512,
+      "height": 448,
+      "usage": "Single-colour compact mark.",
+      "source": "symbol-white.svg"
+    },
+    {
+      "name": "symbol-colour",
+      "width": 512,
+      "height": 448,
+      "usage": "Transparent original compact mark.",
+      "source": "symbol-colour.svg"
+    },
+    {
+      "name": "app-icon-cream",
+      "width": 1024,
+      "height": 1024,
+      "usage": "Opaque square app/store icon. OS supplies the outer mask.",
+      "source": "app-icon-cream.svg"
+    },
+    {
+      "name": "avatar-cream",
+      "width": 1080,
+      "height": 1080,
+      "usage": "Circle-safe social avatar.",
+      "source": "avatar-cream.svg"
+    },
+    {
+      "name": "app-icon-blue",
+      "width": 1024,
+      "height": 1024,
+      "usage": "Opaque square app/store icon. OS supplies the outer mask.",
+      "source": "app-icon-blue.svg"
+    },
+    {
+      "name": "avatar-blue",
+      "width": 1080,
+      "height": 1080,
+      "usage": "Circle-safe social avatar.",
+      "source": "avatar-blue.svg"
+    },
+    {
+      "name": "app-icon-dark",
+      "width": 1024,
+      "height": 1024,
+      "usage": "Opaque square app/store icon. OS supplies the outer mask.",
+      "source": "app-icon-dark.svg"
+    },
+    {
+      "name": "avatar-dark",
+      "width": 1080,
+      "height": 1080,
+      "usage": "Circle-safe social avatar.",
+      "source": "avatar-dark.svg"
+    },
+    {
+      "name": "lockup-horizontal-ink",
+      "width": 1400,
+      "height": 350,
+      "usage": "Horizontal logo with original window mark.",
+      "source": "lockup-horizontal-ink.svg"
+    },
+    {
+      "name": "lockup-stacked-ink",
+      "width": 1080,
+      "height": 1080,
+      "usage": "Stacked mark and wordmark.",
+      "source": "lockup-stacked-ink.svg"
+    },
+    {
+      "name": "lockup-horizontal-cream",
+      "width": 1400,
+      "height": 350,
+      "usage": "Horizontal logo with original window mark.",
+      "source": "lockup-horizontal-cream.svg"
+    },
+    {
+      "name": "lockup-stacked-cream",
+      "width": 1080,
+      "height": 1080,
+      "usage": "Stacked mark and wordmark.",
+      "source": "lockup-stacked-cream.svg"
+    },
+    {
+      "name": "splash-lockup",
+      "width": 840,
+      "height": 840,
+      "usage": "Native centred splash lockup, transparent.",
+      "source": "splash-lockup.svg"
+    },
+    {
+      "name": "splash-lockup-dark",
+      "width": 840,
+      "height": 840,
+      "usage": "Dark native splash: same colour mark, cream lettering, transparent.",
+      "source": "splash-lockup-dark.svg"
+    },
+    {
+      "name": "android-adaptive-monochrome",
+      "width": 1080,
+      "height": 1080,
+      "usage": "Single white alpha mask, 108dp adaptive canvas; OS supplies themed colour.",
+      "source": "android-adaptive-monochrome.svg"
+    },
+    {
+      "name": "social-square",
+      "width": 1080,
+      "height": 1080,
+      "usage": "Branded export; safe central content. Review platform crop on upload.",
+      "source": "social-square.svg"
+    },
+    {
+      "name": "social-portrait",
+      "width": 1080,
+      "height": 1350,
+      "usage": "Branded export; safe central content. Review platform crop on upload.",
+      "source": "social-portrait.svg"
+    },
+    {
+      "name": "social-story",
+      "width": 1080,
+      "height": 1920,
+      "usage": "Branded export; safe central content. Review platform crop on upload.",
+      "source": "social-story.svg"
+    },
+    {
+      "name": "social-preview",
+      "width": 1200,
+      "height": 630,
+      "usage": "Branded export; safe central content. Review platform crop on upload.",
+      "source": "social-preview.svg"
+    },
+    {
+      "name": "social-banner",
+      "width": 1500,
+      "height": 500,
+      "usage": "Branded export; safe central content. Review platform crop on upload.",
+      "source": "social-banner.svg"
+    },
+    {
+      "name": "facebook-cover",
+      "width": 1640,
+      "height": 924,
+      "usage": "Branded export; safe central content. Review platform crop on upload.",
+      "source": "facebook-cover.svg"
+    },
+    {
+      "name": "youtube-banner",
+      "width": 2560,
+      "height": 1440,
+      "usage": "Branded export; safe central content. Review platform crop on upload.",
+      "source": "youtube-banner.svg"
+    }
+  ],
+  "canva_pages": 8,
+  "font": "Manrope 650, SIL OFL; outlined SVG letters",
+  "symbol": "Original lowercase w inside a small business window"
+}

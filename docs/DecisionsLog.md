@@ -2064,3 +2064,766 @@ Consequences:
   every minute; delivery stops after eight attempts or 24 hours.
 - Build 4 stays immutable. This source change requires Build 5, a new tag,
   controlled-inbox staging evidence and new signed artifacts.
+
+## 2026-08-15 - Auth Email Pack And Verified-Account Welcome
+
+Decision:
+
+Use Supabase's managed Auth templates for every security-sensitive Auth email,
+with one version-controlled Workloop visual and copy system. Send a separate
+welcome message only after the user's email is confirmed, using a private
+transactional outbox drained by the existing scheduled Resend worker.
+
+Reasoning:
+
+Verification and recovery links must stay inside the provider's secure Auth
+flow. A post-verification message has a different job: confirm readiness and
+help the owner take three useful first steps. Separating them keeps each email
+short, accurate and recoverable without turning essential mail into marketing.
+
+Consequences:
+
+- Confirmation, invitation, magic-link, email-change, recovery,
+  reauthentication and seven security notifications share Workloop styling.
+- New email-verified and already-confirmed provider signups receive one welcome
+  email. Existing users are not backfilled.
+- Delivery is fixed-sender, idempotent, leased, retried and capped at eight
+  attempts or 24 hours. Recipient and body data are never logged.
+- Email opportunities remain purposeful: account security, onboarding,
+  requested booking confirmation and explicit launch-list consent. Workloop
+  does not send speculative lifecycle mail merely because it can.
+
+## 2026-08-15 - Confirm Both Account Deletion Boundaries By Email
+
+Decision:
+
+Send one transactional email when an account deletion request is recorded and
+a different email when deletion reaches the authoritative `completed` state.
+Queue both through a private database outbox and the existing scheduled Resend
+worker.
+
+Reasoning:
+
+The request receipt must not imply that data has already been removed, while a
+completion message must never be sent before workspace and Auth deletion.
+Database transitions provide the only reliable boundary for both claims and
+remain durable if an Edge process or email provider is temporarily unavailable.
+
+Consequences:
+
+- The request email says clearly that deletion is not complete and gives an
+  urgent support route for an unrecognised request.
+- The completion email confirms sign-in removal and describes limited legal,
+  security and financial retention without making an absolute deletion claim.
+- Each event is unique per request, fixed-recipient, leased, idempotent and
+  capped at eight attempts or 24 hours.
+
+## 2026-08-15 - Automate Account Lifecycle And Business Attention
+
+Decision:
+
+Use the existing protected minute worker as one bounded automation runner.
+Make account deletion its first and independently isolated job, keep customer
+attention in the existing notifications model, and keep operational failures
+in a private service-only alert ledger.
+
+Reasoning:
+
+Deletion is a security boundary and must not depend on the app remaining open
+or an email provider being healthy. Booking, payment and daily-brief prompts
+belong in Workloop's existing attention workflow rather than a parallel task
+system. Operational incidents contain infrastructure detail and must never be
+readable through the mobile Data API.
+
+Consequences:
+
+- Pending deletion blocks onboarding and workspace access at both Flutter and
+  database boundaries; requesting deletion bans the identity and revokes its
+  refresh sessions immediately.
+- Scheduled completion tolerates an Auth user that was manually removed only
+  when no workspace membership remains, preserving recovery without guessing
+  ownership.
+- Waiting requests, overdue payments and the daily brief respect notification
+  preferences and stable deduplication keys. Appointment reminders continue
+  to use the existing device scheduler.
+- Health alerts and retention are service-only and scheduled. Backup health is
+  verified by an opt-in read-only CI job, not inferred from configuration.
+- Promotion requires ordered migration/function deployment and disposable
+  destructive-path evidence; source and local tests alone do not make it live.
+
+## 2026-08-31 - Use Aggregate-Only Founder Reporting
+
+Decision:
+
+Use a private reporting schema and a single owner-only Data Studio report for
+product, website, email and Apple beta health. Import external provider data
+through scheduled server-side collectors and store only aggregate metrics.
+
+Reasoning:
+
+The founder needs one operational view without giving a third-party dashboard
+direct access to Workloop users, Auth records or business data. Provider keys
+must remain server-side, and TestFlight tester identity is unnecessary for the
+decisions the dashboard supports.
+
+Consequences:
+
+- Data Studio reads only three aggregate views through a constrained PostgreSQL
+  login; it cannot query Auth or application schemas.
+- App Store Connect has separate permanent Sales and Reports and Developer keys
+  rather than an Admin key. The private key material lives only in Supabase Edge
+  Function secrets.
+- Apple collection is protected by a Vault-generated request token, runs daily,
+  stores no tester names or email addresses and reports provider health alongside
+  Supabase and Resend.
+- TestFlight installs, sessions, crashes and feedback are live now. Public App
+  Store downloads will be activated only when a public store release exists.
+
+## 2026-08-31 - Deliver Business Attention Through A Durable Push Outbox
+
+Decision:
+
+Use Firebase Cloud Messaging as the cross-platform transport, with APNs for
+iOS, while keeping `notifications` as Workloop's user-visible source of truth.
+Fan each eligible notification into a private per-device delivery outbox and
+drain it through the existing protected minute worker. Keep appointment and
+task reminders scheduled locally on the device.
+
+Reasoning:
+
+Sending directly from a business workflow would couple core writes to a
+third-party provider and lose alerts during timeouts. A durable outbox gives
+Workloop retry, idempotency, token invalidation and operational evidence
+without creating a second attention model. FCM avoids an iOS-only server
+design while APNs remains the actual Apple delivery path.
+
+Consequences:
+
+- Device tokens are membership-checked, unique across accounts and removable
+  during sign-out; clients cannot write or reassign token rows directly.
+- Delivery respects stored preferences and local quiet hours. Lock-screen copy
+  deliberately omits client names, phone numbers and payment amounts.
+- Taps can open only known authenticated Workloop routes. Foreground events
+  refresh the existing centre rather than showing duplicate banners.
+- Provider credentials remain outside the app and repository. Build 6 is not
+  releasable until Firebase/APNs configuration, backend promotion, physical
+  iPhone delivery and production-signed TestFlight evidence all pass.
+
+Amendment after provider configuration:
+
+The Firebase iOS SDK remains responsible for permission, APNs registration and
+message lifecycle, but the server sends iOS alerts directly to APNs. Google
+Cloud's secure-by-default policy blocks downloadable service-account keys, and
+that policy remains enabled. Direct APNs delivery uses the existing team-scoped
+Apple key, removes a second long-lived server credential and is sufficient for
+the iOS-only Build 6 beta. Android delivery remains out of scope until its own
+provider path is deliberately enabled.
+
+## 2026-09-01 - Make Beta Attention And Scheduling Exact But Forgiving
+
+Decision:
+
+Refresh recoverable Auth sessions before signing out, reveal the dashboard only
+after one coherent user-scoped snapshot, and route notification taps to a
+strictly allow-listed entity. Let owners deliberately accept schedule exceptions
+after a warning, while preserving conflict rejection as the server default.
+Store public booking-request time as an exact instant plus workspace timezone.
+
+Reasoning:
+
+An expired access token is a recoverable transport condition, not evidence that
+the user intends to sign out. Brief cross-user or placeholder dashboard frames
+damage trust. A notification that opens a generic list creates more work than it
+saves. Overlaps and outside-hours work are valid owner decisions, but silently
+allowing them would hide mistakes. Free-text requested times cannot reliably
+survive timezone and daylight-saving boundaries.
+
+Consequences:
+
+- Session validation retries after refresh and clears local state only for
+  explicit terminal session or user conditions.
+- Booking, booking-request, payment, task and note notifications carry exact
+  UUID routes; malformed, external or unauthenticated routes fall back safely.
+- `allow_overlap` is explicit, defaults false and is accepted only by the
+  authenticated workflow after the UI has shown a schedule warning.
+- New public requests require a selected date/time, persist `timestamptz` plus
+  the matching IANA workspace timezone and reject nonexistent DST wall times.
+- The booking Edge Function keeps its legacy overload during the Build 6 to
+  Build 8 transition so backend promotion cannot strand older beta clients.
+- Build 7 predates this change set. The next distributable artifact is Build 8
+  and still requires ordered backend promotion and physical-device evidence.
+
+## 2026-09-01 - Fail Public Workspaces Closed And Keep Availability Honest
+
+Decision:
+
+Require at least one current workspace member at both public Edge boundaries
+and at booking-request insert time. Present published working hours as guidance
+for the selected service duration without exposing existing bookings or
+claiming that a requested time is reserved.
+
+Reasoning:
+
+Service-role Edge Functions bypass RLS, so an orphaned workspace must not keep
+publishing or collecting customer data. Workloop's public flow is a request,
+not automatic scheduling: showing private calendar occupancy would leak
+business information, while presenting every displayed time as available would
+mislead customers and conflict with the owner's deliberate exception controls.
+
+Consequences:
+
+- Orphaned public handles return the same not-found response as an unknown
+  profile, and future booking-request inserts fail at the database boundary.
+- Customers see whether their preferred time fits the published day and
+  service duration, but can still ask for another time and are reminded that
+  the owner must confirm it.
+- The member guard, exact-time migration and notification-route migration must
+  pass isolated hosted replay/pgTAP and be promoted with their compatible Edge
+  Functions before Build 8 is distributed.
+
+## 2026-09-01 - Offer Suggested Times And Parent-Scoped Extras
+
+Decision:
+
+Show a bounded set of privacy-safe suggested request times after the customer
+chooses a service. Model optional extras beneath one parent service, while
+keeping packages and bundles as ordinary services with their own total name,
+duration and price. Snapshot the selected composition at request and confirmed
+booking time.
+
+Reasoning:
+
+Customers need useful guidance without being shown a private diary or being
+promised an unheld slot. A generic product-composition engine would add owner
+setup work and cognitive load; one service plus a few clear extras solves the
+real workflow. Immutable snapshots protect historical names, durations and
+prices when the owner later edits the catalogue.
+
+Consequences:
+
+- Suggested times respect the workspace timezone, split working hours, notice,
+  booking window, buffer and the trusted aggregate duration of selected items.
+- A customer can still request another time, and every request remains subject
+  to owner confirmation.
+- Public clients send at most eight unique IDs and never submit trusted price,
+  duration or snapshot text.
+- Older clients keep their existing RPC route; an insert-boundary trigger gives
+  those requests the same trusted base snapshot before later confirmation.
+- Availability and add-on migrations must be promoted in chronological order,
+  followed by the three compatible public Edge Functions.
+
+## 2026-09-02 - Authorize Private Booking RPCs By Database Role
+
+Decision:
+
+Protect the public-intake and availability RPCs with explicit Postgres EXECUTE
+ACLs for `service_role` only. Do not duplicate that boundary inside the
+functions by reading the optional `request.jwt.claim.role` transport setting.
+
+Reasoning:
+
+Supabase service clients can authenticate as `service_role` without populating
+that legacy per-request GUC. Postgres evaluates function EXECUTE permission
+before entering a SECURITY DEFINER body, so the ACL is the reliable database
+boundary; the GUC check rejected legitimate Edge requests without adding a
+separate security guarantee.
+
+Consequences:
+
+- `public`, `anon` and `authenticated` remain unable to execute the protected
+  RPCs; only `service_role` is granted EXECUTE.
+- Hosted tests deliberately leave the JWT role GUC blank while invoking as the
+  database `service_role` role.
+- Edge Functions remain responsible for public request validation, rate limits
+  and safe response shaping before calling the private database capability.
+
+## 2026-09-02 - Quarantine Invalid Service Durations
+
+Decision:
+
+Bound every base service to 5 minutes through 24 hours in Postgres and Flutter.
+Normalize any legacy outlier to the existing 60-minute fallback while making
+that service inactive and private until its owner reviews it.
+
+Reasoning:
+
+Service duration controls availability, request snapshots and booking end
+times. Guessing that a corrupt public value is correct is unsafe, while leaving
+it visible misleads customers. A quarantined fallback preserves the owner row,
+allows correction in Settings and lets the database constraint be fully
+validated immediately.
+
+Consequences:
+
+- Direct, legacy and future clients cannot create or update a base service
+  outside 5-1,440 minutes.
+- Public profile responses independently exclude invalid durations as defence
+  in depth.
+- Add-on duration rules remain unchanged: zero additional minutes is valid for
+  a price-only add-on.
+
+## 2026-09-02 - Keep One Persistent Application Canvas
+
+Decision:
+
+Render the Workloop textured background once above the Navigator and make route
+scaffolds transparent. Seed route-level authentication gates from the current
+session so a route for the same user reuses prepared workspace state.
+
+Reasoning:
+
+Repainting a decorative canvas and invalidating account-scoped providers on
+every screen transition makes navigation feel like a reload. One stable canvas
+preserves visual continuity, while session-aware gates retain the existing
+security boundary without repeating startup work.
+
+Consequences:
+
+- Screens may keep `WorkloopTexturedBackdrop` for isolated widget tests, but it
+  becomes transparent when rendered beneath `WorkloopAppCanvas`.
+- Root and pushed-route scaffolds must use transparent backgrounds; cards,
+  sheets and controls continue to use semantic surface tokens.
+- A genuine account change still resets and prepares workspace-scoped state.
+- Module colour stays restrained to navigation and hierarchy accents rather
+  than becoming a second screen background.
+
+## 2026-09-04 — Quiet + Warm brand rollout
+
+Owner approved the Quiet retro + Warm desktop visual reference and requested the entire app, website, email and brand kit match it. Shared components and feature compositions were extended without replacing repositories, providers, navigation or payment/auth behaviour. Native vectors keep illustration assets sharp; icon/splash generation is reproducible. The editable Canva brand kit and complete local exports are recorded in `assets/brand/quiet-warm/README.md`.
+
+Verification before mobile packaging: Flutter analysis clean; 485 tests passed, 4 skipped, including reviewed/regenerated visual baselines and compact/enlarged-text responsive checks. Website19 and email18 tests passed. All13 production Auth template contents were read back exactly after patching; unrelated Auth configuration stayed unchanged. Signed-device and TestFlight evidence is tracked separately in the release report.
+
+## 2026-09-05 — Preserve the retro identity; simplify and trust the live workspace
+
+The owner reported screen bleed-through, slow transitions, stale summaries,
+fragile card corners and unfinished bottom dividers. Restore independent opaque
+page surfaces and instant retained peer navigation; preserve native route/back
+interactions. Consolidate linked records around canonical providers and refresh
+once on app resume/push. A temporary verification failure blocks interaction
+while preserving a verified user's draft; confirmed invalid identity still
+removes protected content.
+
+Remove visible Business Feed and duplicate Coming up from Today. The hero now
+shows the next future booking when none remain today. Retain notifications for
+incoming updates and remove noisy self-notifications after manual money/status
+actions. Add independent opt-in local weather with reduced-precision coordinates,
+authenticated caching proxy, manual UK-area fallback and honest unavailable
+states. No database migration. TestFlight remains explicitly on hold.
+
+### 2026-09-05 — Owner refinement: compact divided bottom navigation
+
+Restore vertical tab dividers and lower the icons by reducing the standard
+navigation row from 76 to 64 points. Draw dividers through the entire safe-area
+background so they reach the screen bottom, while retaining enlarged-text
+height, accessible touch targets and the selected blue marker. This supersedes
+the intermediate divider removal; opaque pages and single-frame segmented
+controls remain. Eight focused geometry/raster/accessibility tests and the
+full 550-test suite pass.
+
+
+### 5 September 2026 — first-use guidance and customer texts
+
+Use a short, skippable and resumable guide over real workflows after successful
+new-user setup, with replay in Settings. Do not populate fake work or interrupt
+existing accounts on upgrade. Keep the wordmark on Today and minimise repeated
+working-screen chrome.
+
+Treat booking texts as a separate, provider-gated channel with explicit
+permission for the exact customer number and business-level 24-hour/1-hour
+choices. Existing email preferences and recorded mobile numbers do not opt
+customers into SMS. Ambiguous dispatch outcomes must not be retried blindly.
+A private pseudonymous 25-hour usage ledger preserves caps when bookings are
+deleted; retention runs independently of sending. Phone-first account access
+requires a verified email before business setup, in both app and backend.
+
+### 2026-09-05 — Pause SMS on cost; review WhatsApp without activation
+
+Decision: the owner has chosen to leave SMS inactive because of its recurring
+cost. Retain the existing disabled implementation, but do not create/fund a
+Twilio account, rent a sender, activate SMS phone authentication, enable business
+text reminders or enroll customers. Email reminders continue independently.
+The earlier SMS technical design remains a record of prepared groundwork, not
+authorization to launch it or a promise of future availability.
+
+Assess WhatsApp reminders only for cost, operational requirements and suitability
+for Workloop. No implementation, provider activation, customer enrollment,
+sending or spending is authorized until the owner makes a separate decision.
+### 2026-09-05 — Manual WhatsApp booking reminders authorized
+
+Following the SMS cost review, the owner chose a booking-level **Send WhatsApp
+reminder** action. It prepares the message and opens a recipient-specific
+WhatsApp link. The owner checks the message and sending account, then taps
+Send in WhatsApp. There is no scheduled WhatsApp worker, paid API connection,
+delivery assertion or automatic customer messaging in this scope.
+
+Use the existing booking/client/business workflow and URL launcher. Recheck
+the saved booking and recipient before handoff; explain missing details and
+unavailable bookings. Keep automated email reminders and replace dormant SMS
+settings/permission entry points with manual WhatsApp guidance. SMS backend
+configuration remains off, and phone-number authentication stays disabled.
+Full WhatsApp Business Platform automation remains outside this decision.
+
+### 2026-09-05 — Separate settings by recipient; preserve independent reminders
+
+Decision: keep three explicit communication destinations: **Your notifications**
+for the owner, **Customer reminders** for client booking communication, and
+**Emails from Workloop** for account guidance/tips. Each email screen reads only
+its own settings. Privacy opens export/deletion directly; account/security and
+ordinary device preferences stay separate.
+
+Business-update preferences govern incoming business activity and related push
+alerts, not personal task/booking reminders or email subscriptions. Quiet
+Sundays applies to the morning overview only. Hide controls without an active
+producer rather than imply that a stored boolean creates a working feature.
+Show phone permission and device-token registration honestly without claiming
+that provider delivery has been proven.
+
+Retain the existing repositories, local preference stores and notification
+services. Make saves retryable and guarded, keep large-text controls reachable,
+and describe account deletion by its real consequences. Device sign-out uses
+the existing expected-user local-session guard. Recheck current notification
+preferences and active Auth-session bindings at server enqueue/claim; preserve
+historical inbox records. Both server migrations are separately reviewed and
+verified. No new SMS/automated WhatsApp activation or mobile-store upload is
+part of this decision. See [the settings audit](releases/2026-09-05-settings-and-notifications.md).
+
+### 2026-09-05 — Keep Money's overview independent of history length
+
+Decision: received totals, cash movement, weekly/monthly targets and payment
+collection setup precede the transaction list. Made and Spent show five recent
+entries with a clearly labelled View all control above the rows. Reuse the same
+filtered collection, order and record actions; do not introduce a second history
+route or duplicate provider. Keep the disclosure in the same screen position
+when it expands or collapses, and reset it when the selected period changes.
+
+Spending category totals precede recent expenses. Owed remains a complete
+overdue-first queue because every outstanding payment may still need action.
+Payment setup is independent of the weekly/monthly target and remains reachable
+for Custom dates. Keep flat transaction rows and the existing single-frame
+overview components; add no nested content cards.
+
+All totals and charts continue to use the entire matching collection, not just
+the five displayed rows. This is presentation-level disclosure, not database
+pagination: expanding a very large history still renders the matching records
+from the existing provider. Forty focused tests and two visually reviewed Money
+goldens pass; final integrated suite/build evidence is still pending the last
+notification change. No payment-provider activation or store upload is implied.
+
+### 2026-09-06 — Meaningful dashboard illustrations and exact attention targets
+
+Decision: remove decorative calendar imagery from Today. A clock beside an
+actual booking represents that booking's displayed start time, with a
+minute-adjusted hour hand; it changes with the selected booking. Keep the
+existing digital label and local-time display contract.
+
+Every Needs attention row must identify and open its exact record. Replace
+request counts with named active-request entries, refresh the relevant canonical
+collection before opening, and use the existing review/detail actions. Do not
+guess a destination from a malformed source or quietly substitute a generic
+list when the record is missing. Exact-client lookup belongs behind the same
+authenticated, workspace-scoped boundary as the other entity routes.
+
+Keep the dashboard preview at four entries, with one from each available
+attention category before filling by normal priority/oldest-first order. This
+preserves visibility of overdue tasks/payments during a large request backlog.
+Do not create new attention producers for undated notes or routine bookings;
+their existing workflows and deliberate module shortcuts remain available.
+Backend historical notification repair must be based on deterministic stored
+identifiers and must not replay sends. Final source/build/provider/device
+evidence remains separate from this product decision. See
+[the dashboard report](releases/2026-09-06-dashboard-direct-actions.md).
+
+### 2026-09-06 — One monthly target across Today and Money
+
+The owner's target is a calendar-month receipt goal. History filters do not
+convert it into a weekly estimate or hide it. Both visible indicators share
+absolute completion thresholds: red below 50%, amber from 50% to below 100%,
+green at/above 100%; these colours do not claim whether the business is on pace
+for the date. Preserve numeric/spoken progress and compare currency at penny
+precision. Target entry is monthly-only and continues to use the existing
+`revenue_target` setting. See [implementation and evidence](releases/2026-09-06-monthly-targets.md).
+
+### 2026-09-06 — Settings explains who receives a message before its channel
+
+Use separate **For you** and **For your customers** groups. Your alerts governs
+owner inbox/push/local reminders; Emails to you governs Workloop account email
+preferences; Customer messages governs customer booking emails and explains
+manual WhatsApp. Retain the existing coupled business inbox/push preference,
+with independent phone permission, local reminders and email choices. Quiet
+hours must explicitly say **Business push only**.
+
+Use one shared paper frame per related group and flat controls inside it.
+Interactive panel bodies need a transparent Material beneath native list tiles
+and switches so ink feedback stays visible. Save failures must appear without
+requiring a scroll to the bottom of the page.
+
+Do not interpret an active limited welcome series as an ongoing account-tips
+subscription. Show its actual scope and retain both a visible unsubscribe path
+and an explicit ongoing-tips opt-in through the existing preference API. No
+schema, saved defaults, notification production rules or provider policy change
+is needed for this UI clarification. The existing Android remote-push hold and
+store-upload hold remain in effect. See
+[verification and limitations](releases/2026-09-06-notification-settings-clarity.md).
+
+## 2026-09-06 — Net profit and one searchable Payments timeline
+
+The owner asked for Cash movement to become income after expenses and for
+income and expenses to share one searchable history. Rename the first Money
+destination Overview, retain Spent for category analysis and Owed for collection,
+and label the chart Net profit with an explicit Income minus expenses caption.
+The monthly target remains an income target, independent of the history filter.
+
+Compute the chart and timeline from existing records: received amounts including
+part-payments and negative adjustments, less recorded expenses, using their
+actual received/expense dates. Do not count unpaid balances as received income
+or imply the aggregate payment model provides separate instalment events.
+Unknown expenses must not appear as zero in profit calculations.
+
+Search the complete selected period before applying progressive disclosure.
+Show five recent transactions normally and up to 25 search matches immediately,
+with an explicit control for all results. Keep the useful overview above history
+and use one flat list with explicit income/expense/refund labels and signed
+amounts. See [scope and verification](releases/2026-09-06-money-profit-and-timeline.md).
+
+## 2026-09-06 — Standard crash diagnostics with a narrow data boundary
+
+Use the existing Firebase project's Crashlytics SDK for technical crash/error
+diagnosis. Do not create a custom telemetry backend, add Analytics/activity
+breadcrumbs, attach customer or account identifiers, or forward arbitrary
+exception descriptions. Preserve code locations through an allowlist and keep
+native SDK privacy disclosures distinct from Dart sanitization. Reporting failure
+must not block the product or hide the original app error. Release configuration
+must record the reporting choice; a diagnostic test must remain outside the
+normal app entry point. Source verification, native symbols and a real provider
+receipt are separate completion gates. See
+[the implementation report](releases/2026-09-06-crash-reporting.md).
+
+## 2026-09-06 — Separate Workloop brand from company operator
+
+At the owner's request, use Haani Enterprise Limited (15758586, England and
+Wales) as the legal operator, while preserving Workloop as the product, trading
+name, brand, domains and application identifiers. Keep tenant service businesses
+as providers/controllers for their own customer workflows. Publish the current
+registered office until a change has actually been filed; operational contact
+addresses are distinct. Provider organisation verification, domain records,
+store membership and legal/IP transfers must be evidenced individually.
+
+Use shared operator constants/footer helpers to keep rendered disclosures
+consistent. Deploy only isolated email/footer changes from reviewed live
+bundles while unrelated local launch work remains unshipped. No new TestFlight
+upload is part of this company-identity change.
+
+## 2026-09-08 — Connect business documents, repeat work and tax preparation
+
+The owner approved quotes/invoices, recurring bookings, receipt/mileage records
+and a UK sole-trader tax estimate in four phases. Extend existing Money, booking
+and expense workflows. Keep quotes and drafts separate from collectible invoice
+rows so existing app versions do not count them as debt. Issue once into the
+existing payment system, freeze the commercial snapshot, and retain dated cash
+movements for partial payments and refunds.
+
+Use bounded real booking occurrences in the saved business timezone, with
+explicit occurrence-only edits. Keep mileage separate from cash expenses.
+Retain private receipt originals through the account export/deletion lifecycle.
+Compute tax from reviewed annual inputs with a versioned jurisdiction/year rule
+set and explicit eligibility; do not represent it as an HMRC filing or convert
+ordinary Money profit into taxable profit automatically.
+
+See [implementation, boundaries and verification](releases/2026-09-08-business-tools.md).
+
+## 2026-09-08 — Integrate commercial workflows into Money
+
+Invoices and quotes are a primary Money destination, alongside Overview, Spent
+and Owed. Mileage belongs with expenses; tax planning belongs before overview
+history. Client and booking entry points open the same documents/payment rows.
+The owner explicitly excluded profit per job.
+
+Use current workspace settings for new document defaults, with one reviewed
+Invoice setup screen. Reuse existing business address and customer contacts;
+do not infer a legal name or tax residence from private account details. Keep
+signup short and extend the existing Getting started guide. Issued documents
+retain immutable commercial snapshots.
+
+Deposit requests are part of the invoice balance, never income by themselves.
+Only actual receipts affect collected money. Reused service/booking prices are
+agreed gross prices by default; VAT is separated within them. Cash receipts and
+manual refunds carry reviewed business dates and stable retry identities.
+
+The Tomorrow dashboard row follows adjacent module typography and spacing.
+Native photo capture is explicit and optional; receipt files remain private.
+See [review findings and verification](releases/2026-09-08-business-workflow-review.md).
+
+## 2026-09-08 — View documents and review locally extracted receipt details
+
+Use one account/workspace-scoped document viewer for invoices, quotes, saved
+receipt files and tax reports. Viewing is the primary action; sharing remains
+available from the same loaded copy. Keep private document bytes in memory.
+
+Read receipt images and PDFs locally using the platform's native recognition.
+Present suggestions for review, preserve existing values by default, and retain
+manual entry for uncertain or unsupported receipts. Supplier/reference details
+reuse expense notes; no new database fields are justified for this workflow.
+
+Money prioritizes actual unpaid balances, current cash figures and activity,
+followed by planning and setup. This supersedes the previous placement of tax
+before activity. Shared field labels sit above their input outline and wrap at
+large text sizes.
+
+Account deletion disconnects independently owned Standard Stripe accounts from
+Workloop when Stripe rejects platform closure with its specific loss-liability
+error. Record verified revocation in the existing server-only audit before local
+deletion. Keep all unverified outcomes fail-closed; no schema or RLS changes.
+The owner explicitly approved the production repair.
+
+See [build 18 scope and evidence](releases/2026-09-08-build18-refinement.md).
+
+## 2026-09-09 — Give account access a clear vertical hierarchy
+
+Use an open brand row and shared page gutters for account access. Normal phone
+heights distribute spare space above the form and before the legal footer;
+short windows and keyboards use compact, scrollable content. Keep account
+creation alongside the primary sign-in action, before alternate providers.
+Retain existing authentication handlers, accessible touch targets and legal
+navigation. Light and dark screenshot checks now include the iOS Apple button.
+
+These are local tweaks for the owner's next combined release. No new TestFlight
+upload or tester distribution is part of this refinement.
+
+## 2026-09-09 — Replace the welcome diagram with an illustrated organiser
+
+The owner found the welcome process graphic unconvincing. Replace the four
+connected nodes and repeated benefits with one paper panel introducing the day,
+client context and money. Reuse existing native illustrations and flat rows so
+the welcome screen shares the operating app's visual language. The heading is
+"Your business, in good order"; the single action still starts business setup.
+
+This is presentation only: onboarding steps, draft restoration, providers and
+data collection are unchanged. Hold this together with the account-access
+refinement for the owner's next combined release; no TestFlight upload now.
+
+## 2026-09-09 — Preserve service descriptions from onboarding
+
+Use the existing optional, public-facing service description in the onboarding
+editor, saved draft, RPC payload and transactional service insert. Trim outer
+whitespace, preserve internal line breaks and normalize blank descriptions to
+null. Do not add a parallel field or new schema column. Keep the verified-email,
+MFA, account-deletion and workspace security boundaries unchanged.
+
+The service editor owns its text controllers until its closing route is removed;
+disposing them when the modal result first resolves can race the exit transition.
+Use the shared persistent field labels for this editor. The app and migration
+remain local for the owner's combined release.
+
+## 2026-09-09 — Show the complete onboarding week together
+
+The owner should be able to review and edit all seven working days without
+scrolling at standard phone text sizes. Use a single compact weekly table with
+day toggles and two time controls per row, instead of tall per-day sections.
+Keep Continue fixed below the table and retain the shared time picker, existing
+defaults and saved-hours format. Use the current theme's colours directly.
+
+Accessibility text retains its requested size, full time values and 44-point
+targets. When those controls need more space, scroll only the weekly body and
+keep Continue available. This remains a local refinement for the combined
+release; no upload or installation is included.
+
+## 2026-09-09 — Replace the mutable palette bridge
+
+An actual mounted Services card remained dark after switching to Light. Its
+constant adaptive Color changed internally, so Flutter considered the new
+decoration equal to the previous decoration and reused a cached dark Paint.
+Synchronising the global palette earlier could not invalidate that cache.
+
+Replace the bridge with immutable light/dark compatibility palettes selected
+through `Theme.of(context)`. Preserve all 47 existing colour pairs and migrate
+presentation call sites to their local context; no palette redesign is included.
+Keep the standard appearance provider and MaterialApp System/Light/Dark handling.
+Remove the shared surface's brightness key, retain its children, and apply
+appearance changes without animating from an outgoing background. Resolve open
+sheet/dialog colours locally and remove four forced-dark date-picker wrappers.
+
+This remains local for the owner's combined release. No backend, schema,
+installation or TestFlight action is part of the change.
+
+## 2026-09-09 — Refine Dark independently of Light
+
+The owner likes Light and requested a better Dark colour scheme. Keep the
+existing composition and Light values; replace the brown/ochre Dark layers,
+taupe ink and bright beige frames with charcoal, soft ivory and restrained
+blue-grey framing. Use slightly brighter powder-blue actions and muted status
+containers so the dark experience retains Workloop's identity and hierarchy.
+
+This is a shared-palette change with matching native dark launch backgrounds.
+No feature-local colour overrides, new layout, data changes or theme-state
+changes are needed. Preserve every Light screenshot and accept Dark baselines
+only after reviewing real screen renders and contrast. Hold for the combined
+release; no upload or installation now.
+
+## 2026-09-12 — Share private record attachments and preserve workflow context
+
+Use one attachment model, repository, picker and viewer across bookings, notes
+and clients. Keep immutable metadata and bytes tied to a workspace and exact
+record; validate content and verify hashes when retrying a possibly completed
+upload. Save a new note with a stable UUID before attaching, then keep editing
+that same note. Delete bytes before metadata so a failure retains the cleanup
+pointer. Include files in privacy export and account deletion.
+
+Use narrowly scoped private trigger functions for native Storage completion,
+whose database role lacks business-table access. Preserve the member/MFA checks
+for authenticated callers and revoke direct trigger execution. Repair the same
+reproduced privilege defect in receipt storage without broader table grants.
+
+Record links preserve their caller, with canonical list fallbacks for direct
+entry. Refresh current provider records on return and withhold stale actions
+during scope changes or payment failures. Put the next document action before
+supporting detail. New quote conversions bound deposit dates to the new invoice
+period; recorded quotes and prior conversion retries remain stable. PDFs
+distinguish non-VAT businesses from registered businesses charging zero VAT.
+
+These changes are deployed and installed as described in the
+[connected app polish report](releases/2026-09-12-connected-app-polish.md).
+Customer acceptance portals, formal credit notes and mixed-rate VAT are separate
+workflow additions; native sharing and owner-recorded decisions remain explicit.
+
+## 2026-09-12 — Name customer settings for their actual booking workflow
+
+Use **Booking reminders**, not Customer messages, for customer email timing and
+manual WhatsApp reminder settings. A chat-bubble icon and generic messages label
+imply an inbox that Workloop does not provide. Use the shared calendar/clock icon,
+state the automatic-email/manual-WhatsApp distinction and explain where replies go.
+
+Offer a bulk off action through the existing reminder-time preference. Re-enabling
+requires choosing a time; do not silently restore defaults or alter customer
+unsubscribe choices. Show saved selection rather than implying confirmed delivery.
+Keep booking-update emails and business contact details separate from timing.
+See the [implementation receipt](releases/2026-09-12-booking-reminder-settings.md).
+
+### 2026-09-12 — Keep Money's overview short
+
+Show the current cash result and unpaid-money action before supporting detail.
+Use one cash panel with received/spent shortcuts; disclose the signed trend and
+full payment history on demand. Keep the shared monthly target as an editable
+row and payment setup as a compact footer action. Expense categories expand
+above the expense list. Preserve normal text scaling and all record workflows;
+return to the top when switching Money sections. This supersedes the earlier
+always-expanded chart/history and separate Plan ahead section. See the
+[implementation receipt](releases/2026-09-12-compact-money.md).
+
+
+### 2026-09-12 — Make essential form information explicit
+
+Use the shared Required/Optional field labels across booking, client, Money,
+account, onboarding, business and supporting forms. The existing save rules
+determine the label; the label does not introduce new validation or requirements.
+A new client needs a name, while phone/email/address can remain blank. Combined
+and conditional requirements are explained at the point of entry. Invoice draft
+forms distinguish saving from the later requirements for issuing.
+
+Persistent labels and text-based emphasis make requirements discoverable before
+submission, including with enlarged text and assistive technology. See the
+[change and verification receipt](releases/2026-09-12-form-requirements.md).
+
+
+## 12 September 2026 — Native Apple introductory trial
+
+Owner approved a one-month Apple free introductory offer followed by £14.99/month automatic renewal, with transparent pricing/cancellation and seven/three-day service reminders. New customers authorise with Apple before business setup; no new separate no-card trial is started. Preserve existing lifetime beta and started legacy access; retain historical annual receipts but offer monthly only. Sandbox access, purchase lifecycle tests and billing activation remain separate release gates. Public release is paused.

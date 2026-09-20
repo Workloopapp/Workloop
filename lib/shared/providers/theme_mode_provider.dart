@@ -13,8 +13,8 @@ extension WorkloopAppearancePresentation on WorkloopAppearance {
 
   String get description => switch (this) {
     WorkloopAppearance.system => 'Follow your phone automatically',
-    WorkloopAppearance.light => 'Use the calm low-glare light appearance',
-    WorkloopAppearance.dark => 'Use the midnight Studio appearance',
+    WorkloopAppearance.light => 'Warm paper with dark text',
+    WorkloopAppearance.dark => 'Deep charcoal with warm, light text',
   };
 
   ThemeMode get themeMode => switch (this) {

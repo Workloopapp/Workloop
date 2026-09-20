@@ -7,6 +7,7 @@ import '../../../shared/providers/onboarding_provider.dart';
 import '../../../shared/repositories/profile_repository.dart';
 import '../../../shared/utils/public_booking_url.dart';
 import '../../../shared/utils/public_profile_routes.dart';
+import '../../../shared/widgets/workloop_form_field.dart';
 
 final _handlePattern = RegExp(r'^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$');
 
@@ -151,7 +152,7 @@ class _ObHandleState extends ConsumerState<ObHandle> {
             style: TextStyle(
               fontSize: 28,
               fontWeight: FontWeight.w600,
-              color: AppColors.t1,
+              color: AppColors.of(context).t1,
               letterSpacing: 0,
               height: 1.1,
             ),
@@ -159,7 +160,11 @@ class _ObHandleState extends ConsumerState<ObHandle> {
           const SizedBox(height: 8),
           Text(
             'Clients can find you and request a booking at this link. You can share it anywhere.',
-            style: TextStyle(fontSize: 15, color: AppColors.t3, height: 1.5),
+            style: TextStyle(
+              fontSize: 15,
+              color: AppColors.of(context).t3,
+              height: 1.5,
+            ),
           ),
           const SizedBox(height: 32),
 
@@ -168,9 +173,11 @@ class _ObHandleState extends ConsumerState<ObHandle> {
             width: double.infinity,
             padding: const EdgeInsets.all(AppSpacing.lg),
             decoration: BoxDecoration(
-              color: AppColors.bgCard,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: AppColors.green.withValues(alpha: 0.3)),
+              color: AppColors.of(context).bgCard,
+              borderRadius: BorderRadius.circular(AppRadius.md),
+              border: Border.all(
+                color: AppColors.of(context).green.withValues(alpha: 0.3),
+              ),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -180,7 +187,7 @@ class _ObHandleState extends ConsumerState<ObHandle> {
                   style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w600,
-                    color: AppColors.t3,
+                    color: AppColors.of(context).t3,
                     letterSpacing: 0,
                   ),
                 ),
@@ -191,14 +198,14 @@ class _ObHandleState extends ConsumerState<ObHandle> {
                     children: [
                       TextSpan(
                         text: '$publicBookingPageHost/',
-                        style: TextStyle(color: AppColors.t3),
+                        style: TextStyle(color: AppColors.of(context).t3),
                       ),
                       TextSpan(
                         text: handle.isEmpty ? 'yourname' : handle,
                         style: TextStyle(
                           color: handle.isEmpty
-                              ? AppColors.t3
-                              : AppColors.green,
+                              ? AppColors.of(context).t3
+                              : AppColors.of(context).green,
                         ),
                       ),
                     ],
@@ -210,12 +217,13 @@ class _ObHandleState extends ConsumerState<ObHandle> {
           const SizedBox(height: 24),
 
           // Handle input
-          Text(
+          WorkloopFieldLabel(
             'Choose your handle',
+            isRequired: true,
             style: TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w500,
-              color: AppColors.t2,
+              color: AppColors.of(context).t2,
             ),
           ),
           const SizedBox(height: 8),
@@ -226,32 +234,41 @@ class _ObHandleState extends ConsumerState<ObHandle> {
               _validate(v);
               setState(() {});
             },
-            style: TextStyle(color: AppColors.t1, fontSize: 15),
+            style: TextStyle(color: AppColors.of(context).t1, fontSize: 15),
             autocorrect: false,
             textCapitalization: TextCapitalization.none,
             decoration: InputDecoration(
               hintText: 'yourname',
               counterText: '',
-              hintStyle: TextStyle(color: AppColors.t3),
+              hintStyle: TextStyle(color: AppColors.of(context).t3),
               prefixText: '$publicBookingPageHost/',
-              prefixStyle: TextStyle(color: AppColors.t3, fontSize: 15),
+              prefixStyle: TextStyle(
+                color: AppColors.of(context).t3,
+                fontSize: 15,
+              ),
               filled: true,
-              fillColor: AppColors.bgCard,
+              fillColor: AppColors.of(context).bgCard,
               border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(14),
-                borderSide: BorderSide(color: AppColors.border),
+                borderRadius: BorderRadius.circular(AppRadius.md),
+                borderSide: BorderSide(color: AppColors.of(context).border),
               ),
               enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(14),
-                borderSide: BorderSide(color: AppColors.border),
+                borderRadius: BorderRadius.circular(AppRadius.md),
+                borderSide: BorderSide(color: AppColors.of(context).border),
               ),
               focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(14),
-                borderSide: BorderSide(color: AppColors.green, width: 1.5),
+                borderRadius: BorderRadius.circular(AppRadius.md),
+                borderSide: BorderSide(
+                  color: AppColors.of(context).green,
+                  width: 1.5,
+                ),
               ),
               errorBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(14),
-                borderSide: BorderSide(color: AppColors.error, width: 1.5),
+                borderRadius: BorderRadius.circular(AppRadius.md),
+                borderSide: BorderSide(
+                  color: AppColors.of(context).error,
+                  width: 1.5,
+                ),
               ),
               contentPadding: const EdgeInsets.symmetric(
                 horizontal: 18,
@@ -265,7 +282,10 @@ class _ObHandleState extends ConsumerState<ObHandle> {
               liveRegion: true,
               child: Text(
                 _error,
-                style: TextStyle(color: AppColors.error, fontSize: 13),
+                style: TextStyle(
+                  color: AppColors.of(context).error,
+                  fontSize: 13,
+                ),
               ),
             ),
           ],
@@ -285,11 +305,13 @@ class _ObHandleState extends ConsumerState<ObHandle> {
                       _ => Icons.hourglass_top_rounded,
                     },
                     color: switch (_availability) {
-                      _HandleAvailability.available => AppColors.success,
+                      _HandleAvailability.available => AppColors.of(
+                        context,
+                      ).success,
                       _HandleAvailability.taken ||
                       _HandleAvailability.reserved ||
-                      _HandleAvailability.error => AppColors.error,
-                      _ => AppColors.t3,
+                      _HandleAvailability.error => AppColors.of(context).error,
+                      _ => AppColors.of(context).t3,
                     },
                     size: 16,
                   ),
@@ -308,10 +330,10 @@ class _ObHandleState extends ConsumerState<ObHandle> {
                       },
                       style: TextStyle(
                         color: _availability == _HandleAvailability.available
-                            ? AppColors.success
+                            ? AppColors.of(context).success
                             : _availability == _HandleAvailability.checking
-                            ? AppColors.t3
-                            : AppColors.error,
+                            ? AppColors.of(context).t3
+                            : AppColors.of(context).error,
                         fontSize: 13,
                       ),
                     ),
@@ -329,7 +351,7 @@ class _ObHandleState extends ConsumerState<ObHandle> {
                 onPressed: _retryAvailability,
                 style: TextButton.styleFrom(
                   minimumSize: const Size(44, 44),
-                  foregroundColor: AppColors.accentPrimary,
+                  foregroundColor: AppColors.of(context).accentPrimary,
                   padding: const EdgeInsets.symmetric(horizontal: 12),
                 ),
                 icon: const Icon(Icons.refresh_rounded, size: 18),
@@ -343,7 +365,7 @@ class _ObHandleState extends ConsumerState<ObHandle> {
           const SizedBox(height: 8),
           Text(
             'Letters, numbers and hyphens only. At least 3 characters. Start and end with a letter or number.',
-            style: TextStyle(fontSize: 12, color: AppColors.t3),
+            style: TextStyle(fontSize: 12, color: AppColors.of(context).t3),
           ),
           const SizedBox(height: 40),
           SizedBox(

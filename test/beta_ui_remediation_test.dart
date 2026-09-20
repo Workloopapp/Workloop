@@ -128,12 +128,33 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    if (find.text('A booking has been confirmed.').evaluate().isEmpty) {
-      await tester.drag(find.byType(ListView), const Offset(0, -320));
-      await tester.pumpAndSettle();
+    for (final (key, title, description) in [
+      (
+        'booking_request',
+        'Booking requests',
+        'New customer requests and requests waiting for a response.',
+      ),
+      (
+        'new_booking',
+        'Confirmed bookings',
+        'A booking is created or confirmed.',
+      ),
+    ]) {
+      final preference = find.byKey(ValueKey('notification-preference-$key'));
+      await tester.scrollUntilVisible(
+        preference,
+        240,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(
+        find.descendant(of: preference, matching: find.text(title)),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: preference, matching: find.text(description)),
+        findsOneWidget,
+      );
     }
-    expect(find.text('A booking has been confirmed.'), findsOneWidget);
-    expect(find.text('A request needs approval.'), findsOneWidget);
     expect(find.textContaining('A client books from your page'), findsNothing);
   });
 

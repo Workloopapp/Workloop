@@ -65,6 +65,10 @@ insert into auth.users (
   '', now(), now(), now(), '', ''
 );
 
+-- Authenticated fixtures use real sessions, as production access requires.
+insert into auth.sessions(id,user_id,created_at,updated_at) values
+('41000000-0000-4000-8000-000000000101','41000000-0000-4000-8000-000000000001',now(),now());
+
 insert into public.workspaces(id, name) values (
   '42000000-0000-4000-8000-000000000001',
   'Confirmation Studio'
@@ -241,7 +245,7 @@ insert into confirmation_payloads values
 set local role authenticated;
 select set_config(
   'request.jwt.claims',
-  '{"sub":"41000000-0000-4000-8000-000000000001","role":"authenticated","aal":"aal1"}',
+  '{"sub":"41000000-0000-4000-8000-000000000001","role":"authenticated","aal":"aal1","session_id":"41000000-0000-4000-8000-000000000101"}',
   true
 );
 select lives_ok(

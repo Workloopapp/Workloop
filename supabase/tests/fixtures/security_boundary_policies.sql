@@ -1,0 +1,32 @@
+-- Disposable test fixture only: live RLS projection inspected 2026-09-12.
+-- Keep in step with current policies; never apply this fixture to a hosted project.
+alter table public.workspaces enable row level security;
+alter table public.workspace_members enable row level security;
+alter table public.contacts enable row level security;
+alter table public.business_profiles enable row level security;
+alter table public.services enable row level security;
+alter table public.appointments enable row level security;
+alter table public.workspace_settings enable row level security;
+alter table public.account_deletion_requests enable row level security;
+alter table public.booking_requests enable row level security;
+create policy "Members can read deletion requests" on public.account_deletion_requests as PERMISSIVE for SELECT to authenticated using (app_private.is_workspace_member(workspace_id));
+create policy "Verified MFA users require AAL2" on public.account_deletion_requests as RESTRICTIVE for ALL to authenticated using (app_private.current_user_meets_mfa_policy()) with check (app_private.current_user_meets_mfa_policy());
+create policy "Members can manage appointments" on public.appointments as PERMISSIVE for ALL to authenticated using (app_private.is_workspace_member(workspace_id)) with check (app_private.is_workspace_member(workspace_id));
+create policy "Verified MFA users require AAL2" on public.appointments as RESTRICTIVE for ALL to authenticated using (app_private.current_user_meets_mfa_policy()) with check (app_private.current_user_meets_mfa_policy());
+create policy "Members can manage booking requests" on public.booking_requests as PERMISSIVE for ALL to authenticated using (app_private.is_workspace_member(workspace_id)) with check (app_private.is_workspace_member(workspace_id));
+create policy "Verified MFA users require AAL2" on public.booking_requests as RESTRICTIVE for ALL to authenticated using (app_private.current_user_meets_mfa_policy()) with check (app_private.current_user_meets_mfa_policy());
+create policy "Members can manage business profiles" on public.business_profiles as PERMISSIVE for ALL to authenticated using (app_private.is_workspace_member(workspace_id)) with check (app_private.is_workspace_member(workspace_id));
+create policy "Verified MFA users require AAL2" on public.business_profiles as RESTRICTIVE for ALL to authenticated using (app_private.current_user_meets_mfa_policy()) with check (app_private.current_user_meets_mfa_policy());
+create policy "Members can manage contacts" on public.contacts as PERMISSIVE for ALL to authenticated using (app_private.is_workspace_member(workspace_id)) with check (app_private.is_workspace_member(workspace_id));
+create policy "Verified MFA users require AAL2" on public.contacts as RESTRICTIVE for ALL to authenticated using (app_private.current_user_meets_mfa_policy()) with check (app_private.current_user_meets_mfa_policy());
+create policy "Members can manage services" on public.services as PERMISSIVE for ALL to authenticated using (app_private.is_workspace_member(workspace_id)) with check (app_private.is_workspace_member(workspace_id));
+create policy "Verified MFA users require AAL2" on public.services as RESTRICTIVE for ALL to authenticated using (app_private.current_user_meets_mfa_policy()) with check (app_private.current_user_meets_mfa_policy());
+create policy "Users can create their first workspace membership" on public.workspace_members as PERMISSIVE for INSERT to authenticated with check (((user_id = ( SELECT auth.uid() AS uid)) AND (app_private.is_workspace_member(workspace_id) OR app_private.workspace_has_no_members(workspace_id))));
+create policy "Users can read their own workspace membership" on public.workspace_members as PERMISSIVE for SELECT to authenticated using ((user_id = ( SELECT auth.uid() AS uid)));
+create policy "Verified MFA users require AAL2" on public.workspace_members as RESTRICTIVE for ALL to authenticated using (app_private.current_user_meets_mfa_policy()) with check (app_private.current_user_meets_mfa_policy());
+create policy "Members can manage workspace settings" on public.workspace_settings as PERMISSIVE for ALL to authenticated using (app_private.is_workspace_member(workspace_id)) with check (app_private.is_workspace_member(workspace_id));
+create policy "Verified MFA users require AAL2" on public.workspace_settings as RESTRICTIVE for ALL to authenticated using (app_private.current_user_meets_mfa_policy()) with check (app_private.current_user_meets_mfa_policy());
+create policy "Authenticated users can create workspaces" on public.workspaces as PERMISSIVE for INSERT to authenticated with check ((( SELECT auth.uid() AS uid) IS NOT NULL));
+create policy "Members can read workspaces" on public.workspaces as PERMISSIVE for SELECT to authenticated using (app_private.is_workspace_member(id));
+create policy "Members can update workspaces" on public.workspaces as PERMISSIVE for UPDATE to authenticated using (app_private.is_workspace_member(id)) with check (app_private.is_workspace_member(id));
+create policy "Verified MFA users require AAL2" on public.workspaces as RESTRICTIVE for ALL to authenticated using (app_private.current_user_meets_mfa_policy()) with check (app_private.current_user_meets_mfa_policy());

@@ -4,6 +4,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../shared/providers/onboarding_provider.dart';
 import '../../../shared/utils/currency_format.dart';
 import '../../../shared/widgets/slate_ui.dart';
+import '../../../shared/widgets/workloop_form_field.dart';
 
 class ObRevenueTarget extends ConsumerStatefulWidget {
   final VoidCallback onNext;
@@ -60,40 +61,46 @@ class _ObRevenueTargetState extends ConsumerState<ObRevenueTarget> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const SizedBox(height: 24),
-          const Text(
+          Text(
             'Set your\nrevenue target.',
             style: TextStyle(
               fontSize: 28,
               fontWeight: FontWeight.w600,
-              color: AppColors.t1,
+              color: AppColors.of(context).t1,
               letterSpacing: 0,
               height: 1.1,
             ),
           ),
           const SizedBox(height: 8),
-          const Text(
+          Text(
             "How much do you want to earn per month? We'll turn this into a weekly finance target and track your progress.",
-            style: TextStyle(fontSize: 15, color: AppColors.t3, height: 1.5),
+            style: TextStyle(
+              fontSize: 15,
+              color: AppColors.of(context).t3,
+              height: 1.5,
+            ),
           ),
           const SizedBox(height: 32),
 
+          const WorkloopFieldLabel('Monthly revenue target', isRequired: false),
+          const SizedBox(height: AppSpacing.sm),
           // Custom input
           Container(
             decoration: BoxDecoration(
-              color: AppColors.bgCard,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: AppColors.border),
+              color: AppColors.of(context).bgCard,
+              borderRadius: BorderRadius.circular(AppRadius.md),
+              border: Border.all(color: AppColors.of(context).border),
             ),
             child: Row(
               children: [
-                const Padding(
+                Padding(
                   padding: EdgeInsets.symmetric(horizontal: 18, vertical: 16),
                   child: Text(
                     '£',
                     style: TextStyle(
                       fontSize: 24,
                       fontWeight: FontWeight.w600,
-                      color: AppColors.t2,
+                      color: AppColors.of(context).t2,
                     ),
                   ),
                 ),
@@ -101,17 +108,17 @@ class _ObRevenueTargetState extends ConsumerState<ObRevenueTarget> {
                   child: TextField(
                     controller: _controller,
                     keyboardType: TextInputType.number,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 24,
                       fontWeight: FontWeight.w600,
-                      color: AppColors.t1,
+                      color: AppColors.of(context).t1,
                     ),
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       hintText: '0',
                       hintStyle: TextStyle(
                         fontSize: 24,
                         fontWeight: FontWeight.w600,
-                        color: AppColors.t3,
+                        color: AppColors.of(context).t3,
                       ),
                       border: InputBorder.none,
                       enabledBorder: InputBorder.none,
@@ -128,9 +135,9 @@ class _ObRevenueTargetState extends ConsumerState<ObRevenueTarget> {
                       _controller.clear();
                       setState(() {});
                     },
-                    icon: const Icon(
+                    icon: Icon(
                       Icons.close_rounded,
-                      color: AppColors.t3,
+                      color: AppColors.of(context).t3,
                       size: 18,
                     ),
                   ),
@@ -140,13 +147,13 @@ class _ObRevenueTargetState extends ConsumerState<ObRevenueTarget> {
           const SizedBox(height: 20),
 
           // Preset chips
-          const Text(
+          Text(
             'OR CHOOSE A TARGET',
             style: TextStyle(
               fontSize: 10,
               fontWeight: FontWeight.w600,
               letterSpacing: 0,
-              color: AppColors.t3,
+              color: AppColors.of(context).t3,
             ),
           ),
           const SizedBox(height: 12),

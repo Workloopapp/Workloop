@@ -3,6 +3,8 @@ import 'dart:ui' show SemanticsAction;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
+import 'package:workloop/features/settings/account_deletion_confirmation_screen.dart';
 // Test-only in-memory backend for SharedPreferencesAsync.
 // ignore: depend_on_referenced_packages
 import 'package:shared_preferences_platform_interface/in_memory_shared_preferences_async.dart';
@@ -25,19 +27,36 @@ SupabaseClient _testClient() {
   );
 }
 
+class _SignedInAuthRepository extends AuthRepository {
+  _SignedInAuthRepository() : super(_testClient());
+  String? owner = 'owner-a';
+  @override
+  String? get currentUserId => owner;
+  @override
+  String get currentEmail => 'owner@example.com';
+  @override
+  Future<void> signOutLocal({String? expectedUserId}) async {
+    owner = null;
+  }
+}
+
 class _RetryingPrivacyRepository extends PrivacyRepository {
   _RetryingPrivacyRepository({this.failFirstRequest = false})
     : super(_testClient());
 
   final bool failFirstRequest;
-  final requestedWorkspaceIds = <String>[];
+  final requestedWorkspaceIds = <String?>[];
 
   @override
-  Future<void> requestAccountDeletion({required String workspaceId}) async {
+  Future<AccountDeletionResult> requestAccountDeletion({
+    String? workspaceId,
+    String? appleAuthorizationCode,
+  }) async {
     requestedWorkspaceIds.add(workspaceId);
     if (failFirstRequest && requestedWorkspaceIds.length == 1) {
       throw StateError('offline');
     }
+    return const AccountDeletionResult();
   }
 }
 
@@ -66,19 +85,30 @@ void main() {
     required String? workspaceId,
     required PrivacyRepository repository,
   }) async {
+    final router = GoRouter(
+      routes: [
+        GoRoute(
+          path: '/',
+          builder: (_, _) =>
+              const Scaffold(body: SettingsAccountTab(showDataOnly: true)),
+        ),
+        GoRoute(
+          path: '/account-deletion-requested',
+          builder: (_, state) => AccountDeletionConfirmationScreen(
+            result: state.extra! as AccountDeletionResult,
+          ),
+        ),
+      ],
+    );
+    addTearDown(router.dispose);
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
-          authRepositoryProvider.overrideWithValue(
-            AuthRepository(_testClient()),
-          ),
+          authRepositoryProvider.overrideWithValue(_SignedInAuthRepository()),
           workspaceIdProvider.overrideWith((ref) async => workspaceId),
           privacyRepositoryProvider.overrideWithValue(repository),
         ],
-        child: MaterialApp(
-          theme: AppTheme.dark,
-          home: const Scaffold(body: SettingsAccountTab()),
-        ),
+        child: MaterialApp.router(theme: AppTheme.dark, routerConfig: router),
       ),
     );
     await tester.pumpAndSettle();
@@ -97,7 +127,7 @@ void main() {
   }
 
   testWidgets(
-    'missing workspace explains the problem and restores deletion retry',
+    'account without workspace can request deletion before onboarding',
     (tester) async {
       final repository = _RetryingPrivacyRepository();
       await openDeletionSheet(
@@ -105,23 +135,13 @@ void main() {
         workspaceId: null,
         repository: repository,
       );
-
+      await tester.ensureVisible(requestDeletionButton());
+      await tester.ensureVisible(requestDeletionButton());
       await tester.tap(requestDeletionButton());
       await tester.pumpAndSettle();
-
-      expect(repository.requestedWorkspaceIds, isEmpty);
-      expect(
-        find.text(
-          'We couldn’t find your workspace. Reload Workloop and try again.',
-        ),
-        findsOneWidget,
-      );
-      expect(find.text('Request account deletion'), findsOneWidget);
-      expect(find.byType(CircularProgressIndicator), findsNothing);
-      expect(
-        tester.widget<ElevatedButton>(requestDeletionButton()).onPressed,
-        isNotNull,
-      );
+      expect(repository.requestedWorkspaceIds, [null]);
+      expect(find.text('Your request is recorded'), findsOneWidget);
+      expect(find.text('Request account deletion'), findsNothing);
     },
   );
 
@@ -135,12 +155,15 @@ void main() {
       repository: repository,
     );
 
+    await tester.ensureVisible(requestDeletionButton());
     await tester.tap(requestDeletionButton());
     await tester.pumpAndSettle();
 
     expect(repository.requestedWorkspaceIds, ['workspace-1']);
     expect(
-      find.text('The deletion request could not be created.'),
+      find.text(
+        'Your deletion request could not be confirmed. Please try again or contact support.',
+      ),
       findsOneWidget,
     );
     expect(find.text('Request account deletion'), findsOneWidget);
@@ -149,6 +172,7 @@ void main() {
       isNotNull,
     );
 
+    await tester.ensureVisible(requestDeletionButton());
     await tester.tap(requestDeletionButton());
     await tester.pumpAndSettle();
 

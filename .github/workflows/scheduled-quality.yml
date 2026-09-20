@@ -14,6 +14,23 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  backup-health:
+    name: Production backup freshness
+    if: ${{ vars.ENABLE_BACKUP_HEALTH == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_BACKUP_READ_TOKEN }}
+      SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+      BACKUP_MAX_AGE_HOURS: "36"
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - name: Verify latest completed backup
+        run: bash scripts/verify_supabase_backup.sh
+
   broad-regression:
     name: Broad regression and dependency audit
     runs-on: ubuntu-latest

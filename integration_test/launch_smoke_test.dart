@@ -27,11 +27,18 @@ void main() {
       findsOneWidget,
     );
 
-    final modeToggle = find.byKey(const ValueKey('auth-mode-toggle'));
-    await tester.ensureVisible(modeToggle);
-    await tester.tap(modeToggle);
+    // Signup has its own return control; the first-run CTA belongs to login.
+    final returnToSignIn = find.byKey(
+      const ValueKey('auth-return-mode-toggle'),
+    );
+    expect(returnToSignIn, findsOneWidget);
+    await tester.ensureVisible(returnToSignIn);
+    await tester.pumpAndSettle();
+    expect(returnToSignIn.hitTestable(), findsOneWidget);
+    await tester.tap(returnToSignIn);
     await tester.pumpAndSettle();
     expect(find.text('Welcome back.'), findsOneWidget);
+    expect(find.text('Create your account.'), findsNothing);
 
     await tester.tap(find.text('Forgot password?'));
     await tester.pumpAndSettle();

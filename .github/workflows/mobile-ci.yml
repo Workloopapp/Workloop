@@ -63,6 +63,9 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      - name: Verify store-release safeguards without signing
+        run: python3 -m unittest discover -s scripts/tests -p 'test_release_tools.py'
+
       - name: Verify formatting
         run: >-
           dart format --output=none --set-exit-if-changed
@@ -104,16 +107,24 @@ jobs:
           deno check --config supabase/functions/create-booking-request/deno.json supabase/functions/create-booking-request/index.ts
           deno check --config supabase/functions/confirm-booking-request/deno.json supabase/functions/confirm-booking-request/index.ts
           deno check --config supabase/functions/drain-booking-confirmation-emails/deno.json supabase/functions/drain-booking-confirmation-emails/index.ts
+          deno check --config supabase/functions/get-public-booking-availability/deno.json supabase/functions/get-public-booking-availability/index.ts
           deno check --config supabase/functions/get-public-profile/deno.json supabase/functions/get-public-profile/index.ts
           deno check --config supabase/functions/join-waitlist/deno.json supabase/functions/join-waitlist/index.ts
+          deno check --config supabase/functions/local-weather/deno.json supabase/functions/local-weather/index.ts
           deno check --config supabase/functions/places-address-search/deno.json supabase/functions/places-address-search/index.ts
           deno check --config supabase/functions/request-account-deletion/deno.json supabase/functions/request-account-deletion/index.ts
           deno check --config supabase/functions/stripe-payments/deno.json supabase/functions/stripe-payments/index.ts
           deno check --config supabase/functions/stripe-webhook/deno.json supabase/functions/stripe-webhook/index.ts
+          deno check --config supabase/functions/resend-webhook/deno.json supabase/functions/resend-webhook/index.ts
+          deno check --config supabase/functions/sms-booking-reminders/deno.json supabase/functions/sms-booking-reminders/index.ts
+          deno check supabase/functions/collect-apple-reporting/index.ts
           deno check supabase/functions/workloop-ai-assistant/index.ts
 
       - name: Test Edge Function logic
-        run: deno test --allow-env supabase/functions
+        run: |
+          deno test --allow-env --allow-read=supabase/templates --ignore=supabase/functions/stripe-payments,supabase/functions/workloop-subscription supabase/functions
+          deno test --allow-env --config supabase/functions/stripe-payments/deno.json supabase/functions/stripe-payments
+          deno test --allow-env --config supabase/functions/workloop-subscription/deno.json supabase/functions/workloop-subscription
 
       - name: Build Android profile APK
         run: >-

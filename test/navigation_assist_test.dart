@@ -2,21 +2,304 @@ import 'dart:io';
 
 import 'package:flutter/cupertino.dart' show CupertinoPageTransitionsBuilder;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:workloop/core/theme/app_theme.dart';
 import 'package:workloop/features/clients/clients_screen.dart';
+import 'package:workloop/features/notes/notes_screen.dart';
+import 'package:workloop/features/tasks/tasks_screen.dart';
+import 'package:workloop/features/work/work_workspace_switcher.dart';
+import 'package:workloop/main.dart' show MainShell;
 import 'package:workloop/shared/models/slate_models.dart';
+import 'package:workloop/shared/providers/appointments_provider.dart';
+import 'package:workloop/shared/providers/booking_requests_provider.dart';
 import 'package:workloop/shared/providers/clients_provider.dart';
+import 'package:workloop/shared/providers/notes_provider.dart';
+import 'package:workloop/shared/providers/tasks_provider.dart';
 import 'package:workloop/shared/widgets/slate_ui.dart';
 
 void main() {
-  test('iOS status-bar taps forward into the shared scroll shortcut', () {
+  for (final nativeStatusTap in [false, true]) {
+    testWidgets(
+      'real Clients shell returns to top via ${nativeStatusTap ? 'native status message' : 'reselected Clients tab'}',
+      (tester) async {
+        tester.view.physicalSize = const Size(390, 844);
+        tester.view.devicePixelRatio = 1;
+        tester.view.padding = FakeViewPadding(top: 47, bottom: 34);
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        addTearDown(tester.view.resetPadding);
+        final observer = WorkloopNavigationObserver();
+        final records = List<ClientCrmRecord>.generate(
+          40,
+          (index) => ClientCrmRecord(
+            client: Client(
+              id: 'client-$index',
+              workspaceId: 'workspace-1',
+              name: 'Client ${index.toString().padLeft(2, '0')}',
+            ),
+            bookingCount: 0,
+            completedBookingCount: 0,
+            nextBooking: null,
+            lastBooking: null,
+            lifetimeValue: 0,
+            outstandingBalance: 0,
+            openTaskCount: 0,
+            overdueTaskCount: 0,
+          ),
+        );
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              clientCrmRecordsProvider.overrideWith((ref) async => records),
+            ],
+            child: _navigationHarness(
+              observer: observer,
+              home: const MainShell(initialIndex: 1),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final clientScroll = find.descendant(
+          of: find.byType(ClientsScreen),
+          matching: find.byType(CustomScrollView),
+        );
+        final controller = tester
+            .widget<CustomScrollView>(clientScroll)
+            .controller!;
+        await tester.drag(clientScroll, const Offset(0, -760));
+        await tester.pumpAndSettle();
+        expect(controller.offset, greaterThan(500));
+        if (nativeStatusTap) {
+          await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+            SystemChannels.statusBar.name,
+            SystemChannels.statusBar.codec.encodeMethodCall(
+              const MethodCall('handleScrollToTop'),
+            ),
+            (_) {},
+          );
+        } else {
+          await tester.tap(
+            find.descendant(
+              of: find.byType(WorkloopBottomNav),
+              matching: find.text('Clients'),
+            ),
+          );
+        }
+        await tester.pumpAndSettle();
+        expect(controller.offset, controller.position.minScrollExtent);
+        expect(
+          find
+              .descendant(
+                of: find.byType(ClientsScreen),
+                matching: find.text('Clients'),
+              )
+              .hitTestable(),
+          findsOneWidget,
+        );
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
+  testWidgets(
+    'real Work reselection and native top preserve its hidden Notes position',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      tester.view.padding = FakeViewPadding(top: 47, bottom: 34);
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPadding);
+      final observer = WorkloopNavigationObserver();
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            appointmentsProvider.overrideWith((ref) async => []),
+            bookingRequestsProvider.overrideWith((ref) async => []),
+            allTasksProvider.overrideWith(
+              (ref) async => List.generate(
+                40,
+                (index) => SlateTask(
+                  id: 'task-$index',
+                  workspaceId: 'workspace',
+                  title: 'Sample task $index',
+                ),
+              ),
+            ),
+            allNotesProvider.overrideWith(
+              (ref) async => List.generate(
+                40,
+                (index) => SlateNote(
+                  id: 'note-$index',
+                  workspaceId: 'workspace',
+                  title: 'Sample note $index',
+                  body: 'Remember the details for this work.',
+                ),
+              ),
+            ),
+          ],
+          child: _navigationHarness(
+            observer: observer,
+            home: const MainShell(initialIndex: 4),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      ScrollPosition positionWithin(Type type) => tester
+          .state<ScrollableState>(
+            find
+                .descendant(
+                  of: find.byType(type, skipOffstage: false),
+                  matching: find.byWidgetPredicate(
+                    (widget) =>
+                        widget is Scrollable &&
+                        axisDirectionToAxis(widget.axisDirection) ==
+                            Axis.vertical,
+                    skipOffstage: false,
+                  ),
+                )
+                .first,
+          )
+          .position;
+      final taskPosition = positionWithin(TasksScreen);
+      final notePosition = positionWithin(NotesScreen);
+      taskPosition.jumpTo(520);
+      notePosition.jumpTo(680);
+      await tester.pump();
+
+      await tester.tap(
+        find.descendant(
+          of: find.byType(WorkloopBottomNav),
+          matching: find.text('Work'),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<WorkWorkspaceSwitcher>(find.byType(WorkWorkspaceSwitcher))
+            .selected,
+        WorkWorkspaceSection.tasks,
+      );
+      expect(taskPosition.pixels, taskPosition.minScrollExtent);
+      expect(notePosition.pixels, 680);
+
+      taskPosition.jumpTo(520);
+      await tester.pump();
+      await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+        SystemChannels.statusBar.name,
+        SystemChannels.statusBar.codec.encodeMethodCall(
+          const MethodCall('handleScrollToTop'),
+        ),
+        (_) {},
+      );
+      await tester.pumpAndSettle();
+      expect(taskPosition.pixels, taskPosition.minScrollExtent);
+      expect(notePosition.pixels, 680);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('top tap preserves hidden positions on a shared controller', (
+    tester,
+  ) async {
+    final observer = WorkloopNavigationObserver();
+    final shared = ScrollController();
+    addTearDown(shared.dispose);
+    await tester.pumpWidget(
+      _navigationHarness(
+        observer: observer,
+        home: Scaffold(
+          body: IndexedStack(
+            index: 0,
+            children: [
+              _longList(shared, 'Visible shared'),
+              _longList(shared, 'Hidden shared'),
+            ],
+          ),
+        ),
+      ),
+    );
+    final positions = shared.positions.toList();
+    expect(positions, hasLength(2));
+    positions[0].jumpTo(520);
+    positions[1].jumpTo(680);
+    await tester.pump();
+    await tester.tapAt(const Offset(200, 6));
+    await tester.pumpAndSettle();
+    expect(positions[0].pixels, positions[0].minScrollExtent);
+    expect(positions[1].pixels, 680);
+  });
+
+  testWidgets('native status-bar message scrolls the current implicit list', (
+    tester,
+  ) async {
+    final observer = WorkloopNavigationObserver();
+    await tester.pumpWidget(
+      _navigationHarness(
+        observer: observer,
+        home: Scaffold(
+          body: ListView.builder(
+            primary: false,
+            itemCount: 80,
+            itemBuilder: (context, index) =>
+                SizedBox(height: 48, child: Text('Native row $index')),
+          ),
+        ),
+      ),
+    );
+    final position = tester
+        .state<ScrollableState>(find.byType(Scrollable))
+        .position;
+    position.jumpTo(640);
+    await tester.pump();
+    await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+      SystemChannels.statusBar.name,
+      SystemChannels.statusBar.codec.encodeMethodCall(
+        const MethodCall('handleScrollToTop'),
+      ),
+      (_) {},
+    );
+    await tester.pumpAndSettle();
+    expect(position.pixels, position.minScrollExtent);
+  });
+
+  testWidgets('a standalone scoped screen also responds to top taps', (
+    tester,
+  ) async {
+    final observer = WorkloopNavigationObserver();
+    final controller = ScrollController();
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      _navigationHarness(
+        observer: observer,
+        home: WorkloopNavigationScope(
+          id: 'standalone-route',
+          child: Scaffold(body: _longList(controller, 'Standalone')),
+        ),
+      ),
+    );
+    controller.jumpTo(600);
+    await tester.pump();
+    await tester.tapAt(const Offset(200, 6));
+    await tester.pumpAndSettle();
+    expect(controller.offset, controller.position.minScrollExtent);
+  });
+
+  test('iOS preserves Flutter as the single native status-bar detector', () {
     final source = File('ios/Runner/AppDelegate.swift').readAsStringSync();
-    expect(source, contains('WorkloopStatusBarScrollBridge'));
-    expect(source, contains('scrollViewShouldScrollToTop'));
-    expect(source, contains('com.ismaeel.workloop/navigation'));
-    expect(source, contains('channel.invokeMethod("scrollToTop"'));
+    expect(source, isNot(contains('WorkloopStatusBarScrollBridge')));
+    expect(source, isNot(contains('UIScrollView')));
+    expect(source, isNot(contains('com.ismaeel.workloop/navigation')));
+    expect(
+      source,
+      allOf(
+        contains('func didInitializeImplicitFlutterEngine('),
+        contains('engineBridge.applicationRegistrar.messenger()'),
+        contains('WorkloopStripeTerminalBridge(messenger: messenger)'),
+      ),
+    );
   });
 
   testWidgets('a top-edge tap returns the visible screen to its beginning', (
@@ -496,56 +779,60 @@ void main() {
     },
   );
 
-  testWidgets('programmatic shell navigation uses one calm transition', (
-    tester,
-  ) async {
-    var currentIndex = 0;
-    late void Function(int index) showDestination;
+  testWidgets(
+    'programmatic shell navigation is immediate and retains both destinations',
+    (tester) async {
+      var currentIndex = 0;
+      late void Function(int index) showDestination;
 
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: AppTheme.dark,
-        home: StatefulBuilder(
-          builder: (context, setState) {
-            showDestination = (index) => setState(() => currentIndex = index);
-            return Scaffold(
-              body: WorkloopInteractiveWorkspaceStack(
-                index: currentIndex,
-                previousIndex: null,
-                onBack: () {},
-                children: const [
-                  Center(child: Text('First destination')),
-                  Center(child: Text('Second destination')),
-                ],
-              ),
-            );
-          },
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.dark,
+          home: StatefulBuilder(
+            builder: (context, setState) {
+              showDestination = (index) => setState(() => currentIndex = index);
+              return Scaffold(
+                body: WorkloopInteractiveWorkspaceStack(
+                  index: currentIndex,
+                  previousIndex: null,
+                  onBack: () {},
+                  children: const [
+                    Center(child: Text('First destination')),
+                    Center(child: Text('Second destination')),
+                  ],
+                ),
+              );
+            },
+          ),
         ),
-      ),
-    );
+      );
 
-    showDestination(1);
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 80));
+      showDestination(1);
+      await tester.pump();
 
-    expect(find.text('First destination'), findsOneWidget);
-    expect(find.text('Second destination'), findsOneWidget);
-    expect(
-      tester
-          .widget<Transform>(
-            find.byKey(const ValueKey('workloop-workspace-transform-1')),
-          )
-          .transform
-          .getTranslation()
-          .x,
-      greaterThan(0),
-    );
-
-    await tester.pumpAndSettle();
-
-    expect(find.text('First destination'), findsNothing);
-    expect(find.text('Second destination'), findsOneWidget);
-  });
+      expect(find.text('First destination'), findsNothing);
+      expect(find.text('Second destination').hitTestable(), findsOneWidget);
+      expect(
+        find.text('First destination', skipOffstage: false),
+        findsOneWidget,
+      );
+      expect(
+        tester
+            .widget<Transform>(
+              find.byKey(const ValueKey('workloop-workspace-transform-1')),
+            )
+            .transform
+            .getTranslation()
+            .x,
+        0,
+        reason: 'A tab change must not wait for a forward-entry animation.',
+      );
+      showDestination(0);
+      await tester.pump();
+      expect(find.text('First destination').hitTestable(), findsOneWidget);
+      expect(find.text('Second destination'), findsNothing);
+    },
+  );
 
   testWidgets('shell transitions never replay a retained create request', (
     tester,
@@ -634,54 +921,59 @@ void main() {
     expect(find.text('Reduced second'), findsOneWidget);
   });
 
-  testWidgets('entering a retained tool always reads as forward navigation', (
-    tester,
-  ) async {
-    var currentIndex = 1;
-    int? previousIndex;
-    late VoidCallback openTool;
+  testWidgets(
+    'entering a retained tool is immediate while keeping back history',
+    (tester) async {
+      var currentIndex = 1;
+      int? previousIndex;
+      late VoidCallback openTool;
 
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: AppTheme.dark,
-        home: StatefulBuilder(
-          builder: (context, setState) {
-            openTool = () => setState(() {
-              previousIndex = currentIndex;
-              currentIndex = 0;
-            });
-            return Scaffold(
-              body: WorkloopInteractiveWorkspaceStack(
-                index: currentIndex,
-                previousIndex: previousIndex,
-                onBack: () {},
-                children: const [
-                  Center(child: Text('Retained tool')),
-                  Center(child: Text('Tools launchpad')),
-                ],
-              ),
-            );
-          },
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.dark,
+          home: StatefulBuilder(
+            builder: (context, setState) {
+              openTool = () => setState(() {
+                previousIndex = currentIndex;
+                currentIndex = 0;
+              });
+              return Scaffold(
+                body: WorkloopInteractiveWorkspaceStack(
+                  index: currentIndex,
+                  previousIndex: previousIndex,
+                  onBack: () {},
+                  children: const [
+                    Center(child: Text('Retained tool')),
+                    Center(child: Text('Tools launchpad')),
+                  ],
+                ),
+              );
+            },
+          ),
         ),
-      ),
-    );
+      );
 
-    openTool();
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 60));
+      openTool();
+      await tester.pump();
 
-    expect(
-      tester
-          .widget<Transform>(
-            find.byKey(const ValueKey('workloop-workspace-transform-0')),
-          )
-          .transform
-          .getTranslation()
-          .x,
-      greaterThan(0),
-    );
-    await tester.pumpAndSettle();
-  });
+      expect(find.text('Retained tool').hitTestable(), findsOneWidget);
+      expect(find.text('Tools launchpad').hitTestable(), findsNothing);
+      expect(
+        find.byKey(const ValueKey('workloop-workspace-back-edge')),
+        findsOneWidget,
+      );
+      expect(
+        tester
+            .widget<Transform>(
+              find.byKey(const ValueKey('workloop-workspace-transform-0')),
+            )
+            .transform
+            .getTranslation()
+            .x,
+        0,
+      );
+    },
+  );
 
   testWidgets('a completed retained-workspace swipe navigates once', (
     tester,

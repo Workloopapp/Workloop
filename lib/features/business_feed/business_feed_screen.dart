@@ -27,13 +27,13 @@ class _BusinessFeedScreenState extends ConsumerState<BusinessFeedScreen> {
     final feed = ref.watch(businessFeedProvider);
 
     return Scaffold(
-      backgroundColor: AppColors.bg,
+      backgroundColor: Colors.transparent,
       body: Stack(
         children: [
           const Positioned.fill(child: WorkloopTexturedBackdrop()),
           SafeArea(
             child: RefreshIndicator(
-              color: AppColors.accentPrimary,
+              color: AppColors.of(context).accentPrimary,
               onRefresh: _refreshFeed,
               child: CustomScrollView(
                 physics: const AlwaysScrollableScrollPhysics(),
@@ -45,7 +45,7 @@ class _BusinessFeedScreenState extends ConsumerState<BusinessFeedScreen> {
                       AppSpacing.pageX,
                       0,
                     ),
-                    sliver: const SliverToBoxAdapter(
+                    sliver: SliverToBoxAdapter(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -54,7 +54,7 @@ class _BusinessFeedScreenState extends ConsumerState<BusinessFeedScreen> {
                           Text(
                             'What happened and what needs your attention.',
                             style: TextStyle(
-                              color: AppColors.t2,
+                              color: AppColors.of(context).t2,
                               fontSize: 15,
                               height: 1.35,
                             ),

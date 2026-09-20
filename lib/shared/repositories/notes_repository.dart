@@ -2,6 +2,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/slate_models.dart';
+import '../attachments/record_attachment.dart';
+import '../attachments/record_attachments_repository.dart';
 import 'repository_pagination.dart';
 import 'supabase_client_provider.dart';
 
@@ -62,17 +64,20 @@ class NotesRepository {
     String? contactId,
     String? appointmentId,
     bool pinned = false,
+    String? noteId,
   }) async {
+    final values = {
+      'id': ?noteId,
+      'workspace_id': workspaceId,
+      'title': title.trim(),
+      'body': body.trim(),
+      'contact_id': contactId,
+      'appointment_id': appointmentId,
+      'pinned': pinned,
+    };
     final row = await _client
         .from('notes')
-        .insert({
-          'workspace_id': workspaceId,
-          'title': title.trim(),
-          'body': body.trim(),
-          'contact_id': contactId,
-          'appointment_id': appointmentId,
-          'pinned': pinned,
-        })
+        .upsert(values, onConflict: 'id')
         .select('id')
         .single();
     return row['id'] as String;
@@ -110,6 +115,16 @@ class NotesRepository {
   }
 
   Future<void> delete(String noteId) async {
+    final row = await _client
+        .from('notes')
+        .select('workspace_id')
+        .eq('id', noteId)
+        .maybeSingle();
+    if (row == null) return;
+    await RecordAttachmentsRepository(_client).deleteForTarget(
+      workspaceId: row['workspace_id'] as String,
+      target: AttachmentTarget.note(noteId),
+    );
     await _client.from('notes').delete().eq('id', noteId);
   }
 }

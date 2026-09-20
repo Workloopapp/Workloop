@@ -3,7 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../shared/providers/onboarding_provider.dart';
 import '../../../shared/utils/currency_format.dart';
+import '../../../shared/utils/duration_format.dart';
 import '../../../shared/widgets/slate_ui.dart';
+import 'onboarding_service_editor.dart';
 
 const Map<String, List<Map<String, dynamic>>> industryServices = {
   'Hair & Barbering': [
@@ -37,6 +39,11 @@ const Map<String, List<Map<String, dynamic>>> industryServices = {
     {'name': 'Callout & Assessment', 'duration': 60, 'price': 60.0},
     {'name': 'Standard Booking', 'duration': 120, 'price': 120.0},
   ],
+  'Mobile Valeting & Detailing': [
+    {'name': 'Maintenance Valet', 'duration': 90, 'price': 50.0},
+    {'name': 'Full Valet', 'duration': 180, 'price': 120.0},
+    {'name': 'Interior Deep Clean', 'duration': 150, 'price': 100.0},
+  ],
   'Tutoring & Coaching': [
     {'name': '1-to-1 Session', 'duration': 60, 'price': 45.0},
     {'name': 'Online Session', 'duration': 60, 'price': 40.0},
@@ -68,7 +75,7 @@ class _ObServicesState extends ConsumerState<ObServices> {
   void initState() {
     super.initState();
     final draft = ref.read(onboardingProvider);
-    _services = draft.services.isNotEmpty
+    _services = draft.servicesReviewed || draft.services.isNotEmpty
         ? draft.services.map((item) => Map<String, dynamic>.from(item)).toList()
         : List<Map<String, dynamic>>.from(
             industryServices[draft.industry] ?? industryServices['Other']!,
@@ -77,13 +84,38 @@ class _ObServicesState extends ConsumerState<ObServices> {
 
   void _removeService(int index) {
     setState(() => _services.removeAt(index));
+    ref.read(onboardingProvider.notifier).setServices(_services);
   }
 
-  void _addService() {
-    setState(() {
-      _services.add({'name': 'New service', 'duration': 60, 'price': 50.0});
-    });
+  Future<void> _addService() async {
+    final service = await _showServiceEditor(const {
+      'name': '',
+      'duration': 60,
+      'price': 0.0,
+    }, creating: true);
+    if (service != null && mounted) {
+      setState(() => _services.add(service));
+      ref.read(onboardingProvider.notifier).setServices(_services);
+    }
   }
+
+  Future<void> _editService(int index) async {
+    final service = await _showServiceEditor(_services[index]);
+    if (service != null && mounted) {
+      setState(() => _services[index] = service);
+      ref.read(onboardingProvider.notifier).setServices(_services);
+    }
+  }
+
+  Future<Map<String, dynamic>?> _showServiceEditor(
+    Map<String, dynamic> service, {
+    bool creating = false,
+  }) => showWorkloopBottomSheet<Map<String, dynamic>>(
+    context: context,
+    isScrollControlled: true,
+    builder: (_) =>
+        OnboardingServiceEditor(service: service, creating: creating),
+  );
 
   void _continue() {
     ref.read(onboardingProvider.notifier).setServices(_services);
@@ -103,57 +135,88 @@ class _ObServicesState extends ConsumerState<ObServices> {
             style: TextStyle(
               fontSize: 28,
               fontWeight: FontWeight.w600,
-              color: AppColors.t1,
+              color: AppColors.of(context).t1,
               letterSpacing: 0,
             ),
           ),
           const SizedBox(height: 8),
           Text(
-            'We\'ve added some defaults based on what you do. Edit, remove, or add your own.',
-            style: TextStyle(fontSize: 15, color: AppColors.t3, height: 1.5),
+            'These are starting suggestions. Check every price and duration before continuing, or skip and add your own later.',
+            style: TextStyle(
+              fontSize: 15,
+              color: AppColors.of(context).t3,
+              height: 1.5,
+            ),
           ),
           const SizedBox(height: 28),
           ..._services.asMap().entries.map((entry) {
             final i = entry.key;
             final s = entry.value;
-            return Container(
-              margin: const EdgeInsets.only(bottom: 10),
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: AppColors.bgCard,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: AppColors.border),
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          s['name'],
-                          style: TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.t1,
+            return InkWell(
+              onTap: () => _editService(i),
+              borderRadius: BorderRadius.circular(AppRadius.md),
+              child: Container(
+                margin: const EdgeInsets.only(bottom: 10),
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: AppColors.of(context).bgCard,
+                  borderRadius: BorderRadius.circular(AppRadius.md),
+                  border: Border.all(color: AppColors.of(context).border),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            s['name'],
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.of(context).t1,
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          '${s['duration']} min  ·  ${formatPounds(s['price'] as num)}',
-                          style: TextStyle(fontSize: 13, color: AppColors.t3),
-                        ),
-                      ],
+                          const SizedBox(height: 4),
+                          Text(
+                            '${formatFriendlyDuration(s['duration'] as int)}  ·  ${formatPounds(s['price'] as num)}',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: AppColors.of(context).t3,
+                            ),
+                          ),
+                          if ((s['description']?.toString().trim() ?? '')
+                              .isNotEmpty) ...[
+                            const SizedBox(height: AppSpacing.xs),
+                            Text(
+                              s['description'].toString().trim(),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: AppColors.of(context).t2,
+                                height: 1.4,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
                     ),
-                  ),
-                  WorkloopIconButton(
-                    icon: Icons.close_rounded,
-                    semanticLabel: 'Remove ${s['name']}',
-                    color: AppColors.error,
-                    backgroundColor: AppColors.errorDim,
-                    onTap: () => _removeService(i),
-                  ),
-                ],
+                    WorkloopIconButton(
+                      icon: Icons.close_rounded,
+                      semanticLabel: 'Remove ${s['name']}',
+                      color: AppColors.of(context).error,
+                      backgroundColor: AppColors.of(context).errorDim,
+                      onTap: () => _removeService(i),
+                    ),
+                    const SizedBox(width: 6),
+                    Icon(
+                      Icons.edit_rounded,
+                      color: AppColors.of(context).t3,
+                      size: 18,
+                    ),
+                  ],
+                ),
               ),
             );
           }),
@@ -162,12 +225,12 @@ class _ObServicesState extends ConsumerState<ObServices> {
             child: OutlinedButton.icon(
               onPressed: _addService,
               style: OutlinedButton.styleFrom(
-                foregroundColor: AppColors.green,
-                backgroundColor: AppColors.bgCard,
+                foregroundColor: AppColors.of(context).green,
+                backgroundColor: AppColors.of(context).bgCard,
                 minimumSize: const Size.fromHeight(52),
-                side: const BorderSide(color: AppColors.border),
+                side: BorderSide(color: AppColors.of(context).border),
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
+                  borderRadius: BorderRadius.circular(AppRadius.md),
                 ),
               ),
               icon: const Icon(Icons.add_rounded, size: 20),
@@ -193,7 +256,10 @@ class _ObServicesState extends ConsumerState<ObServices> {
           Center(
             child: WorkloopTextButton(
               label: 'Skip — add services later',
-              onPressed: widget.onNext,
+              onPressed: () {
+                ref.read(onboardingProvider.notifier).setServices([]);
+                widget.onNext();
+              },
             ),
           ),
           const SizedBox(height: 32),

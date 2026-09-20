@@ -6,10 +6,10 @@ final class WorkloopStripeTerminalBridge: NSObject {
   private let channel: FlutterMethodChannel
   private var activeResult: FlutterResult?
 
-  init(controller: FlutterViewController) {
+  init(messenger: FlutterBinaryMessenger) {
     channel = FlutterMethodChannel(
       name: "com.ismaeel.workloop/payments",
-      binaryMessenger: controller.binaryMessenger
+      binaryMessenger: messenger
     )
     super.init()
     Terminal.initWithTokenProvider(self)
@@ -175,4 +175,3 @@ extension WorkloopStripeTerminalBridge: TapToPayReaderDelegate {
     didRequestReaderDisplayMessage displayMessage: ReaderDisplayMessage
   ) {}
 }
-

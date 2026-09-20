@@ -67,14 +67,53 @@ class ExpensesRepository {
     required String category,
     required DateTime date,
     String? notes,
+    String? expenseId,
   }) async {
-    await _client.from('expenses').insert({
+    final values = {
+      'id': ?expenseId,
       'workspace_id': workspaceId,
       'amount': amount,
       'category': category,
       'expense_date': date.toIso8601String().split('T').first,
       'notes': notes?.trim().isEmpty ?? true ? null : notes!.trim(),
-    });
+    };
+    if (expenseId == null) {
+      await _client.from('expenses').insert(values);
+    } else {
+      // Match receipt-backed creation: retries retain this expense identity,
+      // including any corrections the owner made while the form stayed open.
+      await _client.from('expenses').upsert(values);
+      await _client
+          .from('expenses')
+          .select('id')
+          .eq('id', expenseId)
+          .eq('workspace_id', workspaceId)
+          .single();
+    }
+  }
+
+  /// Used when a receipt needs the new expense id before upload.
+  Future<String> createReturningId({
+    required String expenseId,
+    required String workspaceId,
+    required double amount,
+    required String category,
+    required DateTime date,
+    String? notes,
+  }) async {
+    final row = await _client
+        .from('expenses')
+        .upsert({
+          'id': expenseId,
+          'workspace_id': workspaceId,
+          'amount': amount,
+          'category': category,
+          'expense_date': date.toIso8601String().split('T').first,
+          'notes': notes?.trim().isEmpty ?? true ? null : notes!.trim(),
+        })
+        .select('id')
+        .single();
+    return row['id'] as String;
   }
 
   Future<void> update({
@@ -99,6 +138,28 @@ class ExpensesRepository {
   }
 
   Future<void> delete(String expenseId) async {
+    // Delete object bytes before cascading their metadata. Failure blocks the
+    // expense deletion so receipts remain discoverable and the user can retry.
+    final receipts = await fetchAllRepositoryPages<Map<String, dynamic>>(
+      loadPage: (from, to) async => List<Map<String, dynamic>>.from(
+        await _client
+            .from('expense_receipts')
+            .select('id,object_path')
+            .eq('expense_id', expenseId)
+            .order('id')
+            .range(from, to),
+      ),
+    );
+    for (var offset = 0; offset < receipts.length; offset += 100) {
+      final page = receipts.skip(offset).take(100).toList();
+      await _client.storage
+          .from('expense-receipts')
+          .remove(page.map((row) => row['object_path'] as String).toList());
+      await _client
+          .from('expense_receipts')
+          .delete()
+          .inFilter('id', page.map((row) => row['id'] as String).toList());
+    }
     await _client
         .from('expenses')
         .delete()
@@ -108,6 +169,10 @@ class ExpensesRepository {
   }
 
   bool _tableMissing(PostgrestException error) {
-    return error.code == '42P01' || error.message.contains('expenses');
+    return (error.code == '42P01' &&
+            error.message == 'relation "public.expenses" does not exist') ||
+        (error.code == 'PGRST205' &&
+            error.message ==
+                "Could not find the table 'public.expenses' in the schema cache");
   }
 }

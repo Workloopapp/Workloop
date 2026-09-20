@@ -1,5 +1,10 @@
 import { createClient } from "@supabase/supabase-js";
-import { verifyStripeSignature } from "../_shared/stripe_api.ts";
+import { stripeRequest, verifyStripeSignature } from "../_shared/stripe_api.ts";
+import {
+  currentCheckoutUpdate,
+  currentIntentUpdate,
+  currentRefundStatus,
+} from "../_shared/stripe_reconciliation.ts";
 
 type Json = Record<string, unknown>;
 
@@ -25,21 +30,6 @@ function idValue(value: unknown) {
   return stringValue(objectValue(value).id);
 }
 
-function intentStatus(value: unknown) {
-  switch (value) {
-    case "succeeded":
-      return "succeeded";
-    case "processing":
-      return "processing";
-    case "requires_payment_method":
-      return "requires_payment_method";
-    case "canceled":
-      return "cancelled";
-    default:
-      return "pending";
-  }
-}
-
 Deno.serve(async (req: Request) => {
   if (req.method !== "POST") {
     return jsonResponse(405, { error: "Method not allowed" });
@@ -48,9 +38,10 @@ Deno.serve(async (req: Request) => {
   const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
   const webhookSecret = Deno.env.get("STRIPE_WEBHOOK_SECRET") ?? "";
+  const stripeSecret = Deno.env.get("STRIPE_SECRET_KEY") ?? "";
   if (
     !supabaseUrl || serviceRoleKey.length < 32 ||
-    !webhookSecret.startsWith("whsec_")
+    !webhookSecret.startsWith("whsec_") || !stripeSecret.startsWith("sk_")
   ) {
     return jsonResponse(503, { error: "Webhook is not configured" });
   }
@@ -77,30 +68,6 @@ Deno.serve(async (req: Request) => {
   const supabase = createClient(supabaseUrl, serviceRoleKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
-
-  async function syncSucceededRefunds(
-    transactionId: string,
-    amount: number,
-  ) {
-    const { data: refunds, error: refundsError } = await supabase
-      .from("payment_refunds")
-      .select("amount_minor")
-      .eq("transaction_id", transactionId)
-      .eq("status", "succeeded");
-    if (refundsError) throw refundsError;
-    const refunded = (refunds ?? []).reduce(
-      (sum, row) => sum + Number(row.amount_minor),
-      0,
-    );
-    const boundedRefunded = Math.min(amount, Math.max(0, refunded));
-    if (boundedRefunded === 0) return;
-    const { error } = await supabase.from("payment_transactions").update({
-      amount_refunded_minor: boundedRefunded,
-      status: boundedRefunded >= amount ? "refunded" : "partially_refunded",
-      updated_at: new Date().toISOString(),
-    }).eq("id", transactionId);
-    if (error) throw error;
-  }
 
   const { data: claimed, error: claimError } = await supabase.rpc(
     "claim_stripe_webhook_event",
@@ -137,183 +104,204 @@ Deno.serve(async (req: Request) => {
 
   const object = objectValue(objectValue(event.data).object);
   try {
+    const targetAccountId = eventType === "account.updated"
+      ? stringValue(object.id)
+      : accountId;
+    const { data: paymentAccount, error: accountError } = await supabase
+      .from("workspace_payment_accounts").select(
+        "workspace_id, mode, updated_at",
+      )
+      .eq("stripe_account_id", targetAccountId).maybeSingle();
+    if (accountError) throw accountError;
+    if (
+      !paymentAccount ||
+      paymentAccount.mode !== (event.livemode === true ? "live" : "test") ||
+      (stripeSecret.startsWith("sk_live_") !== (event.livemode === true))
+    ) {
+      await finish("ignored");
+      return jsonResponse(200, { received: true });
+    }
+    const readStripe = (path: string) =>
+      stripeRequest<Json>(stripeSecret, path, { accountId: targetAccountId });
+    const liveMode = event.livemode === true;
+    const findTransaction = async (field: string, id: string) => {
+      const { data, error } = await supabase.from("payment_transactions")
+        .select("*")
+        .eq("stripe_account_id", targetAccountId).eq(
+          "workspace_id",
+          paymentAccount!.workspace_id,
+        )
+        .eq(field, id).maybeSingle();
+      if (error) throw error;
+      if (!data) {
+        let metadata = objectValue(object.metadata);
+        if (
+          field === "stripe_payment_intent_id" && id.startsWith("pi_") &&
+          metadata.workloop_workspace_id !== paymentAccount!.workspace_id
+        ) {
+          metadata = objectValue(
+            (await readStripe(`/v1/payment_intents/${id}`)).metadata,
+          );
+        }
+        // A Workloop event can beat transaction creation or Checkout-to-intent
+        // linking. Return a retryable error rather than permanently losing it.
+        if (metadata.workloop_workspace_id === paymentAccount!.workspace_id) {
+          throw new Error(
+            "Workloop transaction is not recorded yet; retry delivery",
+          );
+        }
+      }
+      return data as Json | null;
+    };
+    const updateTransaction = async (transaction: Json, update: Json) => {
+      const { data, error } = await supabase.from("payment_transactions")
+        .update({ ...update, updated_at: new Date().toISOString() })
+        .eq("id", transaction.id).eq("stripe_account_id", targetAccountId)
+        .eq("updated_at", transaction.updated_at).select("id").maybeSingle();
+      if (error) throw error;
+      if (!data) {
+        throw new Error(
+          "Payment changed during reconciliation; retry delivery",
+        );
+      }
+    };
     let handled = true;
     if (eventType === "account.updated") {
-      const requirements = objectValue(object.requirements);
-      const requirementsDue = Array.isArray(requirements.currently_due)
-        ? requirements.currently_due.filter((value) =>
-          typeof value === "string"
-        )
-        : [];
-      const disabled = stringValue(requirements.disabled_reason);
-      const ready = object.charges_enabled === true &&
-        object.payouts_enabled === true &&
-        object.details_submitted === true;
-      const { error } = await supabase.from("workspace_payment_accounts")
+      const account = await stripeRequest<Json>(
+        stripeSecret,
+        `/v1/accounts/${targetAccountId}`,
+      );
+      const requirements = objectValue(account.requirements);
+      const ready = account.charges_enabled === true &&
+        account.payouts_enabled === true && account.details_submitted === true;
+      const { data, error } = await supabase.from("workspace_payment_accounts")
         .update({
-          onboarding_status: disabled
+          onboarding_status: requirements.disabled_reason
             ? "restricted"
             : ready
             ? "ready"
             : "pending",
-          details_submitted: object.details_submitted === true,
-          charges_enabled: object.charges_enabled === true,
-          payouts_enabled: object.payouts_enabled === true,
-          requirements_due: requirementsDue,
+          details_submitted: account.details_submitted === true,
+          charges_enabled: account.charges_enabled === true,
+          payouts_enabled: account.payouts_enabled === true,
+          requirements_due: Array.isArray(requirements.currently_due)
+            ? requirements.currently_due.filter((item) =>
+              typeof item === "string"
+            )
+            : [],
           last_synced_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
-        }).eq("stripe_account_id", stringValue(object.id));
+        }).eq("stripe_account_id", targetAccountId).eq(
+          "updated_at",
+          paymentAccount.updated_at,
+        ).select("workspace_id").maybeSingle();
       if (error) throw error;
-    } else if (eventType.startsWith("payment_intent.")) {
-      const intentId = stringValue(object.id);
-      const lastError = objectValue(object.last_payment_error);
-      const update: Json = {
-        status: intentStatus(object.status),
-        stripe_charge_id: idValue(object.latest_charge) || null,
-        failure_code: stringValue(lastError.code) || null,
-        failure_message: stringValue(lastError.message, 500) || null,
-        paid_at: object.status === "succeeded"
-          ? new Date().toISOString()
-          : null,
-        updated_at: new Date().toISOString(),
-      };
-      const { error } = await supabase.from("payment_transactions").update(
-        update,
-      )
-        .eq("stripe_account_id", accountId)
-        .eq("stripe_payment_intent_id", intentId);
-      if (error) throw error;
-    } else if (
-      eventType.startsWith("charge.") &&
-      !eventType.startsWith("charge.refund.") &&
-      !eventType.startsWith("charge.dispute.")
-    ) {
-      const intentId = idValue(object.payment_intent);
-      if (!intentId) {
-        handled = false;
-      } else {
-        const amount = Number(object.amount ?? 0);
-        const refunded = Math.max(0, Number(object.amount_refunded ?? 0));
-        const paid = object.status === "succeeded" || object.paid === true;
-        const status = refunded >= amount && amount > 0
-          ? "refunded"
-          : refunded > 0
-          ? "partially_refunded"
-          : paid
-          ? "succeeded"
-          : eventType === "charge.failed"
-          ? "failed"
-          : "pending";
-        const outcome = objectValue(object.outcome);
-        const { error } = await supabase.from("payment_transactions").update({
-          stripe_charge_id: stringValue(object.id) || null,
-          amount_refunded_minor: refunded,
-          status,
-          receipt_url: stringValue(object.receipt_url, 1000) || null,
-          failure_code: stringValue(object.failure_code) || null,
-          failure_message: stringValue(object.failure_message, 500) ||
-            stringValue(outcome.seller_message, 500) || null,
-          paid_at: paid ? new Date().toISOString() : null,
-          updated_at: new Date().toISOString(),
-        }).eq("stripe_account_id", accountId)
-          .eq("stripe_payment_intent_id", intentId);
-        if (error) throw error;
-      }
-    } else if (
-      eventType.startsWith("refund.") ||
-      eventType.startsWith("charge.refund.")
-    ) {
-      const intentId = idValue(object.payment_intent);
-      const { data: transaction, error: findError } = await supabase
-        .from("payment_transactions")
-        .select("id, workspace_id")
-        .eq("stripe_account_id", accountId)
-        .eq("stripe_payment_intent_id", intentId)
-        .maybeSingle();
-      if (findError) throw findError;
-      if (!transaction) {
-        handled = false;
-      } else {
-        const status = object.status === "succeeded"
-          ? "succeeded"
-          : object.status === "failed"
-          ? "failed"
-          : object.status === "canceled"
-          ? "cancelled"
-          : "pending";
-        const metadata = objectValue(object.metadata);
-        const idempotencyKey = stringValue(
-          metadata.workloop_idempotency_key,
-          128,
+      if (!data) {
+        throw new Error(
+          "Account changed during reconciliation; retry delivery",
         );
-        const { error } = await supabase.from("payment_refunds").upsert({
+      }
+    } else if (eventType.startsWith("checkout.session.")) {
+      const sessionId = stringValue(object.id);
+      const transaction = await findTransaction(
+        "stripe_checkout_session_id",
+        sessionId,
+      );
+      if (!transaction) handled = false;
+      else {await updateTransaction(
+          transaction,
+          await currentCheckoutUpdate(
+            sessionId,
+            transaction,
+            liveMode,
+            readStripe,
+          ),
+        );}
+    } else if (
+      eventType.startsWith("refund.") || eventType.startsWith("charge.refund.")
+    ) {
+      const refundId = stringValue(object.id);
+      const refund = await readStripe(`/v1/refunds/${refundId}`);
+      const intentId = idValue(refund.payment_intent);
+      const transaction = await findTransaction(
+        "stripe_payment_intent_id",
+        intentId,
+      );
+      if (!transaction) handled = false;
+      else {
+        if (
+          refund.currency !== transaction.currency ||
+          !Number.isSafeInteger(refund.amount) || Number(refund.amount) <= 0 ||
+          Number(refund.amount) > Number(transaction.amount_minor)
+        ) {
+          throw new Error("Refund does not match the recorded transaction");
+        }
+        const { data: previous, error: previousError } = await supabase.from(
+          "payment_refunds",
+        )
+          .select("id, updated_at").eq("stripe_refund_id", refundId)
+          .maybeSingle();
+        if (previousError) throw previousError;
+        const metadata = objectValue(refund.metadata);
+        const refundKey = stringValue(metadata.workloop_idempotency_key, 128);
+        const values = {
           workspace_id: transaction.workspace_id,
           transaction_id: transaction.id,
-          stripe_refund_id: object.id,
-          amount_minor: object.amount,
-          status,
-          reason: stringValue(object.reason) || null,
-          failure_reason: stringValue(object.failure_reason) || null,
-          idempotency_key: idempotencyKey.length >= 16 ? idempotencyKey : null,
+          stripe_refund_id: refundId,
+          amount_minor: refund.amount,
+          status: currentRefundStatus(refund.status),
+          reason: stringValue(refund.reason) || null,
+          failure_reason: stringValue(refund.failure_reason) || null,
+          ...(refundKey.length >= 16 ? { idempotency_key: refundKey } : {}),
           updated_at: new Date().toISOString(),
-        }, { onConflict: "stripe_refund_id" });
+        };
+        const write = previous
+          ? supabase.from("payment_refunds").update(values).eq(
+            "id",
+            previous.id,
+          ).eq("updated_at", previous.updated_at)
+          : supabase.from("payment_refunds").insert(values);
+        const { data: saved, error } = await write.select("id").maybeSingle();
         if (error) throw error;
-        if (status === "succeeded") {
-          const { data: fullTransaction, error: transactionError } =
-            await supabase.from("payment_transactions")
-              .select("amount_minor")
-              .eq("id", transaction.id)
-              .single();
-          if (transactionError) throw transactionError;
-          await syncSucceededRefunds(
-            transaction.id,
-            Number(fullTransaction.amount_minor),
+        if (!saved) {
+          throw new Error(
+            "Refund changed during reconciliation; retry delivery",
           );
         }
+        await updateTransaction(
+          transaction,
+          await currentIntentUpdate(
+            intentId,
+            transaction,
+            liveMode,
+            readStripe,
+          ),
+        );
       }
     } else if (
-      eventType === "checkout.session.completed" ||
-      eventType === "checkout.session.async_payment_succeeded"
+      eventType.startsWith("payment_intent.") || eventType.startsWith("charge.")
     ) {
-      const paid = object.payment_status === "paid" ||
-        eventType === "checkout.session.async_payment_succeeded";
-      const { error } = await supabase.from("payment_transactions").update({
-        stripe_payment_intent_id: idValue(object.payment_intent) || null,
-        status: paid ? "succeeded" : "processing",
-        paid_at: paid ? new Date().toISOString() : null,
-        updated_at: new Date().toISOString(),
-      }).eq("stripe_account_id", accountId)
-        .eq("stripe_checkout_session_id", stringValue(object.id));
-      if (error) throw error;
-    } else if (
-      eventType === "checkout.session.expired" ||
-      eventType === "checkout.session.async_payment_failed"
-    ) {
-      const { error } = await supabase.from("payment_transactions").update({
-        status: eventType === "checkout.session.expired"
-          ? "cancelled"
-          : "failed",
-        updated_at: new Date().toISOString(),
-      }).eq("stripe_account_id", accountId)
-        .eq("stripe_checkout_session_id", stringValue(object.id));
-      if (error) throw error;
-    } else if (eventType.startsWith("charge.dispute.")) {
-      const intentId = idValue(object.payment_intent);
-      const lost = object.status === "lost";
-      const won = object.status === "won";
-      const { error } = await supabase.from("payment_transactions").update({
-        status: won ? "succeeded" : "disputed",
-        failure_code: lost ? "dispute_lost" : "disputed",
-        failure_message: lost
-          ? "The card dispute was lost."
-          : "This payment is under dispute.",
-        updated_at: new Date().toISOString(),
-      }).eq("stripe_account_id", accountId)
-        .eq("stripe_payment_intent_id", intentId);
-      if (error) throw error;
-    } else {
-      handled = false;
-    }
+      const intentId = eventType.startsWith("payment_intent.")
+        ? stringValue(object.id)
+        : idValue(object.payment_intent);
+      if (!intentId) handled = false;
+      else {
+        const transaction = await findTransaction(
+          "stripe_payment_intent_id",
+          intentId,
+        );
+        if (!transaction) handled = false;
+        else {await updateTransaction(
+            transaction,
+            await currentIntentUpdate(
+              intentId,
+              transaction,
+              liveMode,
+              readStripe,
+            ),
+          );}
+      }
+    } else handled = false;
 
     await finish(handled ? "processed" : "ignored");
     return jsonResponse(200, { received: true });

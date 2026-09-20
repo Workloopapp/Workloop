@@ -9,6 +9,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../shared/models/slate_models.dart';
 import '../../../shared/repositories/address_search_repository.dart';
 import '../../../shared/widgets/slate_ui.dart';
+import '../../../shared/widgets/workloop_form_field.dart';
 
 bool isValidClientEmail(String value) {
   final email = value.trim();
@@ -92,11 +93,12 @@ class ClientForm extends StatelessWidget {
       children: [
         const _FormSectionHeader(
           title: 'Contact information',
-          subtitle: 'The essential details you use to identify and reach them.',
+          subtitle: 'Only a name is required. Add contact details when useful.',
         ),
         const SizedBox(height: AppSpacing.md),
         _ClientTextField(
           label: 'Client name',
+          isRequired: true,
           hint: 'Person or business name',
           icon: LucideIcons.user,
           controller: nameController,
@@ -151,8 +153,8 @@ class ClientForm extends StatelessWidget {
             'inactive' => 'A past or paused client kept for reference.',
             _ => 'A current client you actively work with.',
           },
-          style: const TextStyle(
-            color: AppColors.t3,
+          style: TextStyle(
+            color: AppColors.of(context).t3,
             fontSize: 12,
             height: 1.35,
           ),
@@ -171,9 +173,13 @@ class ClientForm extends StatelessWidget {
         ),
         if (!_contactMethodAvailable) ...[
           const SizedBox(height: AppSpacing.xs),
-          const Text(
-            'Add the matching phone number or email before saving.',
-            style: TextStyle(color: AppColors.t3, fontSize: 12, height: 1.35),
+          Text(
+            'Add the matching phone number or email to use this contact method.',
+            style: TextStyle(
+              color: AppColors.of(context).t3,
+              fontSize: 12,
+              height: 1.35,
+            ),
           ),
         ],
         const SizedBox(height: AppSpacing.xl),
@@ -415,10 +421,11 @@ class _BookingAddressFieldState extends ConsumerState<BookingAddressField> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
+          WorkloopFieldLabel(
             'Address',
+            isRequired: false,
             style: TextStyle(
-              color: AppColors.t2,
+              color: AppColors.of(context).t2,
               fontSize: 13,
               fontWeight: FontWeight.w500,
             ),
@@ -443,8 +450,8 @@ class _BookingAddressFieldState extends ConsumerState<BookingAddressField> {
             const SizedBox(height: AppSpacing.xs),
             Text(
               _message!,
-              style: const TextStyle(
-                color: AppColors.t3,
+              style: TextStyle(
+                color: AppColors.of(context).t3,
                 fontSize: 11,
                 height: 1.3,
               ),
@@ -470,15 +477,15 @@ class _BookingAddressFieldState extends ConsumerState<BookingAddressField> {
       textCapitalization: TextCapitalization.words,
       autocorrect: false,
       onChanged: onChanged,
-      style: const TextStyle(
-        color: AppColors.t1,
+      style: TextStyle(
+        color: AppColors.of(context).t1,
         fontSize: 15,
         fontWeight: FontWeight.w400,
       ),
       decoration: InputDecoration(
         hintText: hintText,
-        hintStyle: const TextStyle(
-          color: AppColors.t4,
+        hintStyle: TextStyle(
+          color: AppColors.of(context).t4,
           fontSize: 14,
           fontWeight: FontWeight.w400,
         ),
@@ -487,32 +494,32 @@ class _BookingAddressFieldState extends ConsumerState<BookingAddressField> {
             left: AppSpacing.md,
             right: AppSpacing.sm,
           ),
-          child: Icon(icon, color: AppColors.t3, size: 17),
+          child: Icon(icon, color: AppColors.of(context).t3, size: 17),
         ),
         prefixIconConstraints: const BoxConstraints(minWidth: 46),
         suffixIcon: _loading || _resolving
-            ? const Padding(
+            ? Padding(
                 padding: EdgeInsets.all(15),
                 child: SizedBox(
                   width: 16,
                   height: 16,
                   child: CircularProgressIndicator(
                     strokeWidth: 1.8,
-                    color: AppColors.accentPrimary,
+                    color: AppColors.of(context).accentPrimary,
                   ),
                 ),
               )
             : null,
         filled: true,
-        fillColor: AppColors.bgCard.withValues(alpha: 0.68),
+        fillColor: AppColors.of(context).bgCard.withValues(alpha: 0.68),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(AppRadius.md),
-          borderSide: const BorderSide(color: AppColors.border),
+          borderSide: BorderSide(color: AppColors.of(context).border),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(AppRadius.md),
-          borderSide: const BorderSide(
-            color: AppColors.accentPrimary,
+          borderSide: BorderSide(
+            color: AppColors.of(context).accentPrimary,
             width: 1.4,
           ),
         ),
@@ -544,9 +551,9 @@ class _AddressPredictions extends StatelessWidget {
     final resultsHeight = min(predictions.length * rowHeight, 248.0);
     return Container(
       decoration: BoxDecoration(
-        color: AppColors.bgCard.withValues(alpha: 0.96),
+        color: AppColors.of(context).bgCard.withValues(alpha: 0.96),
         borderRadius: BorderRadius.circular(AppRadius.md),
-        border: Border.all(color: AppColors.border),
+        border: Border.all(color: AppColors.of(context).border),
       ),
       clipBehavior: Clip.antiAlias,
       child: Column(
@@ -560,7 +567,7 @@ class _AddressPredictions extends StatelessWidget {
               keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.manual,
               itemCount: predictions.length,
               separatorBuilder: (_, _) =>
-                  const Divider(height: 1, color: AppColors.border),
+                  Divider(height: 1, color: AppColors.of(context).border),
               itemBuilder: (context, index) => SizedBox(
                 height: rowHeight,
                 child: Material(
@@ -576,9 +583,9 @@ class _AddressPredictions extends StatelessWidget {
                       ),
                       child: Row(
                         children: [
-                          const Icon(
+                          Icon(
                             LucideIcons.mapPin,
-                            color: AppColors.t3,
+                            color: AppColors.of(context).t3,
                             size: 16,
                           ),
                           const SizedBox(width: AppSpacing.sm),
@@ -591,8 +598,8 @@ class _AddressPredictions extends StatelessWidget {
                                   predictions[index].primaryText,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                    color: AppColors.t1,
+                                  style: TextStyle(
+                                    color: AppColors.of(context).t1,
                                     fontSize: 13,
                                     fontWeight: FontWeight.w500,
                                   ),
@@ -605,8 +612,8 @@ class _AddressPredictions extends StatelessWidget {
                                     predictions[index].secondaryText,
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      color: AppColors.t3,
+                                    style: TextStyle(
+                                      color: AppColors.of(context).t3,
                                       fontSize: 11,
                                     ),
                                   ),
@@ -622,7 +629,7 @@ class _AddressPredictions extends StatelessWidget {
               ),
             ),
           ),
-          const Divider(height: 1, color: AppColors.border),
+          Divider(height: 1, color: AppColors.of(context).border),
           Padding(
             padding: EdgeInsets.symmetric(
               horizontal: AppSpacing.md,
@@ -633,7 +640,7 @@ class _AddressPredictions extends StatelessWidget {
                 InkWell(
                   borderRadius: BorderRadius.circular(AppRadius.md),
                   onTap: onDismiss,
-                  child: const Padding(
+                  child: Padding(
                     padding: EdgeInsets.symmetric(
                       horizontal: AppSpacing.xs,
                       vertical: 6,
@@ -641,7 +648,7 @@ class _AddressPredictions extends StatelessWidget {
                     child: Text(
                       'Close',
                       style: TextStyle(
-                        color: AppColors.t3,
+                        color: AppColors.of(context).t3,
                         fontSize: 10,
                         fontWeight: FontWeight.w600,
                       ),
@@ -649,10 +656,10 @@ class _AddressPredictions extends StatelessWidget {
                   ),
                 ),
                 const Spacer(),
-                const Text(
+                Text(
                   'Google Maps',
                   style: TextStyle(
-                    color: AppColors.t3,
+                    color: AppColors.of(context).t3,
                     fontSize: 10,
                     fontWeight: FontWeight.w500,
                   ),
@@ -679,8 +686,8 @@ class _FormSectionHeader extends StatelessWidget {
       children: [
         Text(
           title,
-          style: const TextStyle(
-            color: AppColors.t1,
+          style: TextStyle(
+            color: AppColors.of(context).t1,
             fontSize: 17,
             fontWeight: FontWeight.w600,
           ),
@@ -688,8 +695,8 @@ class _FormSectionHeader extends StatelessWidget {
         const SizedBox(height: AppSpacing.xxs),
         Text(
           subtitle,
-          style: const TextStyle(
-            color: AppColors.t3,
+          style: TextStyle(
+            color: AppColors.of(context).t3,
             fontSize: 12,
             height: 1.35,
           ),
@@ -701,6 +708,7 @@ class _FormSectionHeader extends StatelessWidget {
 
 class _ClientTextField extends StatelessWidget {
   final String label;
+  final bool isRequired;
   final String hint;
   final String? helperText;
   final String? errorText;
@@ -716,6 +724,7 @@ class _ClientTextField extends StatelessWidget {
 
   const _ClientTextField({
     required this.label,
+    this.isRequired = false,
     required this.hint,
     required this.icon,
     required this.controller,
@@ -735,10 +744,11 @@ class _ClientTextField extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
+        WorkloopFieldLabel(
           label,
-          style: const TextStyle(
-            color: AppColors.t2,
+          isRequired: isRequired,
+          style: TextStyle(
+            color: AppColors.of(context).t2,
             fontSize: 13,
             fontWeight: FontWeight.w500,
           ),
@@ -757,15 +767,15 @@ class _ClientTextField extends StatelessWidget {
           autocorrect: autocorrect,
           onChanged: onChanged,
           onTapOutside: (_) => FocusManager.instance.primaryFocus?.unfocus(),
-          style: const TextStyle(
-            color: AppColors.t1,
+          style: TextStyle(
+            color: AppColors.of(context).t1,
             fontSize: 15,
             fontWeight: FontWeight.w400,
           ),
           decoration: InputDecoration(
             hintText: hint,
-            hintStyle: const TextStyle(
-              color: AppColors.t4,
+            hintStyle: TextStyle(
+              color: AppColors.of(context).t4,
               fontSize: 14,
               fontWeight: FontWeight.w400,
             ),
@@ -775,23 +785,25 @@ class _ClientTextField extends StatelessWidget {
                 right: AppSpacing.sm,
                 bottom: maxLines > 1 ? 28 : 0,
               ),
-              child: Icon(icon, color: AppColors.t3, size: 17),
+              child: Icon(icon, color: AppColors.of(context).t3, size: 17),
             ),
             prefixIconConstraints: const BoxConstraints(minWidth: 46),
             filled: true,
-            fillColor: AppColors.bgCard.withValues(alpha: 0.68),
+            fillColor: AppColors.of(context).bgCard.withValues(alpha: 0.68),
             enabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(AppRadius.md),
               borderSide: BorderSide(
-                color: errorText == null ? AppColors.border : AppColors.error,
+                color: errorText == null
+                    ? AppColors.of(context).border
+                    : AppColors.of(context).error,
               ),
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(AppRadius.md),
               borderSide: BorderSide(
                 color: errorText == null
-                    ? AppColors.accentPrimary
-                    : AppColors.error,
+                    ? AppColors.of(context).accentPrimary
+                    : AppColors.of(context).error,
                 width: 1.4,
               ),
             ),
@@ -806,7 +818,9 @@ class _ClientTextField extends StatelessWidget {
           Text(
             errorText ?? helperText!,
             style: TextStyle(
-              color: errorText == null ? AppColors.t3 : AppColors.error,
+              color: errorText == null
+                  ? AppColors.of(context).t3
+                  : AppColors.of(context).error,
               fontSize: 11,
               height: 1.3,
             ),
@@ -835,10 +849,11 @@ class _ChoiceField extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
+        WorkloopFieldLabel(
           label,
-          style: const TextStyle(
-            color: AppColors.t2,
+          isRequired: false,
+          style: TextStyle(
+            color: AppColors.of(context).t2,
             fontSize: 13,
             fontWeight: FontWeight.w500,
           ),
@@ -876,21 +891,27 @@ class _ChoiceField extends StatelessWidget {
                     ),
                     decoration: BoxDecoration(
                       color: selected
-                          ? AppColors.accentPrimary.withValues(alpha: 0.14)
-                          : AppColors.bgCard.withValues(alpha: 0.56),
+                          ? AppColors.of(
+                              context,
+                            ).accentPrimary.withValues(alpha: 0.14)
+                          : AppColors.of(
+                              context,
+                            ).bgCard.withValues(alpha: 0.56),
                       borderRadius: BorderRadius.circular(AppRadius.md),
                       border: Border.all(
                         color: selected
-                            ? AppColors.accentPrimary.withValues(alpha: 0.28)
-                            : AppColors.border,
+                            ? AppColors.of(
+                                context,
+                              ).accentPrimary.withValues(alpha: 0.28)
+                            : AppColors.of(context).border,
                       ),
                     ),
                     child: Text(
                       entry.value,
                       style: TextStyle(
                         color: selected
-                            ? AppColors.accentPrimary
-                            : AppColors.t2,
+                            ? AppColors.of(context).accentPrimary
+                            : AppColors.of(context).t2,
                         fontSize: 12,
                         fontWeight: FontWeight.w500,
                       ),
@@ -915,7 +936,7 @@ class _BirthdayField extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: AppColors.bgCard.withValues(alpha: 0.68),
+      color: AppColors.of(context).bgCard.withValues(alpha: 0.68),
       borderRadius: BorderRadius.circular(AppRadius.md),
       child: InkWell(
         borderRadius: BorderRadius.circular(AppRadius.md),
@@ -924,18 +945,19 @@ class _BirthdayField extends StatelessWidget {
           constraints: const BoxConstraints(minHeight: 52),
           padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
           decoration: BoxDecoration(
-            border: Border.all(color: AppColors.border),
+            border: Border.all(color: AppColors.of(context).border),
             borderRadius: BorderRadius.circular(AppRadius.md),
           ),
           child: Row(
             children: [
-              const Icon(LucideIcons.cake, color: AppColors.t3, size: 17),
+              Icon(LucideIcons.cake, color: AppColors.of(context).t3, size: 17),
               const SizedBox(width: AppSpacing.sm),
-              const Expanded(
-                child: Text(
+              Expanded(
+                child: WorkloopFieldLabel(
                   'Birthday',
+                  isRequired: false,
                   style: TextStyle(
-                    color: AppColors.t2,
+                    color: AppColors.of(context).t2,
                     fontSize: 13,
                     fontWeight: FontWeight.w500,
                   ),
@@ -945,8 +967,8 @@ class _BirthdayField extends StatelessWidget {
                 birthday == null
                     ? 'Add date'
                     : '${birthday!.day}/${birthday!.month}/${birthday!.year}',
-                style: const TextStyle(
-                  color: AppColors.t3,
+                style: TextStyle(
+                  color: AppColors.of(context).t3,
                   fontSize: 12,
                   fontWeight: FontWeight.w500,
                 ),
@@ -956,7 +978,7 @@ class _BirthdayField extends StatelessWidget {
                 WorkloopIconButton(
                   icon: LucideIcons.x,
                   semanticLabel: 'Clear birthday',
-                  color: AppColors.t3,
+                  color: AppColors.of(context).t3,
                   onTap: () => onChanged(null),
                 ),
               ],

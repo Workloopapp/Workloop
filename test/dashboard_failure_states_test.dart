@@ -29,6 +29,9 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
 
     final sourceError = StateError('offline');
+    var financeLoads = 0;
+    var feedLoads = 0;
+    int? destination;
     final authRepository = AuthRepository(
       SupabaseClient(
         'https://example.supabase.co',
@@ -51,19 +54,25 @@ void main() {
           appointmentsProvider.overrideWith((ref) async => throw sourceError),
           clientsProvider.overrideWith((ref) async => const <Client>[]),
           invoicesProvider.overrideWith((ref) async => const <Payment>[]),
-          financeSummaryProvider.overrideWith((ref) async => throw sourceError),
+          financeSummaryProvider.overrideWith((ref) async {
+            financeLoads++;
+            throw sourceError;
+          }),
           dashboardAttentionProvider.overrideWith(
             (ref) async => const <DashboardAttentionItem>[],
           ),
           allTasksProvider.overrideWith((ref) async => const <SlateTask>[]),
           allNotesProvider.overrideWith((ref) async => const <SlateNote>[]),
-          businessFeedProvider.overrideWith((ref) async => throw sourceError),
+          businessFeedProvider.overrideWith((ref) async {
+            feedLoads++;
+            throw sourceError;
+          }),
           unreadNotificationsProvider.overrideWith((ref) async => 0),
         ],
         child: MaterialApp(
           theme: AppTheme.light,
           home: DashboardScreen(
-            onNavigate: (_) {},
+            onNavigate: (index) => destination = index,
             onOpenMoneyFollowUps: () {},
           ),
         ),
@@ -72,10 +81,40 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Could not load your Money summary.'), findsOneWidget);
-    expect(find.text('Could not load upcoming bookings'), findsOneWidget);
-    expect(find.text('Could not load recent activity'), findsOneWidget);
-    expect(find.text('Try again'), findsNWidgets(3));
+    expect(
+      find.text('Your schedule could not be loaded. Open Bookings to retry.'),
+      findsOneWidget,
+    );
+    expect(find.text('Coming up'), findsNothing);
+    expect(find.text('Business feed'), findsNothing);
+    expect(
+      feedLoads,
+      0,
+      reason: 'Removed dashboard sections must not perform background reads.',
+    );
+    expect(find.text('Try again'), findsNWidgets(2));
     expect(find.text('Open Money'), findsNothing);
+
+    final moneyError = find.ancestor(
+      of: find.text('Could not load your Money summary.'),
+      matching: find.byType(SlateErrorState),
+    );
+    await tester.tap(
+      find.descendant(of: moneyError, matching: find.text('Try again')),
+    );
+    await tester.pumpAndSettle();
+    expect(financeLoads, 2);
+    final scheduleError = find.ancestor(
+      of: find.text(
+        'Your schedule could not be loaded. Open Bookings to retry.',
+      ),
+      matching: find.byType(SlateErrorState),
+    );
+    await tester.tap(
+      find.descendant(of: scheduleError, matching: find.text('Try again')),
+    );
+    expect(destination, 2);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('dashboard notification action announces unread count', (
@@ -173,7 +212,7 @@ void main() {
             (ref) async => [
               {
                 'id': 'booking-1',
-                'start_time': DateTime(2026, 8, 5, 9).toIso8601String(),
+                'start_time': DateTime(2026, 8, 5, 9, 15).toIso8601String(),
                 'end_time': DateTime(2026, 8, 5, 9, 45).toIso8601String(),
                 'status': 'scheduled',
                 'contacts': {'name': 'Amina Cole'},
@@ -181,8 +220,8 @@ void main() {
               },
               {
                 'id': 'booking-2',
-                'start_time': DateTime(2026, 8, 5, 10).toIso8601String(),
-                'end_time': DateTime(2026, 8, 5, 10, 45).toIso8601String(),
+                'start_time': DateTime(2026, 8, 5, 10, 45).toIso8601String(),
+                'end_time': DateTime(2026, 8, 5, 11, 30).toIso8601String(),
                 'status': 'scheduled',
                 'contacts': {'name': 'Bruno Silva'},
                 'services': {'name': 'Follow-up visit'},
@@ -217,6 +256,24 @@ void main() {
     expect(carousel, findsOneWidget);
     expect(find.text('Amina Cole').hitTestable(), findsOneWidget);
     expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is WorkloopIllustration &&
+            widget.kind == WorkloopIllustrationKind.calendar,
+      ),
+      findsNothing,
+    );
+    expect(
+      find
+          .byWidgetPredicate(
+            (widget) =>
+                widget is WorkloopIllustration &&
+                widget.clockTime == const TimeOfDay(hour: 9, minute: 15),
+          )
+          .hitTestable(),
+      findsOneWidget,
+    );
+    expect(
       find.byKey(const ValueKey('active-job-marker-0')).hitTestable(),
       findsOneWidget,
     );
@@ -225,6 +282,16 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Bruno Silva').hitTestable(), findsOneWidget);
+    expect(
+      find
+          .byWidgetPredicate(
+            (widget) =>
+                widget is WorkloopIllustration &&
+                widget.clockTime == const TimeOfDay(hour: 10, minute: 45),
+          )
+          .hitTestable(),
+      findsOneWidget,
+    );
     expect(find.textContaining('2 OF 2').hitTestable(), findsOneWidget);
     expect(
       find.byKey(const ValueKey('active-job-marker-1')).hitTestable(),

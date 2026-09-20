@@ -31,7 +31,7 @@ Deno.test("waitlist welcome content is useful, honest, and free of dash-heavy co
     "beta trust",
   );
   assert(
-    content.html.includes("https://workloop.uk/how-it-works"),
+    content.html.includes("https://workloop.uk/help/welcome"),
     "fixed CTA",
   );
   assert(!content.plainText.includes("—"), "no em dash");

@@ -5,12 +5,16 @@ import 'package:lucide_flutter/lucide_flutter.dart';
 import '../../core/theme/app_theme.dart';
 import '../../shared/providers/workspace_provider.dart';
 import '../../shared/utils/public_booking_url.dart';
+import '../../shared/utils/working_hours.dart';
 import '../../shared/widgets/slate_ui.dart';
+import '../finance/tax_estimate_screen.dart';
 import '../profile/booking_page_screen.dart';
 import '../profile/profile_editor_screen.dart';
 import '../profile/profile_screen.dart';
 import '../public_profile/booking_requests_screen.dart';
+import '../reports/reports_screen.dart';
 import '../settings/providers/settings_providers.dart';
+import '../settings/customer_reminders_screen.dart';
 import '../settings/settings_screen.dart';
 import '../settings/widgets/settings_business_tab.dart';
 
@@ -41,29 +45,21 @@ class BusinessScreen extends ConsumerWidget {
     final workingHours = settings.value?['working_hours'] is Map
         ? Map<String, dynamic>.from(settings.value!['working_hours'] as Map)
         : <String, dynamic>{};
-    final hasWorkingHours = workingHours.values.any((value) {
-      if (value is! Map) return false;
-      return Map<String, dynamic>.from(value)['enabled'] == true;
-    });
+    final hasWorkingHours = workingHours.values.any(
+      (value) => workingHourBlocks(value).isNotEmpty,
+    );
     final waitingRequests =
-        requests.value
-            ?.where(
-              (request) =>
-                  request.status == 'pending' || request.status == 'contacted',
-            )
-            .length ??
-        0;
+        requests.value?.where((request) => request.needsDecision).length ?? 0;
     final coreLoading =
         workspace.isLoading ||
         profile.isLoading ||
         settings.isLoading ||
         services.isLoading;
-    final hasFailure =
+    final coreFailure =
         workspace.hasError ||
         profile.hasError ||
         settings.hasError ||
-        services.hasError ||
-        requests.hasError;
+        services.hasError;
     final status = _bookingPageStatus(
       handle: handle,
       businessName: businessName,
@@ -73,7 +69,7 @@ class BusinessScreen extends ConsumerWidget {
     );
 
     return Scaffold(
-      backgroundColor: tokens.background,
+      backgroundColor: Colors.transparent,
       body: Stack(
         children: [
           const Positioned.fill(child: WorkloopTexturedBackdrop()),
@@ -83,6 +79,7 @@ class BusinessScreen extends ConsumerWidget {
               color: tokens.accent,
               onRefresh: () => _refresh(ref),
               child: ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
                 padding: EdgeInsets.fromLTRB(
                   AppSpacing.pageX,
                   AppSpacing.screenTop,
@@ -104,26 +101,68 @@ class BusinessScreen extends ConsumerWidget {
                       onTap: () => _open(context, const SettingsScreen()),
                     ),
                   ),
-                  const SizedBox(height: AppSpacing.lg),
-                  if (coreLoading)
-                    const SlateLoadingBlock(height: 232, radius: AppRadius.xl)
-                  else
-                    _BookingPageFeature(
-                      status: status,
-                      handle: handle,
-                      waitingRequests: waitingRequests,
-                      onOpen: () => _open(context, const BookingPageScreen()),
-                      onOpenRequests: () =>
-                          _open(context, const BookingRequestsScreen()),
+                  const SizedBox(height: AppSpacing.sm),
+                  WorkloopPaperPanel(
+                    title: 'Customer bookings',
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.sm,
                     ),
-                  const SizedBox(height: AppSpacing.xxl),
+                    child: Column(
+                      children: [
+                        WorkloopModuleRow(
+                          key: const ValueKey('business-booking-requests'),
+                          icon: LucideIcons.inbox,
+                          title: 'Booking requests',
+                          subtitle: requests.hasError
+                              ? 'Could not load requests. Open to retry.'
+                              : requests.isLoading && !requests.hasValue
+                              ? 'Checking requests…'
+                              : waitingRequests == 0
+                              ? 'No requests waiting'
+                              : '$waitingRequests ${waitingRequests == 1 ? 'request' : 'requests'} waiting',
+                          color: tokens.accent,
+                          onTap: () =>
+                              _open(context, const BookingRequestsScreen()),
+                        ),
+                        _BookingPageFeature(
+                          status: status,
+                          handle: handle,
+                          loading: coreLoading,
+                          failed: coreFailure,
+                          onOpen: () =>
+                              _open(context, const BookingPageScreen()),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.lg),
                   const WorkloopSectionHeader(label: 'Run your business'),
                   const SizedBox(height: AppSpacing.xs),
+                  WorkloopModuleRow(
+                    key: const ValueKey('business-reports'),
+                    icon: LucideIcons.chartNoAxesCombined,
+                    title: 'Reports',
+                    subtitle: 'Understand your money and plan ahead',
+                    color: tokens.accent,
+                    onTap: () => _open(context, const ReportsScreen()),
+                  ),
+                  WorkloopModuleRow(
+                    key: const ValueKey('business-tax-planning'),
+                    icon: LucideIcons.calculator,
+                    title: 'Tax planning',
+                    subtitle: 'Estimate tax and what to put aside',
+                    color: tokens.accent,
+                    onTap: () => _open(context, const TaxEstimateScreen()),
+                  ),
                   WorkloopModuleRow(
                     key: const ValueKey('business-services'),
                     icon: LucideIcons.briefcaseBusiness,
                     title: 'Services',
-                    subtitle: publicServices == 0
+                    subtitle: services.isLoading
+                        ? 'Checking services…'
+                        : services.hasError
+                        ? 'Could not load services'
+                        : publicServices == 0
                         ? 'Add what customers can book'
                         : '$publicServices ${publicServices == 1 ? 'service' : 'services'} visible',
                     color: tokens.accent,
@@ -134,7 +173,11 @@ class BusinessScreen extends ConsumerWidget {
                     key: const ValueKey('business-hours'),
                     icon: LucideIcons.clock3,
                     title: 'Working hours',
-                    subtitle: hasWorkingHours
+                    subtitle: settings.isLoading
+                        ? 'Checking working hours…'
+                        : settings.hasError
+                        ? 'Could not load working hours'
+                        : hasWorkingHours
                         ? profileWorkingHoursSummary(workingHours)
                         : 'Set when you usually work',
                     color: tokens.accent,
@@ -147,21 +190,26 @@ class BusinessScreen extends ConsumerWidget {
                     key: const ValueKey('business-profile'),
                     icon: LucideIcons.store,
                     title: 'Business profile',
-                    subtitle: businessName.isEmpty
+                    subtitle: workspace.isLoading
+                        ? 'Checking business details…'
+                        : workspace.hasError
+                        ? 'Could not load business details'
+                        : businessName.isEmpty
                         ? 'Add your business identity'
                         : businessName,
                     color: tokens.accent,
-                    showDivider: false,
                     onTap: () => _open(context, const ProfileScreen()),
                   ),
-                  if (hasFailure) ...[
-                    const SizedBox(height: AppSpacing.xl),
-                    SlateErrorState(
-                      message:
-                          'Some business details could not be refreshed. Your saved information is unchanged.',
-                      onRetry: () => _refresh(ref).ignore(),
-                    ),
-                  ],
+                  WorkloopModuleRow(
+                    key: const ValueKey('business-customer-reminders'),
+                    icon: LucideIcons.calendarClock,
+                    title: 'Booking reminders',
+                    subtitle: 'Automatic email · Manual WhatsApp',
+                    color: tokens.accent,
+                    showDivider: false,
+                    onTap: () =>
+                        _open(context, const CustomerRemindersScreen()),
+                  ),
                 ],
               ),
             ),
@@ -177,13 +225,17 @@ class BusinessScreen extends ConsumerWidget {
     ref.invalidate(settingsWorkspaceSettingsProvider);
     ref.invalidate(settingsServicesProvider);
     ref.invalidate(bookingRequestsProvider);
-    await Future.wait([
-      ref.read(workspaceProvider.future),
-      ref.read(settingsBusinessProfileProvider.future),
-      ref.read(settingsWorkspaceSettingsProvider.future),
-      ref.read(settingsServicesProvider.future),
-      ref.read(bookingRequestsProvider.future),
-    ]);
+    try {
+      await Future.wait([
+        ref.read(workspaceProvider.future),
+        ref.read(settingsBusinessProfileProvider.future),
+        ref.read(settingsWorkspaceSettingsProvider.future),
+        ref.read(settingsServicesProvider.future),
+        ref.read(bookingRequestsProvider.future),
+      ]);
+    } catch (_) {
+      // Each provider exposes its own visible retry state on this screen.
+    }
   }
 
   void _open(BuildContext context, Widget screen) {
@@ -217,16 +269,16 @@ _BookingPageStatus _bookingPageStatus({
 class _BookingPageFeature extends StatelessWidget {
   final _BookingPageStatus status;
   final String handle;
-  final int waitingRequests;
+  final bool loading;
+  final bool failed;
   final VoidCallback onOpen;
-  final VoidCallback onOpenRequests;
 
   const _BookingPageFeature({
     required this.status,
     required this.handle,
-    required this.waitingRequests,
+    required this.loading,
+    required this.failed,
     required this.onOpen,
-    required this.onOpenRequests,
   });
 
   @override
@@ -237,157 +289,69 @@ class _BookingPageFeature extends StatelessWidget {
       _BookingPageStatus.needsAttention => tokens.warning,
       _BookingPageStatus.paused => tokens.textTertiary,
     };
-    final statusLabel = switch (status) {
-      _BookingPageStatus.live => 'Live',
-      _BookingPageStatus.needsAttention => 'Needs attention',
-      _BookingPageStatus.paused => 'Requests paused',
-    };
-    final supportingText = switch (status) {
-      _BookingPageStatus.live =>
-        'Customers can view your services and request a time that works.',
-      _BookingPageStatus.needsAttention =>
-        'Finish the essentials so customers can book with confidence.',
-      _BookingPageStatus.paused =>
-        'Your page is available, but new booking requests are turned off.',
-    };
-
-    return WorkloopSurface(
-      elevated: true,
-      radius: AppRadius.xl,
-      padding: const EdgeInsets.all(AppSpacing.lg),
-      borderColor: Colors.transparent,
-      child: Column(
+    final statusLabel = failed
+        ? 'Unavailable'
+        : loading
+        ? 'Checking…'
+        : switch (status) {
+            _BookingPageStatus.live => 'Live',
+            _BookingPageStatus.needsAttention => 'Needs attention',
+            _BookingPageStatus.paused => 'Requests paused',
+          };
+    return WorkloopListRow(
+      key: const ValueKey('business-booking-page'),
+      flat: true,
+      showDivider: false,
+      onTap: onOpen,
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.sm,
+        vertical: AppSpacing.sm,
+      ),
+      leading: const WorkloopIllustration(
+        kind: WorkloopIllustrationKind.storefront,
+        size: 40,
+      ),
+      title: Text(
+        'Your booking page',
+        style: TextStyle(
+          color: tokens.textPrimary,
+          fontSize: 15,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+      subtitle: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  color: tokens.accent.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(AppRadius.lg),
-                ),
-                child: Icon(
-                  LucideIcons.calendarCheck2,
-                  color: tokens.accentInk,
-                  size: 23,
-                ),
-              ),
-              const SizedBox(width: AppSpacing.sm),
-              Expanded(
-                child: Align(
-                  alignment: Alignment.topRight,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: AppSpacing.sm,
-                      vertical: AppSpacing.xs,
-                    ),
-                    decoration: BoxDecoration(
-                      color: statusColor.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(AppRadius.capsule),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Container(
-                          width: 7,
-                          height: 7,
-                          decoration: BoxDecoration(
-                            color: statusColor,
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                        const SizedBox(width: AppSpacing.xs),
-                        Flexible(
-                          child: Text(
-                            statusLabel,
-                            maxLines: 2,
-                            textAlign: TextAlign.end,
-                            style: TextStyle(
-                              color: statusColor,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.lg),
           Text(
-            'Your booking page',
+            statusLabel,
             style: TextStyle(
-              color: tokens.textPrimary,
-              fontSize: 22,
-              fontWeight: FontWeight.w700,
-              letterSpacing: -0.35,
+              color: failed || loading ? tokens.textSecondary : statusColor,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
             ),
           ),
-          const SizedBox(height: AppSpacing.xs),
           Text(
-            handle.isEmpty
+            failed
+                ? 'Could not check your booking page. Open to retry.'
+                : loading
+                ? 'Checking your saved page details…'
+                : handle.isEmpty
                 ? 'Choose your public booking address'
                 : publicBookingPageDisplayUrl(handle),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
-              color: handle.isEmpty ? tokens.textTertiary : tokens.accentInk,
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: AppSpacing.sm),
-          Text(
-            supportingText,
-            style: TextStyle(
               color: tokens.textSecondary,
-              fontSize: 13,
-              height: 1.45,
-            ),
-          ),
-          if (waitingRequests > 0) ...[
-            const SizedBox(height: AppSpacing.md),
-            WorkloopListRow(
-              flat: true,
-              showDivider: false,
-              onTap: onOpenRequests,
-              padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
-              leading: Icon(
-                LucideIcons.inbox,
-                color: tokens.accentInk,
-                size: 18,
-              ),
-              title: Text(
-                '$waitingRequests ${waitingRequests == 1 ? 'request' : 'requests'} waiting',
-                style: TextStyle(
-                  color: tokens.textPrimary,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              trailing: Icon(
-                LucideIcons.chevronRight,
-                color: tokens.textTertiary,
-                size: 17,
-              ),
-            ),
-          ],
-          const SizedBox(height: AppSpacing.lg),
-          SizedBox(
-            width: double.infinity,
-            child: WorkloopPrimaryButton(
-              label: 'Manage booking page',
-              icon: LucideIcons.arrowUpRight,
-              onPressed: onOpen,
+              fontSize: 12,
+              height: 1.35,
             ),
           ),
         ],
+      ),
+      trailing: Icon(
+        LucideIcons.chevronRight,
+        color: tokens.textTertiary,
+        size: 17,
       ),
     );
   }

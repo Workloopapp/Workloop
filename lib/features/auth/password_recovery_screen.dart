@@ -6,6 +6,7 @@ import 'package:lucide_flutter/lucide_flutter.dart';
 import '../../core/theme/app_theme.dart';
 import '../../shared/repositories/auth_repository.dart';
 import '../../shared/widgets/slate_ui.dart';
+import '../../shared/widgets/workloop_form_field.dart';
 import 'auth_validation.dart';
 
 String? validateRecoveryPassword(String password, String confirmation) {
@@ -74,7 +75,7 @@ class _PasswordRecoveryScreenState
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.bg,
+      backgroundColor: Colors.transparent,
       body: Stack(
         children: [
           const Positioned.fill(child: WorkloopTexturedBackdrop()),
@@ -91,26 +92,26 @@ class _PasswordRecoveryScreenState
                       crossAxisAlignment: CrossAxisAlignment.start,
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        const Icon(
+                        Icon(
                           LucideIcons.keyRound,
-                          color: AppColors.accentPrimary,
+                          color: AppColors.of(context).accentPrimary,
                           size: 34,
                         ),
                         const SizedBox(height: AppSpacing.lg),
-                        const Text(
+                        Text(
                           'Choose a new password.',
                           style: TextStyle(
-                            color: AppColors.t1,
+                            color: AppColors.of(context).t1,
                             fontSize: 27,
                             fontWeight: FontWeight.w600,
                             height: 1.05,
                           ),
                         ),
                         const SizedBox(height: AppSpacing.sm),
-                        const Text(
+                        Text(
                           'Use $minimumWorkloopPasswordLength+ characters with uppercase, lowercase, a number, and a symbol you have not used elsewhere.',
                           style: TextStyle(
-                            color: AppColors.t3,
+                            color: AppColors.of(context).t3,
                             fontSize: 15,
                             height: 1.4,
                           ),
@@ -124,7 +125,11 @@ class _PasswordRecoveryScreenState
                           autofillHints: const [AutofillHints.newPassword],
                           textInputAction: TextInputAction.next,
                           decoration: InputDecoration(
-                            labelText: 'New password',
+                            floatingLabelBehavior: FloatingLabelBehavior.always,
+                            label: const WorkloopFieldLabel(
+                              'New password',
+                              isRequired: true,
+                            ),
                             suffixIcon: IconButton(
                               tooltip: _obscurePassword
                                   ? 'Show password'
@@ -153,7 +158,11 @@ class _PasswordRecoveryScreenState
                           textInputAction: TextInputAction.done,
                           onSubmitted: (_) => _saving ? null : _save(),
                           decoration: InputDecoration(
-                            labelText: 'Confirm password',
+                            floatingLabelBehavior: FloatingLabelBehavior.always,
+                            label: const WorkloopFieldLabel(
+                              'Confirm password',
+                              isRequired: true,
+                            ),
                             suffixIcon: IconButton(
                               tooltip: _obscureConfirmation
                                   ? 'Show password'

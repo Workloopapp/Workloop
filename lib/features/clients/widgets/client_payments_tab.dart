@@ -10,6 +10,8 @@ import '../../../shared/providers/finance_provider.dart';
 import '../../../shared/utils/currency_format.dart';
 import '../../../shared/widgets/slate_ui.dart';
 import '../../finance/add_payment_screen.dart';
+import '../../finance/documents/business_documents_screen.dart';
+import '../../finance/documents/business_document_detail_screen.dart';
 import '../providers/client_detail_providers.dart';
 
 class ClientPaymentsTab extends ConsumerWidget {
@@ -26,14 +28,14 @@ class ClientPaymentsTab extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final payments = ref.watch(clientPaymentsProvider(clientId));
     return payments.when(
-      loading: () => const Center(
-        child: CircularProgressIndicator(color: AppColors.green),
+      loading: () => Center(
+        child: CircularProgressIndicator(color: AppColors.of(context).green),
       ),
       error: (_, _) => Padding(
         padding: const EdgeInsets.all(AppSpacing.lg),
         child: SlateErrorState(
           message: 'Money activity could not be loaded.',
-          onRetry: () => ref.invalidate(clientPaymentsProvider(clientId)),
+          onRetry: () => refreshClientPayments(ref, clientId),
         ),
       ),
       data: (items) {
@@ -44,6 +46,7 @@ class ClientPaymentsTab extends ConsumerWidget {
               builder: (_) => AddPaymentScreen(initialClientId: clientId),
             ),
           );
+          if (!context.mounted) return;
           ref.invalidate(clientPaymentsProvider(clientId));
           ref.invalidate(invoicesProvider);
           ref.invalidate(dashboardRevenueProvider);
@@ -51,20 +54,24 @@ class ClientPaymentsTab extends ConsumerWidget {
         }
 
         if (items.isEmpty) {
-          return _EmptyPayments(onAction: recordPayment);
+          return Column(
+            children: [
+              _documentsEntry(context),
+              Expanded(child: _EmptyPayments(onAction: recordPayment)),
+            ],
+          );
         }
         final received = items.fold<double>(
           0,
-          (sum, payment) => sum + payment.amountPaid,
+          (sum, payment) => sum + payment.collectedAmount,
         );
         final remaining = items.fold<double>(
           0,
-          (sum, payment) =>
-              sum +
-              (payment.total - payment.amountPaid).clamp(0, double.infinity),
+          (sum, payment) => sum + payment.outstandingAmount,
         );
         return Column(
           children: [
+            _documentsEntry(context),
             _PaymentsToolbar(
               received: received,
               remaining: remaining,
@@ -72,9 +79,8 @@ class ClientPaymentsTab extends ConsumerWidget {
             ),
             Expanded(
               child: RefreshIndicator(
-                color: AppColors.green,
-                onRefresh: () async =>
-                    ref.invalidate(clientPaymentsProvider(clientId)),
+                color: AppColors.of(context).green,
+                onRefresh: () => refreshClientPayments(ref, clientId),
                 child: ListView.separated(
                   padding: const EdgeInsets.fromLTRB(
                     AppSpacing.pageX,
@@ -92,9 +98,14 @@ class ClientPaymentsTab extends ConsumerWidget {
                         await Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (_) => AddPaymentScreen(payment: payment),
+                            builder: (_) => payment.sourceDocumentId == null
+                                ? AddPaymentScreen(payment: payment)
+                                : BusinessDocumentDetailScreen(
+                                    documentId: payment.sourceDocumentId!,
+                                  ),
                           ),
                         );
+                        if (!context.mounted) return;
                         ref.invalidate(clientPaymentsProvider(clientId));
                         ref.invalidate(invoicesProvider);
                         ref.invalidate(dashboardRevenueProvider);
@@ -110,6 +121,22 @@ class ClientPaymentsTab extends ConsumerWidget {
       },
     );
   }
+
+  Widget _documentsEntry(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(horizontal: AppSpacing.pageX),
+    child: WorkloopModuleRow(
+      icon: LucideIcons.fileText,
+      title: 'Quotes & invoices',
+      subtitle: 'Agree work and request payment for $clientName',
+      color: AppColors.of(context).modFinance,
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => BusinessDocumentsScreen(initialClientId: clientId),
+        ),
+      ),
+    ),
+  );
 }
 
 class _PaymentRow extends StatelessWidget {
@@ -120,14 +147,16 @@ class _PaymentRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final amount = payment.total;
-    final remaining = (payment.total - payment.amountPaid).clamp(
-      0,
-      double.infinity,
-    );
+    final remaining = payment.outstandingAmount;
+    final cancelled = payment.status == 'cancelled' || payment.status == 'void';
     final paid = remaining <= 0;
-    final partPaid = !paid && payment.amountPaid > 0;
-    final color = paid ? AppColors.success : AppColors.t3;
-    final label = paid
+    final partPaid = !paid && payment.collectedAmount > 0;
+    final color = paid && !cancelled
+        ? AppColors.of(context).success
+        : AppColors.of(context).t3;
+    final label = cancelled
+        ? 'Cancelled'
+        : paid
         ? 'Paid'
         : partPaid
         ? 'Part paid'
@@ -139,37 +168,19 @@ class _PaymentRow extends StatelessWidget {
         payment.notes ?? payment.number.ifEmpty('Payment'),
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
-        style: const TextStyle(
-          color: AppColors.t1,
+        style: TextStyle(
+          color: AppColors.of(context).t1,
           fontWeight: FontWeight.w600,
         ),
       ),
       subtitle: Text(
-        _formatDate(payment.issueDate),
-        style: const TextStyle(color: AppColors.t3, fontSize: 12),
+        '${_formatDate(payment.issueDate)} · $label\n${formatPounds(amount)}${partPaid ? ' · ${formatPounds(remaining)} left' : ''}',
+        style: TextStyle(color: AppColors.of(context).t3, fontSize: 12),
       ),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            formatPounds(amount),
-            style: const TextStyle(
-              color: AppColors.t1,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(width: 10),
-          Text(
-            label,
-            style: TextStyle(
-              color: color,
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(width: 8),
-          const Icon(LucideIcons.chevronRight, color: AppColors.t3, size: 16),
-        ],
+      trailing: Icon(
+        LucideIcons.chevronRight,
+        color: AppColors.of(context).t3,
+        size: 16,
       ),
     );
   }
@@ -197,22 +208,30 @@ class _PaymentsToolbar extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Text(
-            '${formatPounds(received)} received',
-            style: const TextStyle(
-              color: AppColors.t1,
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
+          Expanded(
+            child: Wrap(
+              spacing: AppSpacing.sm,
+              runSpacing: AppSpacing.xxs,
+              children: [
+                Text(
+                  '${formatPounds(received)} received',
+                  style: TextStyle(
+                    color: AppColors.of(context).t1,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                if (remaining > 0)
+                  Text(
+                    '${formatPounds(remaining)} left',
+                    style: TextStyle(
+                      color: AppColors.of(context).t3,
+                      fontSize: 13,
+                    ),
+                  ),
+              ],
             ),
           ),
-          if (remaining > 0) ...[
-            const SizedBox(width: 8),
-            Text(
-              '· ${formatPounds(remaining)} left',
-              style: const TextStyle(color: AppColors.t3, fontSize: 13),
-            ),
-          ],
-          const Spacer(),
           WorkloopTextButton(label: 'Record', onPressed: onRecord),
         ],
       ),

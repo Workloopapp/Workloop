@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/slate_models.dart';
+import '../notifications/notification_route.dart';
 import 'repository_pagination.dart';
 import 'supabase_client_provider.dart';
 
@@ -96,7 +97,7 @@ class NotificationsRepository {
         'type': type,
         'title': title,
         'body': body,
-        'deep_link': deepLink,
+        'deep_link': workloopNotificationRoute(deepLink),
       });
     } catch (_) {
       // Notification support is additive; primary workflows should continue.

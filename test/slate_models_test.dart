@@ -207,6 +207,32 @@ void main() {
       expect(service.toMap()['show_on_profile'], isFalse);
     });
 
+    test('Service parses bounded optional add-ons from a nested response', () {
+      final service = Service.fromMap({
+        'id': 'service-1',
+        'workspace_id': 'workspace-1',
+        'name': 'Window clean',
+        'duration_mins': 60,
+        'price': 50,
+        'service_add_ons': [
+          {
+            'id': 'add-on-1',
+            'workspace_id': 'workspace-1',
+            'service_id': 'service-1',
+            'name': 'Frames and sills',
+            'duration_mins': 15,
+            'price': 12,
+            'position': 0,
+          },
+        ],
+      });
+
+      expect(service.addOns, hasLength(1));
+      expect(service.addOns.single.name, 'Frames and sills');
+      expect(service.addOns.single.durationMins, 15);
+      expect(service.addOns.single.price, 12);
+    });
+
     test('BusinessProfile defaults new V1 public profile controls safely', () {
       final profile = BusinessProfile.fromMap({
         'id': 'profile-1',
@@ -253,6 +279,106 @@ void main() {
       expect(request.toMap()['preferred_time_text'], 'Friday afternoon');
       expect(request.toMap()['email'], 'nadia@example.com');
     });
+
+    test(
+      'BookingRequest prefers immutable item snapshots and totals extras',
+      () {
+        final request = BookingRequest.fromMap({
+          'id': 'request-1',
+          'workspace_id': 'workspace-1',
+          'name': 'Nadia',
+          'phone': '07123 000000',
+          'services': {
+            'name': 'Changed catalog name',
+            'duration_mins': 30,
+            'price': 30,
+          },
+          'booking_request_items': [
+            {
+              'id': 'item-2',
+              'workspace_id': 'workspace-1',
+              'item_kind': 'add_on',
+              'source_service_id': 'service-1',
+              'source_add_on_id': 'add-on-1',
+              'name': 'Frames and sills',
+              'duration_mins': 15,
+              'price': 12,
+              'position': 1,
+            },
+            {
+              'id': 'item-1',
+              'workspace_id': 'workspace-1',
+              'item_kind': 'base',
+              'source_service_id': 'service-1',
+              'name': 'Window clean',
+              'duration_mins': 60,
+              'price': 50,
+              'position': 0,
+            },
+          ],
+        });
+
+        expect(request.serviceName, 'Window clean');
+        expect(request.serviceDurationMins, 75);
+        expect(request.servicePrice, 62);
+        expect(request.serviceItems.map((item) => item.name), [
+          'Window clean',
+          'Frames and sills',
+        ]);
+      },
+    );
+
+    test('Appointment parses confirmed item snapshots in display order', () {
+      final appointment = Appointment.fromMap({
+        'id': 'appointment-1',
+        'workspace_id': 'workspace-1',
+        'start_time': '2026-05-28T09:00:00Z',
+        'title': 'Saved booking title',
+        'services': {'name': 'Renamed live service'},
+        'appointment_items': [
+          {
+            'id': 'item-2',
+            'workspace_id': 'workspace-1',
+            'item_kind': 'add_on',
+            'name': 'Frames and sills',
+            'duration_mins': 15,
+            'price': 12,
+            'position': 1,
+          },
+          {
+            'id': 'item-1',
+            'workspace_id': 'workspace-1',
+            'item_kind': 'base',
+            'name': 'Window clean',
+            'duration_mins': 60,
+            'price': 50,
+            'position': 0,
+          },
+        ],
+      });
+
+      expect(appointment.serviceItems.map((item) => item.name), [
+        'Window clean',
+        'Frames and sills',
+      ]);
+      expect(appointment.serviceName, 'Window clean');
+      expect(appointment.serviceItems.last.isAddOn, isTrue);
+    });
+
+    test(
+      'Appointment prefers its saved title before a mutable service join',
+      () {
+        final appointment = Appointment.fromMap({
+          'id': 'appointment-2',
+          'workspace_id': 'workspace-1',
+          'start_time': '2026-05-28T10:00:00Z',
+          'title': 'Original consultation',
+          'services': {'name': 'Renamed catalog service'},
+        });
+
+        expect(appointment.serviceName, 'Original consultation');
+      },
+    );
   });
 
   test('working hours support split days with breaks', () {

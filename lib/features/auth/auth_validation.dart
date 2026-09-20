@@ -13,6 +13,13 @@ bool isValidAuthEmail(String value) {
   return RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(email);
 }
 
+/// Keep the country code explicit; guessing one could send an SMS to someone
+/// else. Spaces, brackets and hyphens are only presentation characters.
+String? normalizedAuthPhone(String value) {
+  final phone = value.trim().replaceAll(RegExp(r'[\s()\-]'), '');
+  return RegExp(r'^\+[1-9][0-9]{7,14}$').hasMatch(phone) ? phone : null;
+}
+
 String? validateAuthForm({
   required String email,
   required String password,
@@ -52,6 +59,15 @@ bool isStrongWorkloopPassword(String password) {
 
 String friendlyAuthErrorMessage(String rawMessage) {
   final message = rawMessage.toLowerCase();
+  if (message.contains('user is banned') || message.contains('user_banned')) {
+    return 'This account is currently unavailable. If you requested deletion, wait for completion and check your email. Otherwise, contact Workloop support.';
+  }
+  if (message.contains('token has expired') ||
+      message.contains('otp_expired') ||
+      message.contains('invalid otp') ||
+      message.contains('invalid token')) {
+    return 'That code or link is invalid or has expired. Request a new one.';
+  }
   if (message.contains('invalid login') ||
       message.contains('invalid credentials')) {
     return 'Wrong email or password.';

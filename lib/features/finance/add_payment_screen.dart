@@ -4,15 +4,17 @@ import 'package:lucide_flutter/lucide_flutter.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../shared/models/slate_models.dart';
+import '../../shared/utils/workflow_idempotency.dart';
+import '../../shared/providers/business_clock_provider.dart';
 import '../../shared/providers/clients_provider.dart';
 import '../../shared/providers/dashboard_provider.dart';
 import '../../shared/providers/finance_provider.dart';
-import '../../shared/providers/notifications_provider.dart';
 import '../../shared/providers/workspace_provider.dart';
 import '../../shared/repositories/slate_repositories.dart';
-import '../../shared/utils/currency_format.dart';
 import '../../shared/widgets/slate_ui.dart';
+import '../../shared/widgets/workloop_form_field.dart';
 import 'widgets/money_editor_widgets.dart';
+import 'documents/business_document_detail_screen.dart';
 
 typedef _PaymentDraft = ({
   String amount,
@@ -48,6 +50,8 @@ class _AddPaymentScreenState extends ConsumerState<AddPaymentScreen> {
   bool _paymentStateChanged = false;
   DateTime _date = DateTime.now();
   DateTime _dueDate = DateTime.now().add(const Duration(days: 7));
+  final _paymentCreationToken = createPublicRequestToken();
+  bool _receivedDateNeedsReview = false;
   bool _saving = false;
   bool _allowPop = false;
   late _PaymentDraft _savedDraft;
@@ -110,6 +114,7 @@ class _AddPaymentScreenState extends ConsumerState<AddPaymentScreen> {
       '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
 
   Future<void> _handleBack() async {
+    if (_saving) return;
     FocusManager.instance.primaryFocus?.unfocus();
     if (!_hasChanges) {
       await _leaveScreen();
@@ -146,6 +151,11 @@ class _AddPaymentScreenState extends ConsumerState<AddPaymentScreen> {
   Future<bool> _save() async {
     if (!_canSave || _saving) return false;
     FocusManager.instance.primaryFocus?.unfocus();
+    if (_status == 'paid' &&
+        DateUtils.dateOnly(_date).isAfter(ref.read(businessTodayProvider))) {
+      setState(() => _receivedDateNeedsReview = true);
+      return false;
+    }
     setState(() => _saving = true);
     try {
       final workspaceId = await ref.read(workspaceIdProvider.future);
@@ -174,6 +184,7 @@ class _AddPaymentScreenState extends ConsumerState<AddPaymentScreen> {
         await ref
             .read(paymentsRepositoryProvider)
             .create(
+              paymentId: _paymentCreationToken,
               workspaceId: workspaceId,
               amount: amount,
               status: _status,
@@ -183,32 +194,11 @@ class _AddPaymentScreenState extends ConsumerState<AddPaymentScreen> {
               appointmentId: widget.appointmentId,
               notes: description,
             );
-        try {
-          await ref
-              .read(notificationsRepositoryProvider)
-              .create(
-                workspaceId: workspaceId,
-                type: _status == 'paid'
-                    ? 'payment_received'
-                    : 'invoice_overdue',
-                title: _status == 'paid'
-                    ? 'Payment recorded'
-                    : 'Payment to collect',
-                body:
-                    '${formatPounds(amount)} ${_status == 'paid' ? 'was recorded' : 'is waiting to be collected'}.',
-                deepLink: '/payments',
-              );
-        } catch (_) {
-          // Recording Money is the primary workflow. A best-effort in-app
-          // notification must not make a committed entry look unsaved.
-        }
       }
 
       ref.invalidate(invoicesProvider);
       ref.invalidate(dashboardRevenueProvider);
       ref.invalidate(clientCrmRecordsProvider);
-      ref.invalidate(notificationsProvider);
-      ref.invalidate(unreadNotificationsProvider);
       if (mounted) await _leaveScreen();
       return true;
     } catch (error) {
@@ -219,7 +209,7 @@ class _AddPaymentScreenState extends ConsumerState<AddPaymentScreen> {
             content: const Text(
               'Could not save this income. Please try again.',
             ),
-            backgroundColor: AppColors.error,
+            backgroundColor: AppColors.of(context).error,
             behavior: SnackBarBehavior.floating,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(AppRadius.sm),
@@ -233,11 +223,15 @@ class _AddPaymentScreenState extends ConsumerState<AddPaymentScreen> {
 
   Future<void> _pickDate({required bool dueDate}) async {
     final current = dueDate ? _dueDate : _date;
+    final today = ref.read(businessTodayProvider);
+    final lastDate = !dueDate && _status == 'paid'
+        ? today
+        : today.add(const Duration(days: 730));
     final picked = await showWorkloopDatePicker(
       context: context,
-      initialDate: current,
+      initialDate: current.isAfter(lastDate) ? lastDate : current,
       firstDate: DateTime.now().subtract(const Duration(days: 730)),
-      lastDate: DateTime.now().add(const Duration(days: 730)),
+      lastDate: lastDate,
     );
     if (picked == null || !mounted) return;
     setState(() {
@@ -245,6 +239,7 @@ class _AddPaymentScreenState extends ConsumerState<AddPaymentScreen> {
         _dueDate = picked;
       } else {
         _date = picked;
+        _receivedDateNeedsReview = false;
         if (_dueDate.isBefore(_date)) _dueDate = _date;
       }
     });
@@ -270,6 +265,9 @@ class _AddPaymentScreenState extends ConsumerState<AddPaymentScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.payment?.sourceDocumentId case final String documentId) {
+      return BusinessDocumentDetailScreen(documentId: documentId);
+    }
     final clients = ref.watch(clientsProvider);
     return PopScope(
       canPop: _allowPop || !_hasChanges,
@@ -277,7 +275,7 @@ class _AddPaymentScreenState extends ConsumerState<AddPaymentScreen> {
         if (!didPop) _handleBack();
       },
       child: Scaffold(
-        backgroundColor: AppColors.bg,
+        backgroundColor: Colors.transparent,
         body: Stack(
           children: [
             const Positioned.fill(child: WorkloopTexturedBackdrop()),
@@ -287,7 +285,7 @@ class _AddPaymentScreenState extends ConsumerState<AddPaymentScreen> {
                   Padding(
                     padding: const EdgeInsets.fromLTRB(
                       AppSpacing.pageX,
-                      AppSpacing.lg,
+                      AppSpacing.screenTop,
                       AppSpacing.pageX,
                       0,
                     ),
@@ -319,6 +317,7 @@ class _AddPaymentScreenState extends ConsumerState<AddPaymentScreen> {
                         children: [
                           MoneyFormSection(
                             title: 'Amount',
+                            isRequired: true,
                             subtitle: 'The amount received or expected.',
                             child: MoneyAmountField(
                               controller: _amountController,
@@ -327,6 +326,7 @@ class _AddPaymentScreenState extends ConsumerState<AddPaymentScreen> {
                           const SizedBox(height: AppSpacing.xl),
                           MoneyFormSection(
                             title: 'Payment state',
+                            isRequired: true,
                             subtitle: 'Choose whether the money is already in.',
                             child: WorkloopSegmentedControl<String>(
                               selected: _status,
@@ -353,8 +353,8 @@ class _AddPaymentScreenState extends ConsumerState<AddPaymentScreen> {
                             const SizedBox(height: AppSpacing.sm),
                             Text(
                               '£${widget.payment!.collectedAmount.toStringAsFixed(2)} already received will be preserved.',
-                              style: const TextStyle(
-                                color: AppColors.t3,
+                              style: TextStyle(
+                                color: AppColors.of(context).t3,
                                 fontSize: 12,
                                 fontWeight: FontWeight.w500,
                               ),
@@ -367,38 +367,44 @@ class _AddPaymentScreenState extends ConsumerState<AddPaymentScreen> {
                                 'Connect this entry to a client when useful.',
                             child: Column(
                               children: [
-                                clients.when(
-                                  data: (data) => WorkloopPickerField<String?>(
-                                    value: _selectedClientId,
-                                    title: 'Choose a client',
-                                    hint: 'No client',
-                                    searchHint: 'Search clients',
-                                    searchable: true,
-                                    leadingIcon: LucideIcons.users,
-                                    options: [
-                                      const WorkloopPickerOption<String?>(
-                                        value: null,
-                                        label: 'No client',
-                                        subtitle: 'Keep this entry unlinked',
-                                      ),
-                                      ...data.map(
-                                        (client) =>
-                                            WorkloopPickerOption<String?>(
-                                              value: client.id,
-                                              label: client.name,
+                                WorkloopFormField(
+                                  label: 'Client',
+                                  isRequired: false,
+                                  child: clients.when(
+                                    data: (data) =>
+                                        WorkloopPickerField<String?>(
+                                          value: _selectedClientId,
+                                          title: 'Choose a client',
+                                          hint: 'No client',
+                                          searchHint: 'Search clients',
+                                          searchable: true,
+                                          leadingIcon: LucideIcons.users,
+                                          options: [
+                                            const WorkloopPickerOption<String?>(
+                                              value: null,
+                                              label: 'No client',
+                                              subtitle:
+                                                  'Keep this entry unlinked',
                                             ),
-                                      ),
-                                    ],
-                                    onChanged: (value) => setState(
-                                      () => _selectedClientId = value,
+                                            ...data.map(
+                                              (client) =>
+                                                  WorkloopPickerOption<String?>(
+                                                    value: client.id,
+                                                    label: client.name,
+                                                  ),
+                                            ),
+                                          ],
+                                          onChanged: (value) => setState(
+                                            () => _selectedClientId = value,
+                                          ),
+                                        ),
+                                    loading: () => const SlateLoadingBlock(
+                                      height: 54,
+                                      radius: AppRadius.md,
                                     ),
-                                  ),
-                                  loading: () => const SlateLoadingBlock(
-                                    height: 54,
-                                    radius: AppRadius.md,
-                                  ),
-                                  error: (_, _) => const SlateErrorState(
-                                    message: 'Could not load clients',
+                                    error: (_, _) => const SlateErrorState(
+                                      message: 'Could not load clients',
+                                    ),
                                   ),
                                 ),
                                 const SizedBox(height: AppSpacing.sm),
@@ -409,6 +415,14 @@ class _AddPaymentScreenState extends ConsumerState<AddPaymentScreen> {
                                   value: _formatDate(_date),
                                   onTap: () => _pickDate(dueDate: false),
                                 ),
+                                if (_status == 'paid' &&
+                                    _receivedDateNeedsReview)
+                                  Text(
+                                    'Received income must be dated today or earlier. Use To collect for expected income.',
+                                    style: TextStyle(
+                                      color: AppColors.of(context).error,
+                                    ),
+                                  ),
                                 if (_status != 'paid') ...[
                                   const SizedBox(height: AppSpacing.sm),
                                   MoneyDateField(

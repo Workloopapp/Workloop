@@ -43,6 +43,10 @@ post_install do |installer|
     flutter_additional_ios_build_settings(target)
 
     target.build_configurations.each do |configuration|
+      if target.name == 'geolocator_apple'
+        configuration.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] ||= ['$(inherited)']
+        configuration.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] << 'BYPASS_PERMISSION_LOCATION_ALWAYS=1'
+      end
       deployment_target = configuration.build_settings['IPHONEOS_DEPLOYMENT_TARGET']
       if deployment_target.nil? || Gem::Version.new(deployment_target) < Gem::Version.new('15.0')
         configuration.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'

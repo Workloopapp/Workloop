@@ -23,7 +23,7 @@
                                 </constraints>
                             </imageView>
                         </subviews>
-                        <color key="backgroundColor" red="0.3882352941" green="0.3843137255" blue="0.9215686275" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
+                        <color key="backgroundColor" name="LaunchBackground"/>
                         <constraints>
                             <constraint firstItem="YRO-k0-Ey4" firstAttribute="centerX" secondItem="Ze5-6b-2t3" secondAttribute="centerX" id="4hU-m6-SnY"/>
                             <constraint firstItem="YRO-k0-Ey4" firstAttribute="centerY" secondItem="Ze5-6b-2t3" secondAttribute="centerY" id="u3a-rT-bK8"/>
@@ -37,5 +37,6 @@
     </scenes>
     <resources>
         <image name="LaunchImage" width="280" height="280"/>
+        <namedColor name="LaunchBackground"><color red="0.960784" green="0.929412" blue="0.850980" alpha="1" colorSpace="custom" customColorSpace="sRGB"/></namedColor>
     </resources>
 </document>

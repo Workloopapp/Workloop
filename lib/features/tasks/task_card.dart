@@ -18,12 +18,12 @@ class _TaskCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDone = task.status == 'done';
-    final priorityColor = _priorityColor(task.priority);
+    final priorityColor = _priorityColor(context, task.priority);
     final dueLabel = task.dueDate == null ? null : _formatDue(task.dueDate!);
     final dueColor =
         !isDone && task.dueDate != null && _isOverdue(task.dueDate!)
-        ? AppColors.error
-        : AppColors.t3;
+        ? AppColors.of(context).error
+        : AppColors.of(context).t3;
 
     return Dismissible(
       key: ValueKey(task.id),
@@ -43,13 +43,13 @@ class _TaskCard extends StatelessWidget {
         alignment: Alignment.centerLeft,
         icon: isDone ? LucideIcons.rotateCcw : LucideIcons.checkCircle,
         label: isDone ? 'Reopen' : 'Complete',
-        color: AppColors.success,
+        color: AppColors.of(context).success,
       ),
-      secondaryBackground: const _SwipeBackground(
+      secondaryBackground: _SwipeBackground(
         alignment: Alignment.centerRight,
         icon: LucideIcons.trash2,
         label: 'Delete',
-        color: AppColors.error,
+        color: AppColors.of(context).error,
       ),
       child: InkWell(
         borderRadius: BorderRadius.circular(AppRadius.md),
@@ -58,7 +58,9 @@ class _TaskCard extends StatelessWidget {
           padding: const EdgeInsets.symmetric(vertical: 14),
           decoration: BoxDecoration(
             border: Border(
-              bottom: BorderSide(color: AppColors.t1.withValues(alpha: 0.06)),
+              bottom: BorderSide(
+                color: AppColors.of(context).t1.withValues(alpha: 0.06),
+              ),
             ),
           ),
           child: Row(
@@ -91,19 +93,19 @@ class _TaskCard extends StatelessWidget {
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
                             color: isDone
-                                ? AppColors.success
+                                ? AppColors.of(context).success
                                 : Colors.transparent,
                             border: Border.all(
                               color: isDone
-                                  ? AppColors.success
-                                  : AppColors.border,
+                                  ? AppColors.of(context).success
+                                  : AppColors.of(context).border,
                               width: 2,
                             ),
                           ),
                           child: isDone
-                              ? const Icon(
+                              ? Icon(
                                   Icons.check_rounded,
-                                  color: AppColors.bg,
+                                  color: AppColors.of(context).bg,
                                   size: 14,
                                 )
                               : null,
@@ -127,7 +129,9 @@ class _TaskCard extends StatelessWidget {
                             style: TextStyle(
                               fontSize: 15,
                               fontWeight: FontWeight.w600,
-                              color: isDone ? AppColors.t3 : AppColors.t1,
+                              color: isDone
+                                  ? AppColors.of(context).t3
+                                  : AppColors.of(context).t1,
                               decoration: isDone
                                   ? TextDecoration.lineThrough
                                   : null,
@@ -136,7 +140,9 @@ class _TaskCard extends StatelessWidget {
                         ),
                         const SizedBox(width: 8),
                         _PriorityDot(
-                          color: isDone ? AppColors.t3 : priorityColor,
+                          color: isDone
+                              ? AppColors.of(context).t3
+                              : priorityColor,
                         ),
                       ],
                     ),
@@ -158,10 +164,10 @@ class _TaskCard extends StatelessWidget {
                         ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w400,
-                          color: AppColors.t3,
+                          color: AppColors.of(context).t3,
                         ),
                       ),
                     ],
@@ -169,11 +175,11 @@ class _TaskCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 10),
-              const Padding(
+              Padding(
                 padding: EdgeInsets.only(top: 4),
                 child: Icon(
                   LucideIcons.chevronRight,
-                  color: AppColors.t3,
+                  color: AppColors.of(context).t3,
                   size: 16,
                 ),
               ),

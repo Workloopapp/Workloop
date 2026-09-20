@@ -1,6 +1,6 @@
 import 'dart:async';
-import 'dart:ui';
 
+import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart'
     show CupertinoDatePicker, CupertinoDatePickerMode;
@@ -10,6 +10,9 @@ import 'package:go_router/go_router.dart';
 import 'package:lucide_flutter/lucide_flutter.dart';
 
 import '../../core/theme/app_theme.dart';
+import 'workloop_quiet_warm.dart';
+
+export 'workloop_quiet_warm.dart';
 
 class SlateTheme {
   const SlateTheme._();
@@ -57,6 +60,52 @@ class SlateHaptics {
   static void confirm() => success();
 }
 
+/// Opens a bottom sheet using Workloop's single route-level presentation
+/// contract. The route owns the paper surface and keyboard inset; content uses
+/// [SlateSheetFrame] for consistent spacing without a second floating card.
+Future<T?> showWorkloopBottomSheet<T>({
+  required BuildContext context,
+  required WidgetBuilder builder,
+  bool isScrollControlled = true,
+  bool isDismissible = true,
+  bool enableDrag = true,
+  bool useRootNavigator = false,
+  RouteSettings? routeSettings,
+  BoxConstraints? constraints,
+  bool? requestFocus,
+}) {
+  return showModalBottomSheet<T>(
+    context: context,
+    builder: (sheetContext) => AnimatedPadding(
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.viewInsetsOf(sheetContext).bottom,
+      ),
+      duration: AppMotion.responsive(sheetContext, AppMotion.fast),
+      curve: AppMotion.curve,
+      child: MediaQuery.removeViewInsets(
+        context: sheetContext,
+        removeBottom: true,
+        child: Builder(builder: builder),
+      ),
+    ),
+    isScrollControlled: isScrollControlled,
+    isDismissible: isDismissible,
+    enableDrag: enableDrag,
+    showDragHandle: enableDrag,
+    useRootNavigator: useRootNavigator,
+    routeSettings: routeSettings,
+    constraints: constraints,
+    requestFocus: requestFocus,
+    sheetAnimationStyle: AnimationStyle(
+      duration: AppMotion.responsive(context, AppMotion.navigation),
+      reverseDuration: AppMotion.responsive(context, AppMotion.fast),
+    ),
+    useSafeArea: true,
+    clipBehavior: Clip.antiAlias,
+    barrierColor: SlateTheme.of(context).scrim,
+  );
+}
+
 enum WorkloopDraftDecision { stay, discard, save }
 
 Future<DateTime?> showWorkloopDatePicker({
@@ -67,20 +116,25 @@ Future<DateTime?> showWorkloopDatePicker({
   String title = 'Choose date',
   TransitionBuilder? builder,
 }) async {
-  var selected = initialDate;
-  return showModalBottomSheet<DateTime>(
+  final minimum = DateUtils.dateOnly(firstDate);
+  final maximum = DateUtils.dateOnly(lastDate);
+  final initial = DateUtils.dateOnly(initialDate);
+  var selected = initial.isBefore(minimum)
+      ? minimum
+      : initial.isAfter(maximum)
+      ? maximum
+      : initial;
+  return showWorkloopBottomSheet<DateTime>(
     context: context,
     isScrollControlled: true,
-    useSafeArea: true,
-    backgroundColor: Colors.transparent,
-    barrierColor: SlateTheme.of(context).scrim,
     builder: (sheetContext) => StatefulBuilder(
       builder: (context, setSheetState) => SlateSheetFrame(
+        scrollable: true,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(title, style: Theme.of(context).textTheme.headlineMedium),
+            WorkloopSheetHeader(title: title),
             const SizedBox(height: AppSpacing.sm),
             Builder(
               builder: (context) {
@@ -89,7 +143,12 @@ Future<DateTime?> showWorkloopDatePicker({
                   firstDate: firstDate,
                   lastDate: lastDate,
                   onDateChanged: (value) {
-                    SlateHaptics.selection();
+                    // Material's calendar vibrates on the other platforms.
+                    final platform = Theme.of(context).platform;
+                    if (platform == TargetPlatform.iOS ||
+                        platform == TargetPlatform.macOS) {
+                      SlateHaptics.selection();
+                    }
                     setSheetState(() => selected = value);
                   },
                 );
@@ -111,7 +170,6 @@ Future<DateTime?> showWorkloopDatePicker({
                   child: WorkloopPrimaryButton(
                     label: 'Use date',
                     onPressed: () {
-                      SlateHaptics.success();
                       Navigator.pop(sheetContext, selected);
                     },
                   ),
@@ -138,18 +196,16 @@ Future<TimeOfDay?> showWorkloopTimePicker({
     initialTime.hour,
     initialTime.minute,
   );
-  return showModalBottomSheet<TimeOfDay>(
+  return showWorkloopBottomSheet<TimeOfDay>(
     context: context,
     isScrollControlled: true,
-    useSafeArea: true,
-    backgroundColor: Colors.transparent,
-    barrierColor: SlateTheme.of(context).scrim,
     builder: (sheetContext) => SlateSheetFrame(
+      scrollable: true,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(title, style: Theme.of(context).textTheme.headlineMedium),
+          WorkloopSheetHeader(title: title),
           const SizedBox(height: AppSpacing.sm),
           SizedBox(
             height: 190,
@@ -159,7 +215,10 @@ Future<TimeOfDay?> showWorkloopTimePicker({
               use24hFormat: MediaQuery.alwaysUse24HourFormatOf(context),
               onDateTimeChanged: (value) {
                 selected = TimeOfDay(hour: value.hour, minute: value.minute);
-                SlateHaptics.selection();
+                // Cupertino's wheel already emits its own selection tick on iOS.
+                if (defaultTargetPlatform != TargetPlatform.iOS) {
+                  SlateHaptics.selection();
+                }
               },
             ),
           ),
@@ -178,7 +237,6 @@ Future<TimeOfDay?> showWorkloopTimePicker({
                 child: WorkloopPrimaryButton(
                   label: 'Use time',
                   onPressed: () {
-                    SlateHaptics.success();
                     Navigator.pop(sheetContext, selected);
                   },
                 ),
@@ -198,64 +256,65 @@ Future<WorkloopDraftDecision> showWorkloopDraftConfirmation(
   String saveLabel = 'Save changes',
   bool canSave = true,
 }) async {
-  final result = await showModalBottomSheet<WorkloopDraftDecision>(
+  final result = await showWorkloopBottomSheet<WorkloopDraftDecision>(
     context: context,
-    useSafeArea: true,
-    backgroundColor: Colors.transparent,
-    barrierColor: SlateTheme.of(context).scrim,
-    builder: (sheetContext) => SlateSheetFrame(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            title,
-            style: const TextStyle(
-              color: AppColors.t1,
-              fontSize: 18,
-              fontWeight: FontWeight.w600,
+    isScrollControlled: true,
+    builder: (sheetContext) => SingleChildScrollView(
+      child: SlateSheetFrame(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: TextStyle(
+                color: AppColors.of(sheetContext).t1,
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+              ),
             ),
-          ),
-          const SizedBox(height: AppSpacing.xs),
-          Text(
-            message,
-            style: const TextStyle(
-              color: AppColors.t3,
-              fontSize: 13,
-              height: 1.4,
+            const SizedBox(height: AppSpacing.xs),
+            Text(
+              message,
+              style: TextStyle(
+                color: AppColors.of(sheetContext).t3,
+                fontSize: 13,
+                height: 1.4,
+              ),
             ),
-          ),
-          const SizedBox(height: AppSpacing.xl),
-          SlateButton(
-            label: saveLabel,
-            icon: LucideIcons.check,
-            onPressed: canSave
-                ? () => Navigator.pop(sheetContext, WorkloopDraftDecision.save)
-                : null,
-          ),
-          const SizedBox(height: AppSpacing.sm),
-          SlateButton(
-            label: 'Keep editing',
-            secondary: true,
-            onPressed: () =>
-                Navigator.pop(sheetContext, WorkloopDraftDecision.stay),
-          ),
-          const SizedBox(height: AppSpacing.xs),
-          Center(
-            child: TextButton(
+            const SizedBox(height: AppSpacing.xl),
+            SlateButton(
+              label: saveLabel,
+              icon: LucideIcons.check,
+              onPressed: canSave
+                  ? () =>
+                        Navigator.pop(sheetContext, WorkloopDraftDecision.save)
+                  : null,
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            SlateButton(
+              label: 'Keep editing',
+              secondary: true,
               onPressed: () =>
-                  Navigator.pop(sheetContext, WorkloopDraftDecision.discard),
-              child: const Text(
-                'Discard changes',
-                style: TextStyle(
-                  color: AppColors.error,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
+                  Navigator.pop(sheetContext, WorkloopDraftDecision.stay),
+            ),
+            const SizedBox(height: AppSpacing.xs),
+            Center(
+              child: TextButton(
+                onPressed: () =>
+                    Navigator.pop(sheetContext, WorkloopDraftDecision.discard),
+                child: Text(
+                  'Discard changes',
+                  style: TextStyle(
+                    color: AppColors.of(sheetContext).error,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     ),
   );
@@ -267,48 +326,48 @@ Future<bool> showWorkloopOutsideHoursConfirmation(
   required String detail,
   bool repeating = false,
 }) async {
-  final result = await showModalBottomSheet<bool>(
+  final result = await showWorkloopBottomSheet<bool>(
     context: context,
-    useSafeArea: true,
-    backgroundColor: Colors.transparent,
-    barrierColor: SlateTheme.of(context).scrim,
-    builder: (sheetContext) => SlateSheetFrame(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Outside working hours',
-            style: TextStyle(
-              color: AppColors.t1,
-              fontSize: 18,
-              fontWeight: FontWeight.w600,
+    isScrollControlled: true,
+    builder: (sheetContext) => SingleChildScrollView(
+      child: SlateSheetFrame(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Outside working hours',
+              style: TextStyle(
+                color: AppColors.of(sheetContext).t1,
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+              ),
             ),
-          ),
-          const SizedBox(height: AppSpacing.xs),
-          Text(
-            repeating
-                ? '$detail At least one booking in this repeat schedule is outside your saved hours. You can still create it.'
-                : '$detail You can still create this booking.',
-            style: const TextStyle(
-              color: AppColors.t3,
-              fontSize: 13,
-              height: 1.4,
+            const SizedBox(height: AppSpacing.xs),
+            Text(
+              repeating
+                  ? '$detail At least one booking in this repeat schedule is outside your saved hours. You can still create it.'
+                  : '$detail You can still create this booking.',
+              style: TextStyle(
+                color: AppColors.of(sheetContext).t3,
+                fontSize: 13,
+                height: 1.4,
+              ),
             ),
-          ),
-          const SizedBox(height: AppSpacing.xl),
-          SlateButton(
-            label: 'Book anyway',
-            icon: LucideIcons.calendarCheck,
-            onPressed: () => Navigator.pop(sheetContext, true),
-          ),
-          const SizedBox(height: AppSpacing.sm),
-          SlateButton(
-            label: 'Go back',
-            secondary: true,
-            onPressed: () => Navigator.pop(sheetContext, false),
-          ),
-        ],
+            const SizedBox(height: AppSpacing.xl),
+            SlateButton(
+              label: 'Book anyway',
+              icon: LucideIcons.calendarCheck,
+              onPressed: () => Navigator.pop(sheetContext, true),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            SlateButton(
+              label: 'Go back',
+              secondary: true,
+              onPressed: () => Navigator.pop(sheetContext, false),
+            ),
+          ],
+        ),
       ),
     ),
   );
@@ -436,6 +495,15 @@ class WorkloopNavigationAssistRegion extends StatefulWidget {
         .activateScope(id, ModalRoute.of(context), controller);
   }
 
+  /// Re-selecting a destination uses the same visible-screen targeting as a
+  /// status-bar tap, including lists with their own controllers.
+  static void scrollToTop(BuildContext context) {
+    context
+        .getInheritedWidgetOfExactType<_WorkloopNavigationAssistScope>()
+        ?.state
+        ._scrollVisiblePositionsToTop();
+  }
+
   static void registerScrollController(
     BuildContext context,
     ScrollController controller,
@@ -475,10 +543,8 @@ class WorkloopNavigationAssistRegion extends StatefulWidget {
 }
 
 class _WorkloopNavigationAssistRegionState
-    extends State<WorkloopNavigationAssistRegion> {
-  static const _nativeNavigationChannel = MethodChannel(
-    'com.ismaeel.workloop/navigation',
-  );
+    extends State<WorkloopNavigationAssistRegion>
+    with WidgetsBindingObserver {
   final Map<Route<dynamic>, Set<ScrollController>> _routeControllers = {};
   final Map<Object, Set<ScrollController>> _scopedControllers = {};
   final Map<Object, _WorkloopScrollTarget> _scrollRegistrations = {};
@@ -493,19 +559,18 @@ class _WorkloopNavigationAssistRegionState
   @override
   void initState() {
     super.initState();
-    _nativeNavigationChannel.setMethodCallHandler(_handleNativeNavigation);
+    WidgetsBinding.instance.addObserver(this);
   }
 
   @override
   void dispose() {
-    _nativeNavigationChannel.setMethodCallHandler(null);
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
-  Future<void> _handleNativeNavigation(MethodCall call) async {
-    if (call.method == 'scrollToTop' && mounted) {
-      _scrollVisiblePositionsToTop();
-    }
+  @override
+  void handleStatusBarTap() {
+    if (mounted) _scrollVisiblePositionsToTop();
   }
 
   void activateScope(
@@ -666,9 +731,7 @@ class _WorkloopNavigationAssistRegionState
         .where(
           (target) =>
               identical(target.route, route) &&
-              (activeScope == null
-                  ? target.scopeId == null
-                  : target.scopeId == activeScope) &&
+              (activeScope == null || target.scopeId == activeScope) &&
               target.isVisible(),
         )
         .map((target) => target.controller)
@@ -692,7 +755,7 @@ class _WorkloopNavigationAssistRegionState
       final positions = controller.positions
           .where(
             (position) =>
-                position.context.storageContext.mounted &&
+                _isPaintedScrollContext(position.context.storageContext) &&
                 position.hasPixels &&
                 position.hasContentDimensions &&
                 position.pixels > position.minScrollExtent + 0.5,
@@ -798,6 +861,56 @@ class _WorkloopBackAction {
   const _WorkloopBackAction({required this.route, required this.action});
 }
 
+bool _isPaintedScrollContext(BuildContext context) {
+  if (!context.mounted) return false;
+  final renderObject = context.findRenderObject();
+  if (renderObject == null ||
+      !renderObject.attached ||
+      renderObject.paintBounds.isEmpty) {
+    return false;
+  }
+  final visibleRect = MatrixUtils.transformRect(
+    renderObject.getTransformTo(null),
+    renderObject.paintBounds,
+  );
+  final screenRect = Offset.zero & MediaQuery.sizeOf(context);
+  if (!visibleRect.overlaps(screenRect)) return false;
+
+  final paintedRect = visibleRect.intersect(screenRect);
+  final samplePoints = <Offset>[
+    paintedRect.center,
+    Offset(paintedRect.center.dx, paintedRect.top + 1),
+    Offset(paintedRect.center.dx, paintedRect.bottom - 1),
+  ];
+  return samplePoints.any(
+    (point) => _hitTestContains(context, renderObject, point),
+  );
+}
+
+bool _hitTestContains(
+  BuildContext context,
+  RenderObject renderObject,
+  Offset position,
+) {
+  final result = HitTestResult();
+  RendererBinding.instance.hitTestInView(
+    result,
+    position,
+    View.of(context).viewId,
+  );
+  for (final entry in result.path) {
+    final target = entry.target;
+    if (target is! RenderObject) continue;
+    RenderObject? candidate = target;
+    while (candidate != null) {
+      if (identical(candidate, renderObject)) return true;
+      final parent = candidate.parent;
+      candidate = parent is RenderObject ? parent : null;
+    }
+  }
+  return false;
+}
+
 class _WorkloopScrollRegistration extends StatefulWidget {
   final ScrollController controller;
   final Widget child;
@@ -862,49 +975,8 @@ class _WorkloopScrollRegistrationState
     );
   }
 
-  bool _isVisible() {
-    if (!mounted || !_tickerModeEnabled) return false;
-    final renderObject = context.findRenderObject();
-    if (renderObject == null ||
-        !renderObject.attached ||
-        renderObject.paintBounds.isEmpty) {
-      return false;
-    }
-    final visibleRect = MatrixUtils.transformRect(
-      renderObject.getTransformTo(null),
-      renderObject.paintBounds,
-    );
-    final screenRect = Offset.zero & MediaQuery.sizeOf(context);
-    if (!visibleRect.overlaps(screenRect)) return false;
-
-    final paintedRect = visibleRect.intersect(screenRect);
-    final samplePoints = <Offset>[
-      paintedRect.center,
-      Offset(paintedRect.center.dx, paintedRect.top + 1),
-      Offset(paintedRect.center.dx, paintedRect.bottom - 1),
-    ];
-    return samplePoints.any((point) => _hitTestContains(renderObject, point));
-  }
-
-  bool _hitTestContains(RenderObject renderObject, Offset position) {
-    final result = HitTestResult();
-    RendererBinding.instance.hitTestInView(
-      result,
-      position,
-      View.of(context).viewId,
-    );
-    for (final entry in result.path) {
-      final target = entry.target;
-      if (target is! RenderObject) continue;
-      RenderObject? candidate = target;
-      while (candidate != null) {
-        if (identical(candidate, renderObject)) return true;
-        final parent = candidate.parent;
-        candidate = parent is RenderObject ? parent : null;
-      }
-    }
-    return false;
-  }
+  bool _isVisible() =>
+      mounted && _tickerModeEnabled && _isPaintedScrollContext(context);
 
   @override
   void dispose() {
@@ -1030,7 +1102,7 @@ class WorkloopPage extends StatelessWidget {
     }
 
     return Scaffold(
-      backgroundColor: tokens.background,
+      backgroundColor: Colors.transparent,
       body: Stack(
         children: [
           const Positioned.fill(child: WorkloopTexturedBackdrop()),
@@ -1041,10 +1113,20 @@ class WorkloopPage extends StatelessWidget {
   }
 }
 
-/// The shared Workloop Studio canvas.
-///
-/// A pair of soft orientation fields and one curved path establish the new
-/// identity without turning routine forms into illustrated screens.
+/// Fallback paper canvas for the app chrome. Every page also paints its own
+/// opaque backdrop so native route transitions never reveal another page's text.
+class WorkloopAppCanvas extends StatelessWidget {
+  final Widget child;
+  const WorkloopAppCanvas({super.key, required this.child});
+
+  @override
+  Widget build(BuildContext context) => Stack(
+    fit: StackFit.expand,
+    children: [const WorkloopTexturedBackdrop(), child],
+  );
+}
+
+/// An opaque, inexpensive paper backdrop, isolated from foreground repaints.
 class WorkloopTexturedBackdrop extends StatelessWidget {
   const WorkloopTexturedBackdrop({super.key});
 
@@ -1056,11 +1138,9 @@ class WorkloopTexturedBackdrop extends StatelessWidget {
         child: CustomPaint(
           painter: _WorkloopTexturePainter(
             background: tokens.background,
-            raised: tokens.surfaceRaised,
-            accent: tokens.accent,
-            secondary: AppColors.modClients,
-            dark: Theme.of(context).brightness == Brightness.dark,
+            headerField: tokens.headerField,
           ),
+          child: const SizedBox.expand(),
         ),
       ),
     );
@@ -1069,59 +1149,32 @@ class WorkloopTexturedBackdrop extends StatelessWidget {
 
 class _WorkloopTexturePainter extends CustomPainter {
   final Color background;
-  final Color raised;
-  final Color accent;
-  final Color secondary;
-  final bool dark;
-
+  final Color headerField;
   const _WorkloopTexturePainter({
     required this.background,
-    required this.raised,
-    required this.accent,
-    required this.secondary,
-    required this.dark,
+    required this.headerField,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
-    canvas.drawRect(Offset.zero & size, Paint()..color = background);
-    canvas.drawCircle(
-      Offset(size.width * 0.9, -20),
-      size.width * 0.42,
-      Paint()..color = accent.withValues(alpha: dark ? 0.035 : 0.055),
-    );
-    canvas.drawCircle(
-      Offset(-size.width * 0.12, size.height * 0.42),
-      size.width * 0.3,
-      Paint()..color = secondary.withValues(alpha: dark ? 0.022 : 0.028),
-    );
-    final path = Path()
-      ..moveTo(size.width * 0.58, 0)
-      ..cubicTo(
-        size.width * 0.72,
-        size.height * 0.08,
-        size.width * 0.78,
-        size.height * 0.18,
-        size.width,
-        size.height * 0.2,
-      );
-    canvas.drawPath(
-      path,
+    final rect = Offset.zero & size;
+    canvas.drawRect(rect, Paint()..color = background);
+    canvas.drawRect(
+      rect,
       Paint()
-        ..color = raised.withValues(alpha: dark ? 0.20 : 0.62)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.2,
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [headerField.withValues(alpha: 0.55), background],
+          stops: const [0, 0.30],
+        ).createShader(rect),
     );
   }
 
   @override
-  bool shouldRepaint(covariant _WorkloopTexturePainter oldDelegate) {
-    return background != oldDelegate.background ||
-        raised != oldDelegate.raised ||
-        accent != oldDelegate.accent ||
-        secondary != oldDelegate.secondary ||
-        dark != oldDelegate.dark;
-  }
+  bool shouldRepaint(covariant _WorkloopTexturePainter oldDelegate) =>
+      background != oldDelegate.background ||
+      headerField != oldDelegate.headerField;
 }
 
 class WorkloopSurface extends StatelessWidget {
@@ -1164,6 +1217,7 @@ class WorkloopPageHeader extends StatelessWidget {
   final String subtitle;
   final Color color;
   final Widget? trailing;
+  final bool showWordmark;
   final List<Widget> metrics;
 
   const WorkloopPageHeader({
@@ -1173,6 +1227,7 @@ class WorkloopPageHeader extends StatelessWidget {
     required this.subtitle,
     required this.color,
     this.trailing,
+    this.showWordmark = false,
     this.metrics = const [],
   });
 
@@ -1184,6 +1239,7 @@ class WorkloopPageHeader extends StatelessWidget {
       subtitle: subtitle,
       color: color,
       trailing: trailing,
+      showWordmark: showWordmark,
       stats: metrics,
     );
   }
@@ -1222,15 +1278,8 @@ class _WorkloopInteractiveWorkspaceStackState
     vsync: this,
     duration: AppMotion.navigation,
   );
-  late final AnimationController _destinationProgress = AnimationController(
-    vsync: this,
-    duration: AppMotion.navigation,
-    value: 1,
-  )..addStatusListener(_handleDestinationStatus);
   double _availableWidth = 1;
   bool _settling = false;
-  int? _outgoingIndex;
-  double _destinationDirection = 1;
 
   bool get _canGoBack =>
       widget.previousIndex != null &&
@@ -1243,41 +1292,14 @@ class _WorkloopInteractiveWorkspaceStackState
     super.didUpdateWidget(oldWidget);
     if (oldWidget.index != widget.index ||
         oldWidget.previousIndex != widget.previousIndex) {
-      final completedInteractiveBack = _settling && _progress.value >= 1;
       _progress.value = 0;
       _settling = false;
-      if (oldWidget.index != widget.index && !completedInteractiveBack) {
-        _outgoingIndex = oldWidget.index;
-        _destinationDirection = widget.previousIndex == oldWidget.index
-            ? 1
-            : widget.index > oldWidget.index
-            ? 1
-            : -1;
-        if (MediaQuery.maybeOf(context)?.disableAnimations == true) {
-          _destinationProgress.value = 1;
-          _outgoingIndex = null;
-        } else {
-          _destinationProgress.forward(from: 0);
-        }
-      } else {
-        _destinationProgress.value = 1;
-        _outgoingIndex = null;
-      }
     }
-  }
-
-  void _handleDestinationStatus(AnimationStatus status) {
-    if (status != AnimationStatus.completed || _outgoingIndex == null) return;
-    if (!mounted) return;
-    setState(() => _outgoingIndex = null);
   }
 
   @override
   void dispose() {
     _progress.dispose();
-    _destinationProgress
-      ..removeStatusListener(_handleDestinationStatus)
-      ..dispose();
     super.dispose();
   }
 
@@ -1371,6 +1393,7 @@ class _WorkloopInteractiveWorkspaceStackState
                       child: Stack(
                         fit: StackFit.expand,
                         children: [
+                          const WorkloopTexturedBackdrop(),
                           widget.children[index],
                           IgnorePointer(
                             child: ColoredBox(
@@ -1400,79 +1423,8 @@ class _WorkloopInteractiveWorkspaceStackState
         final previousIndex = _canGoBack ? widget.previousIndex : null;
 
         return AnimatedBuilder(
-          animation: Listenable.merge([_progress, _destinationProgress]),
+          animation: _progress,
           builder: (context, _) {
-            final outgoingIndex = _outgoingIndex;
-            final changingDestination =
-                outgoingIndex != null &&
-                outgoingIndex != widget.index &&
-                outgoingIndex >= 0 &&
-                outgoingIndex < widget.children.length &&
-                _destinationProgress.value < 1;
-            if (changingDestination) {
-              final progress = _destinationProgress.value;
-              final curved = AppMotion.curve.transform(progress);
-              final outgoingOpacity =
-                  1 -
-                  const Interval(
-                    0,
-                    0.55,
-                    curve: Curves.easeOut,
-                  ).transform(progress);
-              final incomingOpacity = const Interval(
-                0.12,
-                1,
-                curve: Curves.easeOutCubic,
-              ).transform(progress);
-              final layers = <Widget>[
-                for (var index = 0; index < widget.children.length; index++)
-                  if (index != widget.index && index != outgoingIndex)
-                    _workspaceLayer(
-                      index: index,
-                      visible: false,
-                      interactive: false,
-                      includeSemantics: false,
-                      tickerEnabled: false,
-                    ),
-                _workspaceLayer(
-                  index: outgoingIndex,
-                  visible: true,
-                  interactive: false,
-                  includeSemantics: false,
-                  tickerEnabled: true,
-                  horizontalOffset:
-                      -_destinationDirection *
-                      AppMotion.destinationOffset *
-                      0.55 *
-                      curved,
-                  scale: 1 - (0.008 * curved),
-                  opacity: outgoingOpacity,
-                ),
-                _workspaceLayer(
-                  index: widget.index,
-                  visible: true,
-                  interactive: false,
-                  includeSemantics: true,
-                  tickerEnabled: true,
-                  horizontalOffset:
-                      _destinationDirection *
-                      AppMotion.destinationOffset *
-                      (1 - curved),
-                  scale: 0.992 + (0.008 * curved),
-                  opacity: incomingOpacity,
-                ),
-              ];
-              return ClipRect(
-                child: IgnorePointer(
-                  ignoring: true,
-                  child: ColoredBox(
-                    color: SlateTheme.of(context).background,
-                    child: Stack(children: layers),
-                  ),
-                ),
-              );
-            }
-
             final value = _progress.value;
             final layers = <Widget>[
               for (var index = 0; index < widget.children.length; index++)
@@ -1534,10 +1486,7 @@ class _WorkloopInteractiveWorkspaceStackState
             return ClipRect(
               child: IgnorePointer(
                 ignoring: false,
-                child: ColoredBox(
-                  color: SlateTheme.of(context).background,
-                  child: Stack(children: layers),
-                ),
+                child: SizedBox.expand(child: Stack(children: layers)),
               ),
             );
           },
@@ -1591,8 +1540,8 @@ class WorkloopRouteHeader extends StatelessWidget {
       title,
       maxLines: 2,
       overflow: TextOverflow.ellipsis,
-      style: const TextStyle(
-        color: AppColors.t1,
+      style: TextStyle(
+        color: AppColors.of(context).t1,
         fontSize: 22,
         height: 1.18,
         fontWeight: FontWeight.w700,
@@ -1823,6 +1772,7 @@ class WorkloopModuleRow extends StatelessWidget {
   final VoidCallback onTap;
   final bool showDivider;
   final String? semanticLabel;
+  final int subtitleMaxLines;
 
   const WorkloopModuleRow({
     super.key,
@@ -1833,6 +1783,7 @@ class WorkloopModuleRow extends StatelessWidget {
     required this.onTap,
     this.showDivider = true,
     this.semanticLabel,
+    this.subtitleMaxLines = 1,
   });
 
   @override
@@ -1872,7 +1823,7 @@ class WorkloopModuleRow extends StatelessWidget {
           ),
           subtitle: Text(
             subtitle,
-            maxLines: 1,
+            maxLines: subtitleMaxLines,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
               color: tokens.textSecondary,
@@ -2012,7 +1963,9 @@ class WorkloopTextButton extends StatelessWidget {
               onPressed!();
             },
       style: TextButton.styleFrom(
-        foregroundColor: destructive ? AppColors.error : AppColors.t2,
+        foregroundColor: destructive
+            ? AppColors.of(context).error
+            : AppColors.of(context).t2,
         minimumSize: const Size(AppSpacing.minTouch, AppSpacing.minTouch),
         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
         padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
@@ -2230,7 +2183,8 @@ class WorkloopPickerField<T> extends StatelessWidget {
   final IconData? leadingIcon;
   final bool searchable;
   final bool enabled;
-  final Color accentColor;
+  final Color? accentColor;
+  final int valueMaxLines;
 
   const WorkloopPickerField({
     super.key,
@@ -2243,7 +2197,8 @@ class WorkloopPickerField<T> extends StatelessWidget {
     this.leadingIcon,
     this.searchable = false,
     this.enabled = true,
-    this.accentColor = AppColors.accentPrimary,
+    this.accentColor,
+    this.valueMaxLines = 1,
   });
 
   WorkloopPickerOption<T>? get _selectedOption {
@@ -2256,12 +2211,9 @@ class WorkloopPickerField<T> extends StatelessWidget {
   Future<void> _showPicker(BuildContext context) async {
     if (!enabled || options.isEmpty) return;
     SlateHaptics.tap();
-    await showModalBottomSheet<void>(
+    await showWorkloopBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      useSafeArea: true,
-      backgroundColor: Colors.transparent,
-      barrierColor: SlateTheme.of(context).scrim,
       builder: (sheetContext) => _WorkloopPickerSheet<T>(
         title: title,
         searchHint: searchHint,
@@ -2295,44 +2247,56 @@ class WorkloopPickerField<T> extends StatelessWidget {
           child: InkWell(
             onTap: enabled ? () => _showPicker(context) : null,
             borderRadius: BorderRadius.circular(AppRadius.md),
-            child: Ink(
-              height: 58,
-              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
-              decoration: BoxDecoration(
-                color: tokens.surface,
-                borderRadius: BorderRadius.circular(AppRadius.md),
-                border: Border.all(color: tokens.divider),
-              ),
-              child: Row(
-                children: [
-                  if (selected?.leading != null || leadingIcon != null) ...[
-                    selected?.leading ??
-                        Icon(leadingIcon, color: tokens.textTertiary, size: 18),
-                    const SizedBox(width: AppSpacing.sm),
-                  ],
-                  Expanded(
-                    child: Text(
-                      selected?.label ?? hint,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: selected == null
-                            ? tokens.textTertiary
-                            : tokens.textPrimary,
-                        fontSize: 15,
-                        fontWeight: selected == null
-                            ? FontWeight.w500
-                            : FontWeight.w600,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 58),
+              child: Ink(
+                height: valueMaxLines == 1 ? 58 : null,
+                padding: EdgeInsets.symmetric(
+                  horizontal: AppSpacing.md,
+                  vertical: valueMaxLines == 1 ? 0 : AppSpacing.sm,
+                ),
+                decoration: BoxDecoration(
+                  color: tokens.surface,
+                  borderRadius: BorderRadius.circular(AppRadius.md),
+                  border: Border.all(color: tokens.divider),
+                ),
+                child: Row(
+                  children: [
+                    if (selected?.leading != null || leadingIcon != null) ...[
+                      selected?.leading ??
+                          Icon(
+                            leadingIcon,
+                            color: tokens.textTertiary,
+                            size: 18,
+                          ),
+                      const SizedBox(width: AppSpacing.sm),
+                    ],
+                    Expanded(
+                      child: Text(
+                        selected?.label ?? hint,
+                        maxLines: valueMaxLines,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: selected == null
+                              ? tokens.textTertiary
+                              : tokens.textPrimary,
+                          fontSize: 15,
+                          fontWeight: selected == null
+                              ? FontWeight.w500
+                              : FontWeight.w600,
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(width: AppSpacing.sm),
-                  Icon(
-                    LucideIcons.chevronDown,
-                    size: 18,
-                    color: enabled ? tokens.textTertiary : tokens.textDisabled,
-                  ),
-                ],
+                    const SizedBox(width: AppSpacing.sm),
+                    Icon(
+                      LucideIcons.chevronDown,
+                      size: 18,
+                      color: enabled
+                          ? tokens.textTertiary
+                          : tokens.textDisabled,
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -2348,7 +2312,7 @@ class _WorkloopPickerSheet<T> extends StatefulWidget {
   final T? selected;
   final List<WorkloopPickerOption<T>> options;
   final bool searchable;
-  final Color accentColor;
+  final Color? accentColor;
   final ValueChanged<T> onSelected;
 
   const _WorkloopPickerSheet({
@@ -2385,150 +2349,68 @@ class _WorkloopPickerSheetState<T> extends State<_WorkloopPickerSheet<T>> {
     }).toList();
   }
 
+  Widget _header() => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      WorkloopSheetHeader(title: widget.title),
+      if (widget.searchable) ...[
+        const SizedBox(height: AppSpacing.xs),
+        WorkloopSearchField(
+          controller: _searchController,
+          hintText: widget.searchHint,
+          semanticLabel: widget.searchHint,
+          onChanged: (value) => setState(() => _query = value),
+        ),
+        const SizedBox(height: AppSpacing.sm),
+      ],
+    ],
+  );
+
+  Widget _option(WorkloopPickerOption<T> option) => _WorkloopPickerRow<T>(
+    option: option,
+    selected: option.value == widget.selected,
+    accentColor: widget.accentColor,
+    onTap: () => widget.onSelected(option.value),
+  );
+
   @override
   Widget build(BuildContext context) {
-    final tokens = SlateTheme.of(context);
+    final filtered = _filteredOptions;
+    if (!widget.searchable && widget.options.length <= 6) {
+      return SlateSheetFrame(
+        scrollable: true,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [_header(), ...filtered.map(_option)],
+        ),
+      );
+    }
     return DraggableScrollableSheet(
       expand: false,
-      initialChildSize: widget.options.length > 6 ? 0.78 : 0.55,
+      initialChildSize: 0.78,
       minChildSize: 0.42,
-      maxChildSize: 0.92,
-      builder: (context, scrollController) {
-        final filtered = _filteredOptions;
-        return Container(
-          decoration: BoxDecoration(
-            color: tokens.surfaceRaised,
-            borderRadius: const BorderRadius.vertical(
-              top: Radius.circular(AppRadius.xl),
-            ),
-            border: Border.all(color: tokens.divider.withValues(alpha: 0.62)),
-            boxShadow: AppShadows.glass,
-          ),
-          child: Column(
-            children: [
-              const SizedBox(height: AppSpacing.sm),
-              Container(
-                width: 36,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: tokens.textPrimary.withValues(alpha: 0.16),
-                  borderRadius: BorderRadius.circular(AppRadius.capsule),
+      maxChildSize: 0.95,
+      builder: (context, scrollController) => SlateSheetFrame(
+        child: ListView.builder(
+          controller: scrollController,
+          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+          padding: EdgeInsets.zero,
+          itemCount: 1 + (filtered.isEmpty ? 1 : filtered.length),
+          itemBuilder: (context, index) {
+            if (index == 0) return _header();
+            if (filtered.isEmpty) {
+              return Padding(
+                padding: EdgeInsets.symmetric(vertical: AppSpacing.lg),
+                child: Text(
+                  'No matches found',
+                  style: TextStyle(color: AppColors.of(context).t3),
                 ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  AppSpacing.lg,
-                  AppSpacing.md,
-                  AppSpacing.sm,
-                  AppSpacing.sm,
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        widget.title,
-                        style: TextStyle(
-                          color: tokens.textPrimary,
-                          fontSize: 22,
-                          fontWeight: FontWeight.w600,
-                          height: 1.08,
-                        ),
-                      ),
-                    ),
-                    WorkloopIconButton(
-                      icon: LucideIcons.x,
-                      semanticLabel: 'Close ${widget.title}',
-                      onTap: () => Navigator.pop(context),
-                    ),
-                  ],
-                ),
-              ),
-              if (widget.searchable)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(
-                    AppSpacing.lg,
-                    0,
-                    AppSpacing.lg,
-                    AppSpacing.sm,
-                  ),
-                  child: TextField(
-                    controller: _searchController,
-                    autofocus: false,
-                    textInputAction: TextInputAction.search,
-                    onChanged: (value) => setState(() => _query = value),
-                    decoration: InputDecoration(
-                      hintText: widget.searchHint,
-                      prefixIcon: const Icon(LucideIcons.search, size: 18),
-                      suffixIcon: _query.isEmpty
-                          ? null
-                          : IconButton(
-                              tooltip: 'Clear search',
-                              onPressed: () {
-                                _searchController.clear();
-                                setState(() => _query = '');
-                              },
-                              icon: const Icon(LucideIcons.x, size: 17),
-                            ),
-                      filled: true,
-                      fillColor: tokens.textPrimary.withValues(alpha: 0.035),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(AppRadius.md),
-                        borderSide: BorderSide(
-                          color: tokens.divider.withValues(alpha: 0.62),
-                        ),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(AppRadius.md),
-                        borderSide: BorderSide(
-                          color: tokens.divider.withValues(alpha: 0.62),
-                        ),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(AppRadius.md),
-                        borderSide: BorderSide(color: tokens.accentInk),
-                      ),
-                    ),
-                  ),
-                ),
-              Expanded(
-                child: filtered.isEmpty
-                    ? Center(
-                        child: Text(
-                          'No matches found',
-                          style: TextStyle(
-                            color: tokens.textTertiary,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      )
-                    : ListView.builder(
-                        controller: scrollController,
-                        keyboardDismissBehavior:
-                            ScrollViewKeyboardDismissBehavior.onDrag,
-                        padding: const EdgeInsets.fromLTRB(
-                          AppSpacing.lg,
-                          AppSpacing.xs,
-                          AppSpacing.lg,
-                          AppSpacing.xl,
-                        ),
-                        itemCount: filtered.length,
-                        itemBuilder: (context, index) {
-                          final option = filtered[index];
-                          final selected = option.value == widget.selected;
-                          return _WorkloopPickerRow<T>(
-                            option: option,
-                            selected: selected,
-                            accentColor: widget.accentColor,
-                            onTap: () => widget.onSelected(option.value),
-                          );
-                        },
-                      ),
-              ),
-            ],
-          ),
-        );
-      },
+              );
+            }
+            return _option(filtered[index - 1]);
+          },
+        ),
+      ),
     );
   }
 }
@@ -2536,7 +2418,7 @@ class _WorkloopPickerSheetState<T> extends State<_WorkloopPickerSheet<T>> {
 class _WorkloopPickerRow<T> extends StatelessWidget {
   final WorkloopPickerOption<T> option;
   final bool selected;
-  final Color accentColor;
+  final Color? accentColor;
   final VoidCallback onTap;
 
   const _WorkloopPickerRow({
@@ -2669,37 +2551,44 @@ class WorkloopSegmentedControl<T> extends StatelessWidget {
   }
 }
 
-/// A draggable contained navigation shared by Studio workspaces.
+/// Ruled folder tabs, preserving tap, drag and accessibility selection.
 class WorkloopNavigationControl<T> extends StatelessWidget {
   final List<WorkloopSegment<T>> segments;
   final T selected;
   final ValueChanged<T> onChanged;
-  final Color color;
+  final Color? color;
   final bool emphasized;
   final bool compact;
+  final bool enableSwipeSelection;
 
   const WorkloopNavigationControl({
     super.key,
     required this.segments,
     required this.selected,
     required this.onChanged,
-    this.color = AppColors.accentPrimary,
+    this.color,
     this.emphasized = true,
     this.compact = false,
+    this.enableSwipeSelection = true,
   });
 
   @override
   Widget build(BuildContext context) {
+    if (segments.isEmpty) return const SizedBox.shrink();
     final tokens = SlateTheme.of(context);
     final selectedIndex = segments.indexWhere(
       (segment) => segment.value == selected,
     );
+    final extraHeight = (MediaQuery.textScalerOf(context).scale(12) - 12).clamp(
+      0.0,
+      36.0,
+    );
     return SizedBox(
-      height: compact ? AppSpacing.minTouch : 48,
+      height: (compact ? AppSpacing.minTouch : 48) + extraHeight,
       child: LayoutBuilder(
         builder: (context, constraints) {
           final itemWidth = constraints.maxWidth / segments.length;
-
+          final rtl = Directionality.of(context) == TextDirection.rtl;
           void select(T value) {
             if (value == selected) return;
             SlateHaptics.tap();
@@ -2711,107 +2600,116 @@ class WorkloopNavigationControl<T> extends StatelessWidget {
               0,
               segments.length - 1,
             );
-            select(segments[index].value);
+            select(segments[rtl ? segments.length - 1 - index : index].value);
           }
 
-          return GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onHorizontalDragStart: (details) {
-              handleDrag(details.localPosition.dx);
-            },
-            onHorizontalDragUpdate: (details) {
-              handleDrag(details.localPosition.dx);
-            },
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                AnimatedPositioned(
-                  duration: AppMotion.responsive(context, AppMotion.standard),
-                  curve: AppMotion.curve,
-                  left:
-                      (selectedIndex < 0 ? 0 : selectedIndex) * itemWidth + 12,
-                  bottom: 0,
-                  height: 2,
-                  width: itemWidth - 24,
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: tokens.accentInk,
-                      borderRadius: BorderRadius.circular(AppRadius.capsule),
+          final activeIndex = selectedIndex < 0 ? 0 : selectedIndex;
+          final corners = BorderRadius.circular(AppRadius.sm);
+          return Container(
+            clipBehavior: Clip.antiAlias,
+            decoration: BoxDecoration(
+              color: tokens.surface,
+              borderRadius: corners,
+            ),
+            foregroundDecoration: BoxDecoration(
+              borderRadius: corners,
+              border: Border.all(color: tokens.frame, width: AppStroke.frame),
+            ),
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onHorizontalDragStart: enableSwipeSelection
+                  ? (details) => handleDrag(details.localPosition.dx)
+                  : null,
+              onHorizontalDragUpdate: enableSwipeSelection
+                  ? (details) => handleDrag(details.localPosition.dx)
+                  : null,
+              child: Stack(
+                children: [
+                  AnimatedPositioned(
+                    key: const ValueKey('workloop-navigation-selection'),
+                    duration: AppMotion.responsive(context, AppMotion.standard),
+                    curve: AppMotion.curve,
+                    left:
+                        (rtl
+                            ? segments.length - 1 - activeIndex
+                            : activeIndex) *
+                        itemWidth,
+                    top: 0,
+                    bottom: 0,
+                    width: itemWidth,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: tokens.paperBlue,
+                        borderRadius: corners,
+                      ),
                     ),
                   ),
-                ),
-                Row(
-                  children: [
-                    for (final segment in segments)
-                      Expanded(
-                        child: Semantics(
-                          button: true,
-                          selected: segment.value == selected,
-                          inMutuallyExclusiveGroup: true,
-                          label: segment.label,
-                          value: segment.badge,
-                          onTap: () => select(segment.value),
-                          child: ExcludeSemantics(
-                            child: GestureDetector(
-                              behavior: HitTestBehavior.opaque,
-                              onTap: () => select(segment.value),
-                              child: Center(
-                                child: AnimatedDefaultTextStyle(
-                                  key: ValueKey(Theme.of(context).brightness),
-                                  duration: AppMotion.responsive(
-                                    context,
-                                    AppMotion.standard,
+                  Row(
+                    children: [
+                      for (var index = 0; index < segments.length; index++)
+                        Expanded(
+                          child: Semantics(
+                            button: true,
+                            selected: segments[index].value == selected,
+                            inMutuallyExclusiveGroup: true,
+                            label: segments[index].label,
+                            value: segments[index].badge,
+                            onTap: () => select(segments[index].value),
+                            child: ExcludeSemantics(
+                              child: GestureDetector(
+                                behavior: HitTestBehavior.opaque,
+                                onTap: () => select(segments[index].value),
+                                child: Container(
+                                  height: double.infinity,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 5,
                                   ),
-                                  style: TextStyle(
-                                    fontFamily: 'Manrope',
-                                    color: segment.value == selected
-                                        ? tokens.textPrimary
-                                        : tokens.textSecondary,
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w600,
-                                  ),
+                                  alignment: Alignment.center,
                                   child: Row(
                                     mainAxisSize: MainAxisSize.min,
-                                    mainAxisAlignment: MainAxisAlignment.center,
                                     children: [
                                       Flexible(
                                         child: Text(
-                                          segment.label,
+                                          segments[index].label,
                                           maxLines: 1,
                                           overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            fontFamily: 'Manrope',
+                                            fontSize: 12,
+                                            color: tokens.textPrimary,
+                                            fontWeight: FontWeight.w500,
+                                          ),
                                         ),
                                       ),
-                                      if (segment.badge != null) ...[
-                                        const SizedBox(width: 6),
+                                      if (segments[index].badge != null) ...[
+                                        const SizedBox(width: 5),
                                         Container(
                                           constraints: const BoxConstraints(
                                             minWidth: 18,
                                           ),
-                                          height: 18,
+                                          height:
+                                              MediaQuery.textScalerOf(context)
+                                                  .scale(10)
+                                                  .clamp(18, double.infinity),
                                           alignment: Alignment.center,
                                           padding: const EdgeInsets.symmetric(
-                                            horizontal: 5,
+                                            horizontal: 4,
                                           ),
                                           decoration: BoxDecoration(
-                                            color: segment.value == selected
-                                                ? tokens.accent.withValues(
-                                                    alpha: 0.12,
-                                                  )
-                                                : tokens.accent.withValues(
-                                                    alpha: 0.07,
-                                                  ),
+                                            color: tokens.surface,
                                             borderRadius: BorderRadius.circular(
-                                              AppRadius.capsule,
+                                              AppRadius.xs,
+                                            ),
+                                            border: Border.all(
+                                              color: tokens.divider,
                                             ),
                                           ),
                                           child: Text(
-                                            segment.badge!,
+                                            segments[index].badge!,
                                             style: TextStyle(
-                                              color: segment.value == selected
-                                                  ? tokens.accentInk
-                                                  : tokens.accent,
+                                              color: tokens.textPrimary,
                                               fontSize: 10,
-                                              fontWeight: FontWeight.w700,
+                                              fontWeight: FontWeight.w600,
                                               height: 1,
                                             ),
                                           ),
@@ -2824,10 +2722,10 @@ class WorkloopNavigationControl<T> extends StatelessWidget {
                             ),
                           ),
                         ),
-                      ),
-                  ],
-                ),
-              ],
+                    ],
+                  ),
+                ],
+              ),
             ),
           );
         },
@@ -2870,7 +2768,6 @@ class WorkloopBottomNav extends StatelessWidget {
   final int currentIndex;
   final List<WorkloopNavItem> items;
   final ValueChanged<int> onTap;
-
   const WorkloopBottomNav({
     super.key,
     required this.currentIndex,
@@ -2880,77 +2777,82 @@ class WorkloopBottomNav extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (items.isEmpty) return const SizedBox.shrink();
     final tokens = SlateTheme.of(context);
-    final tabCount = items.length;
-    return SafeArea(
-      top: false,
-      minimum: const EdgeInsets.fromLTRB(
-        AppSpacing.pageX,
-        0,
-        AppSpacing.pageX,
-        AppSpacing.bottomNavOffset,
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: tokens.surface,
+        border: Border(top: BorderSide(color: tokens.frame)),
       ),
-      child: Container(
-        height: AppSpacing.bottomNavHeight,
-        padding: const EdgeInsets.all(4),
-        decoration: BoxDecoration(
-          color: tokens.surface.withValues(alpha: 0.98),
-          borderRadius: BorderRadius.circular(AppRadius.xl),
-          border: Border.all(color: tokens.divider),
-          boxShadow: AppShadows.soft,
-        ),
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final tabWidth = constraints.maxWidth / tabCount;
+      child: Stack(
+        children: [
+          SafeArea(
+            top: false,
+            child: SizedBox(
+              height: AppSpacing.bottomNavHeightFor(context),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final tabWidth = constraints.maxWidth / items.length;
+                  final rtl = Directionality.of(context) == TextDirection.rtl;
+                  void handleDrag(double dx) {
+                    final physical = (dx / tabWidth).floor().clamp(
+                      0,
+                      items.length - 1,
+                    );
+                    final index = rtl ? items.length - 1 - physical : physical;
+                    if (index != currentIndex) {
+                      SlateHaptics.tap();
+                      onTap(index);
+                    }
+                  }
 
-            int indexForPosition(double dx) {
-              return (dx / tabWidth).floor().clamp(0, tabCount - 1);
-            }
-
-            void handleDrag(double dx) {
-              final index = indexForPosition(dx);
-              if (index != currentIndex) {
-                SlateHaptics.tap();
-                onTap(index);
-              }
-            }
-
-            return GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onHorizontalDragStart: (details) =>
-                  handleDrag(details.localPosition.dx),
-              onHorizontalDragUpdate: (details) =>
-                  handleDrag(details.localPosition.dx),
-              child: Stack(
-                children: [
-                  AnimatedPositioned(
-                    duration: AppMotion.responsive(
-                      context,
-                      AppMotion.navigation,
+                  return GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onHorizontalDragStart: (details) =>
+                        handleDrag(details.localPosition.dx),
+                    onHorizontalDragUpdate: (details) =>
+                        handleDrag(details.localPosition.dx),
+                    child: Row(
+                      children: List.generate(
+                        items.length,
+                        (index) => Expanded(child: _buildTab(context, index)),
+                      ),
                     ),
-                    curve: AppMotion.curve,
-                    left: currentIndex * tabWidth + 14,
-                    top: 0,
-                    height: 2,
-                    width: tabWidth - 28,
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        color: tokens.accentInk,
-                        borderRadius: BorderRadius.circular(AppRadius.capsule),
+                  );
+                },
+              ),
+            ),
+          ),
+          // Draw separators over the complete bar, including the bottom safe
+          // area. They must never end midway above the home indicator.
+          Positioned.fill(
+            child: IgnorePointer(
+              child: ExcludeSemantics(
+                child: SafeArea(
+                  top: false,
+                  bottom: false,
+                  child: Row(
+                    children: List.generate(
+                      items.length,
+                      (index) => Expanded(
+                        child: Container(
+                          key: ValueKey('workloop-bottom-nav-divider-$index'),
+                          decoration: BoxDecoration(
+                            border: BorderDirectional(
+                              end: index < items.length - 1
+                                  ? BorderSide(color: tokens.frame)
+                                  : BorderSide.none,
+                            ),
+                          ),
+                        ),
                       ),
                     ),
                   ),
-                  Row(
-                    children: List.generate(
-                      tabCount,
-                      (index) => Expanded(child: _buildTab(context, index)),
-                    ),
-                  ),
-                ],
+                ),
               ),
-            );
-          },
-        ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -2959,9 +2861,16 @@ class WorkloopBottomNav extends StatelessWidget {
     final tokens = SlateTheme.of(context);
     final tab = items[index];
     final active = index == currentIndex;
-
+    final kind = switch (tab.label.toLowerCase()) {
+      'today' => WorkloopIllustrationKind.calendar,
+      'clients' => WorkloopIllustrationKind.clients,
+      'work' => WorkloopIllustrationKind.tools,
+      'money' => WorkloopIllustrationKind.receipt,
+      'business' => WorkloopIllustrationKind.storefront,
+      _ => WorkloopIllustration.forIcon(tab.icon),
+    };
     void handleTap() {
-      if (index != currentIndex) SlateHaptics.tap();
+      if (!active) SlateHaptics.tap();
       onTap(index);
     }
 
@@ -2974,35 +2883,47 @@ class WorkloopBottomNav extends StatelessWidget {
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTap: handleTap,
-          child: Container(
-            height: 60,
-            padding: const EdgeInsets.symmetric(horizontal: 4),
+          child: AnimatedContainer(
+            key: ValueKey('workloop-bottom-nav-selection-$index'),
+            duration: AppMotion.responsive(context, AppMotion.navigation),
+            curve: AppMotion.curve,
+            height: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 2),
+            decoration: BoxDecoration(
+              border: BorderDirectional(
+                top: BorderSide(
+                  color: active ? tokens.accentInk : Colors.transparent,
+                  width: 2,
+                ),
+              ),
+            ),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
-              mainAxisSize: MainAxisSize.min,
               children: [
-                AnimatedScale(
-                  scale: active ? 1.04 : 1,
-                  duration: AppMotion.responsive(context, AppMotion.standard),
-                  curve: AppMotion.curve,
-                  child: Icon(
-                    tab.icon,
-                    color: active ? tokens.accentInk : tokens.textSecondary,
-                    size: 20,
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.only(top: 3),
-                  child: Text(
-                    tab.label,
-                    maxLines: 1,
-                    overflow: TextOverflow.fade,
-                    softWrap: false,
-                    style: TextStyle(
-                      color: active ? tokens.textPrimary : tokens.textSecondary,
-                      fontSize: 11,
-                      fontWeight: active ? FontWeight.w700 : FontWeight.w500,
-                      height: 1,
+                if (kind != null)
+                  WorkloopIllustration(kind: kind, size: 26)
+                else
+                  Icon(tab.icon, size: 26, color: tokens.textPrimary),
+                const SizedBox(height: 3),
+                Flexible(
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      tab.label,
+                      textAlign: TextAlign.center,
+                      // Keep five destination captions recognisable on small
+                      // phones. Body text and controls retain full user scaling.
+                      textScaler: MediaQuery.textScalerOf(
+                        context,
+                      ).clamp(maxScaleFactor: 1.3),
+                      maxLines: 1,
+                      overflow: TextOverflow.fade,
+                      style: TextStyle(
+                        color: active ? tokens.accentInk : tokens.textPrimary,
+                        fontSize: 11,
+                        fontWeight: active ? FontWeight.w600 : FontWeight.w400,
+                        height: 1.15,
+                      ),
                     ),
                   ),
                 ),
@@ -3045,7 +2966,7 @@ class _WorkloopFABState extends State<WorkloopFAB> {
         onTapCancel: () => setState(() => _pressed = false),
         onTapUp: (_) => setState(() => _pressed = false),
         onTap: () {
-          SlateHaptics.confirm();
+          SlateHaptics.action();
           widget.onTap();
         },
         child: AnimatedScale(
@@ -3063,7 +2984,7 @@ class _WorkloopFABState extends State<WorkloopFAB> {
   }
 }
 
-class SlateSurface extends StatelessWidget {
+class SlateSurface extends StatefulWidget {
   final Widget child;
   final EdgeInsetsGeometry padding;
   final Color? color;
@@ -3084,40 +3005,48 @@ class SlateSurface extends StatelessWidget {
   });
 
   @override
+  State<SlateSurface> createState() => _SlateSurfaceState();
+}
+
+class _SlateSurfaceState extends State<SlateSurface> {
+  Brightness? _previousBrightness;
+
+  @override
   Widget build(BuildContext context) {
     final tokens = SlateTheme.of(context);
+    final brightness = Theme.of(context).brightness;
+    final appearanceChanged =
+        _previousBrightness != null && _previousBrightness != brightness;
+    _previousBrightness = brightness;
+    // Apply an appearance change together without replacing the child subtree.
     final content = AnimatedContainer(
-      key: ValueKey(Theme.of(context).brightness),
-      duration: AppMotion.responsive(context, AppMotion.standard),
+      duration: appearanceChanged
+          ? Duration.zero
+          : AppMotion.responsive(context, AppMotion.standard),
       curve: AppMotion.curve,
       width: double.infinity,
-      padding: padding,
+      padding: widget.padding,
       decoration: BoxDecoration(
-        color: color ?? tokens.surface,
-        borderRadius: BorderRadius.circular(radius),
+        color: widget.color ?? tokens.surface,
+        borderRadius: BorderRadius.circular(widget.radius),
         border: Border.all(
-          color:
-              borderColor ??
-              tokens.divider.withValues(
-                alpha: Theme.of(context).brightness == Brightness.light
-                    ? 0.78
-                    : 1,
-              ),
+          color: widget.borderColor ?? tokens.frame,
+          width: AppStroke.frame,
         ),
-        boxShadow: elevated ? AppShadows.soft : null,
+        boxShadow: widget.elevated ? AppShadows.soft : null,
       ),
-      child: child,
+      child: widget.child,
     );
 
-    if (onTap == null) return content;
+    if (widget.onTap == null) return content;
 
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        borderRadius: BorderRadius.circular(radius),
+        borderRadius: BorderRadius.circular(widget.radius),
         onTap: () {
           SlateHaptics.tap();
-          onTap!();
+          widget.onTap!();
         },
         child: content,
       ),
@@ -3146,21 +3075,17 @@ class SlateGlassSurface extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = SlateTheme.of(context);
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(radius),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
-        child: Container(
-          padding: padding,
-          decoration: BoxDecoration(
-            color: color ?? tokens.surfaceRaised.withValues(alpha: 0.78),
-            borderRadius: BorderRadius.circular(radius),
-            border: Border.all(color: borderColor ?? tokens.divider),
-            boxShadow: AppShadows.glass,
-          ),
-          child: child,
+    return Container(
+      padding: padding,
+      decoration: BoxDecoration(
+        color: color ?? tokens.surface,
+        borderRadius: BorderRadius.circular(radius),
+        border: Border.all(
+          color: borderColor ?? tokens.frame,
+          width: AppStroke.frame,
         ),
       ),
+      child: child,
     );
   }
 }
@@ -3230,10 +3155,10 @@ class _SlateIconButtonState extends State<SlateIconButton> {
                       width: widget.size,
                       height: widget.size,
                       decoration: BoxDecoration(
-                        color: widget.backgroundColor ?? tokens.surfaceSubtle,
-                        shape: BoxShape.circle,
+                        color: widget.backgroundColor ?? tokens.surface,
+                        borderRadius: BorderRadius.circular(AppRadius.sm),
                         border: Border.all(
-                          color: widget.borderColor ?? tokens.divider,
+                          color: widget.borderColor ?? tokens.frame,
                         ),
                       ),
                       child: Icon(
@@ -3295,7 +3220,7 @@ class SlateSectionHeader extends StatelessWidget {
                       onAction!();
                     },
               style: TextButton.styleFrom(
-                foregroundColor: AppColors.accentPrimary,
+                foregroundColor: AppColors.of(context).accentPrimary,
                 minimumSize: const Size(0, AppSpacing.minTouch),
                 padding: const EdgeInsets.symmetric(horizontal: 10),
                 shape: RoundedRectangleBorder(
@@ -3326,8 +3251,8 @@ class SlateFeatureHeader extends StatelessWidget {
   final String subtitle;
   final Color color;
   final Widget? trailing;
+  final bool showWordmark;
   final List<Widget> stats;
-
   const SlateFeatureHeader({
     super.key,
     this.icon,
@@ -3335,73 +3260,57 @@ class SlateFeatureHeader extends StatelessWidget {
     required this.subtitle,
     required this.color,
     this.trailing,
+    this.showWordmark = false,
     this.stats = const [],
   });
 
   @override
   Widget build(BuildContext context) {
     final tokens = SlateTheme.of(context);
-    Widget titleContent() => Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          title,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-          style: Theme.of(context).textTheme.headlineLarge?.copyWith(
-            color: tokens.textPrimary,
-            fontSize: 26,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-        const SizedBox(height: 3),
-        Text(
-          subtitle,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-            color: tokens.textSecondary,
-            fontSize: 14,
-            height: 1.35,
-          ),
-        ),
-      ],
-    );
-
-    Widget headingRow() => Row(
+    final kind = icon == null ? null : WorkloopIllustration.forIcon(icon!);
+    Widget heading() => Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        if (icon != null) ...[
-          Container(
-            width: 46,
-            height: 46,
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.14),
-              borderRadius: BorderRadius.circular(AppRadius.md),
-            ),
-            child: Icon(icon, color: color, size: 21),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: Theme.of(context).textTheme.headlineLarge),
+              if (subtitle.isNotEmpty) ...[
+                const SizedBox(height: 5),
+                Text(
+                  subtitle,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodyMedium?.copyWith(color: tokens.textSecondary),
+                ),
+              ],
+            ],
           ),
-          const SizedBox(width: AppSpacing.md),
+        ),
+        if (kind != null) ...[
+          const SizedBox(width: 12),
+          WorkloopIllustration(kind: kind, size: 36),
         ],
-        Expanded(child: titleContent()),
       ],
     );
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        if (showWordmark) ...[
+          const WorkloopWordmark(size: 20),
+          const SizedBox(height: AppSpacing.lg),
+        ],
         LayoutBuilder(
           builder: (context, constraints) {
-            final stackTrailing =
-                trailing != null &&
-                (constraints.maxWidth < 290 ||
-                    MediaQuery.textScalerOf(context).scale(1) > 1.25);
-            if (stackTrailing) {
+            if (trailing == null) return heading();
+            if (constraints.maxWidth < 320 ||
+                MediaQuery.textScalerOf(context).scale(1) > 1.25) {
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  headingRow(),
-                  const SizedBox(height: AppSpacing.xs),
+                  heading(),
+                  const SizedBox(height: 8),
                   Align(alignment: Alignment.centerRight, child: trailing!),
                 ],
               );
@@ -3409,38 +3318,29 @@ class SlateFeatureHeader extends StatelessWidget {
             return Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                Expanded(child: headingRow()),
-                if (trailing != null) ...[
-                  const SizedBox(width: AppSpacing.sm),
-                  trailing!,
-                ],
+                Expanded(child: heading()),
+                const SizedBox(width: 12),
+                trailing!,
               ],
             );
           },
         ),
+        const SizedBox(height: 10),
+        Divider(color: tokens.frame),
         if (stats.isNotEmpty) ...[
-          const SizedBox(height: AppSpacing.lg),
-          Container(
-            padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.md,
-              vertical: AppSpacing.xs,
-            ),
-            decoration: BoxDecoration(
-              color: tokens.surfaceRaised,
-              borderRadius: BorderRadius.circular(AppRadius.lg),
-              border: Border.all(color: tokens.divider),
-            ),
+          const SizedBox(height: 12),
+          WorkloopPaperPanel(
+            tone: WorkloopPaperTone.plain,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
             child: Row(
               children: [
                 for (var index = 0; index < stats.length; index++) ...[
                   Expanded(child: stats[index]),
-                  if (index != stats.length - 1)
+                  if (index < stats.length - 1)
                     Container(
                       width: 1,
-                      height: 34,
-                      margin: const EdgeInsets.symmetric(
-                        horizontal: AppSpacing.sm,
-                      ),
+                      height: 36,
+                      margin: const EdgeInsets.symmetric(horizontal: 10),
                       color: tokens.divider,
                     ),
                 ],
@@ -3573,7 +3473,7 @@ class SlateEmptyState extends StatelessWidget {
 }
 
 class SlateListRow extends StatelessWidget {
-  final Widget leading;
+  final Widget? leading;
   final Widget title;
   final Widget? subtitle;
   final Widget? trailing;
@@ -3584,7 +3484,7 @@ class SlateListRow extends StatelessWidget {
 
   const SlateListRow({
     super.key,
-    required this.leading,
+    this.leading,
     required this.title,
     this.subtitle,
     this.trailing,
@@ -3621,8 +3521,10 @@ class SlateListRow extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          leading,
-          const SizedBox(width: AppSpacing.sm),
+          if (leading != null) ...[
+            leading!,
+            const SizedBox(width: AppSpacing.sm),
+          ],
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -3693,13 +3595,9 @@ class SlateFilterChip extends StatelessWidget {
                 vertical: AppSpacing.xs,
               ),
               decoration: BoxDecoration(
-                color: selected
-                    ? tokens.accent.withValues(alpha: 0.12)
-                    : tokens.surface,
-                borderRadius: BorderRadius.circular(AppRadius.capsule),
-                border: Border.all(
-                  color: selected ? tokens.accent : tokens.divider,
-                ),
+                color: selected ? tokens.paperBlue : tokens.surface,
+                borderRadius: BorderRadius.circular(AppRadius.sm),
+                border: Border.all(color: tokens.frame),
               ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
@@ -3721,7 +3619,7 @@ class SlateFilterChip extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        color: selected ? tokens.accent : tokens.textSecondary,
+                        color: tokens.textPrimary,
                         fontSize: 12,
                         fontWeight: selected
                             ? FontWeight.w600
@@ -3763,9 +3661,11 @@ class SlateLoadingBlock extends StatelessWidget {
           width: double.infinity,
           height: height,
           decoration: BoxDecoration(
-            color: AppColors.t1.withValues(alpha: value * 0.08),
+            color: AppColors.of(context).t1.withValues(alpha: value * 0.08),
             borderRadius: BorderRadius.circular(radius),
-            border: Border.all(color: AppColors.t1.withValues(alpha: 0.04)),
+            border: Border.all(
+              color: AppColors.of(context).t1.withValues(alpha: 0.04),
+            ),
           ),
         );
       },
@@ -3788,8 +3688,8 @@ class SlateErrorState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SlateSurface(
-      color: AppColors.errorDim,
-      borderColor: AppColors.error.withValues(alpha: 0.22),
+      color: AppColors.of(context).errorDim,
+      borderColor: AppColors.of(context).error.withValues(alpha: 0.22),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -3800,17 +3700,17 @@ class SlateErrorState extends StatelessWidget {
             child: ExcludeSemantics(
               child: Row(
                 children: [
-                  const Icon(
+                  Icon(
                     LucideIcons.alertCircle,
-                    color: AppColors.error,
+                    color: AppColors.of(context).error,
                     size: 18,
                   ),
                   const SizedBox(width: AppSpacing.sm),
                   Expanded(
                     child: Text(
                       message,
-                      style: const TextStyle(
-                        color: AppColors.t2,
+                      style: TextStyle(
+                        color: AppColors.of(context).t2,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
@@ -3887,10 +3787,16 @@ class SlateDisclosure extends StatelessWidget {
                         width: 34,
                         height: 34,
                         decoration: BoxDecoration(
-                          color: AppColors.t1.withValues(alpha: 0.06),
+                          color: AppColors.of(
+                            context,
+                          ).t1.withValues(alpha: 0.06),
                           borderRadius: BorderRadius.circular(AppRadius.sm),
                         ),
-                        child: Icon(icon, size: 17, color: AppColors.t2),
+                        child: Icon(
+                          icon,
+                          size: 17,
+                          color: AppColors.of(context).t2,
+                        ),
                       ),
                       const SizedBox(width: AppSpacing.sm),
                       Expanded(
@@ -3901,8 +3807,8 @@ class SlateDisclosure extends StatelessWidget {
                               title,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                color: AppColors.t1,
+                              style: TextStyle(
+                                color: AppColors.of(context).t1,
                                 fontSize: 14,
                                 fontWeight: FontWeight.w600,
                               ),
@@ -3913,8 +3819,8 @@ class SlateDisclosure extends StatelessWidget {
                                 subtitle!,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: AppColors.t3,
+                                style: TextStyle(
+                                  color: AppColors.of(context).t3,
                                   fontSize: 12,
                                   fontWeight: FontWeight.w500,
                                 ),
@@ -3927,9 +3833,9 @@ class SlateDisclosure extends StatelessWidget {
                         turns: expanded ? 0.5 : 0,
                         duration: AppMotion.responsive(context, AppMotion.fast),
                         curve: AppMotion.curve,
-                        child: const Icon(
+                        child: Icon(
                           LucideIcons.chevronDown,
-                          color: AppColors.t3,
+                          color: AppColors.of(context).t3,
                           size: 18,
                         ),
                       ),
@@ -3991,7 +3897,7 @@ class _SlateButtonState extends State<SlateButton> {
     } else if (widget.secondary) {
       SlateHaptics.tap();
     } else {
-      SlateHaptics.confirm();
+      SlateHaptics.action();
     }
     onPressed();
   }
@@ -4001,14 +3907,14 @@ class _SlateButtonState extends State<SlateButton> {
     final tokens = SlateTheme.of(context);
     final enabled = widget.onPressed != null;
     final bg = widget.destructive
-        ? AppColors.error
+        ? tokens.error
         : widget.secondary
-        ? AppColors.bgCard
+        ? tokens.surface
         : tokens.primaryAction;
     final fg = widget.destructive
-        ? AppColors.bg
+        ? tokens.surface
         : widget.secondary
-        ? AppColors.t2
+        ? tokens.textPrimary
         : tokens.onPrimaryAction;
 
     return Semantics(
@@ -4031,18 +3937,18 @@ class _SlateButtonState extends State<SlateButton> {
               duration: AppMotion.responsive(context, AppMotion.fast),
               child: Container(
                 width: double.infinity,
-                height: 52,
+                constraints: const BoxConstraints(minHeight: 52),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.md,
+                  vertical: AppSpacing.sm,
+                ),
                 decoration: BoxDecoration(
                   color: bg,
-                  borderRadius: BorderRadius.circular(AppRadius.lg),
-                  border: Border.all(
-                    color: widget.secondary
-                        ? AppColors.border
-                        : widget.destructive
-                        ? tokens.error
-                        : tokens.primaryAction,
-                    width: 1,
-                  ),
+                  boxShadow: enabled && !widget.secondary && !_pressed
+                      ? AppShadows.tactile(tokens.frame)
+                      : null,
+                  borderRadius: BorderRadius.circular(AppRadius.sm),
+                  border: Border.all(color: tokens.frame, width: 1),
                 ),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -4055,8 +3961,10 @@ class _SlateButtonState extends State<SlateButton> {
                     Flexible(
                       child: Text(
                         widget.label,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+                        textAlign:
+                            MediaQuery.textScalerOf(context).scale(14) > 14
+                            ? TextAlign.center
+                            : TextAlign.start,
                         style: TextStyle(
                           color: fg,
                           fontSize: 14,
@@ -4075,69 +3983,96 @@ class _SlateButtonState extends State<SlateButton> {
   }
 }
 
+/// Content inside the route's one paper sheet. Scrollable forms opt in here;
+/// draggable lists keep their own controller and scrolling behavior.
 class SlateSheetFrame extends StatelessWidget {
   final Widget child;
   final EdgeInsetsGeometry padding;
+  final bool scrollable;
 
   const SlateSheetFrame({
     super.key,
     required this.child,
+    this.scrollable = false,
     this.padding = const EdgeInsets.fromLTRB(
+      AppSpacing.pageX,
+      0,
+      AppSpacing.pageX,
       AppSpacing.lg,
-      AppSpacing.sm,
-      AppSpacing.lg,
-      AppSpacing.xl,
     ),
   });
 
   @override
   Widget build(BuildContext context) {
+    final content = scrollable
+        ? SingleChildScrollView(
+            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+            child: child,
+          )
+        : child;
     return SafeArea(
-      child: Padding(
-        padding: padding,
-        child: TweenAnimationBuilder<double>(
-          tween: Tween(begin: 0.96, end: 1),
-          duration: AppMotion.responsive(context, AppMotion.standard),
-          curve: AppMotion.curve,
-          builder: (context, value, sheet) {
-            return Opacity(
-              opacity: value.clamp(0.0, 1.0),
-              child: Transform.scale(
-                scale: value,
-                alignment: Alignment.bottomCenter,
-                child: sheet,
-              ),
-            );
-          },
-          child: SlateSurface(
-            color: AppColors.bgCard,
-            borderColor: AppColors.border,
-            radius: AppRadius.xl,
-            padding: const EdgeInsets.fromLTRB(
-              AppSpacing.lg,
-              AppSpacing.sm,
-              AppSpacing.lg,
-              AppSpacing.lg,
-            ),
-            elevated: true,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 36,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: AppColors.t1.withValues(alpha: 0.18),
-                    borderRadius: BorderRadius.circular(AppRadius.capsule),
+      top: false,
+      child: Padding(padding: padding, child: content),
+    );
+  }
+}
+
+/// A compact, accessible heading shared by sheets and their picker variants.
+class WorkloopSheetHeader extends StatelessWidget {
+  final String title;
+  final String? subtitle;
+  final bool canClose;
+
+  const WorkloopSheetHeader({
+    super.key,
+    required this.title,
+    this.subtitle,
+    this.canClose = true,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w600,
+                    height: 1.2,
                   ),
                 ),
-                const SizedBox(height: AppSpacing.lg),
-                child,
-              ],
+              ),
             ),
-          ),
+            const SizedBox(width: AppSpacing.xs),
+            IconButton(
+              tooltip: 'Close $title',
+              onPressed: canClose
+                  ? () {
+                      SlateHaptics.selection();
+                      Navigator.maybePop(context);
+                    }
+                  : null,
+              icon: const Icon(LucideIcons.x, size: 20),
+              constraints: const BoxConstraints.tightFor(width: 44, height: 44),
+            ),
+          ],
         ),
-      ),
+        if (subtitle != null) ...[
+          Text(
+            subtitle!,
+            style: TextStyle(color: AppColors.of(context).t3, height: 1.4),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+        ],
+      ],
     );
   }
 }

@@ -11,249 +11,167 @@ class ObWelcome extends StatelessWidget {
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
     final tokens = SlateTheme.of(context);
-    return CustomScrollView(
-      slivers: [
-        SliverPadding(
-          padding: const EdgeInsets.all(AppSpacing.pageX),
-          sliver: SliverFillRemaining(
-            hasScrollBody: false,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Spacer(),
-                Row(
-                  children: [
-                    Container(
-                      width: 9,
-                      height: 9,
-                      decoration: BoxDecoration(
-                        color: tokens.accentStrong,
-                        shape: BoxShape.circle,
-                        border: Border.all(color: tokens.accentBorder),
-                      ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxHeight < 700;
+        return CustomScrollView(
+          slivers: [
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.pageX,
+                AppSpacing.sm,
+                AppSpacing.pageX,
+                AppSpacing.md,
+              ),
+              sliver: SliverFillRemaining(
+                hasScrollBody: false,
+                child: Align(
+                  alignment: Alignment.topCenter,
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 440),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const WorkloopWordmark(),
+                        if (!compact) const Spacer(),
+                        SizedBox(
+                          height: compact ? AppSpacing.xl : AppSpacing.xxl,
+                        ),
+                        Semantics(
+                          header: true,
+                          child: Text(
+                            'Your business,\nin good order.',
+                            style: textTheme.displayMedium,
+                          ),
+                        ),
+                        const SizedBox(height: AppSpacing.md),
+                        Text(
+                          'Bookings, clients and money, connected in one place. '
+                          'Built for people who work for themselves.',
+                          style: textTheme.bodyLarge?.copyWith(
+                            color: tokens.textSecondary,
+                            height: 1.45,
+                          ),
+                        ),
+                        const SizedBox(height: AppSpacing.xl),
+                        const _BusinessOrganiser(),
+                        if (!compact) const Spacer(flex: 2),
+                        const SizedBox(height: AppSpacing.xl),
+                        Center(
+                          child: Text(
+                            'Let’s make Workloop yours.',
+                            textAlign: TextAlign.center,
+                            style: textTheme.bodyMedium?.copyWith(
+                              color: tokens.textSecondary,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: AppSpacing.sm),
+                        SlateButton(
+                          key: const ValueKey('onboarding-get-started'),
+                          label: 'Get started',
+                          icon: LucideIcons.arrowRight,
+                          onPressed: onNext,
+                        ),
+                      ],
                     ),
-                    const SizedBox(width: AppSpacing.sm),
-                    Text(
-                      'WORKLOOP',
-                      style: textTheme.labelSmall?.copyWith(
-                        color: tokens.textPrimary,
-                        letterSpacing: 1.1,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: AppSpacing.lg),
-                Text(
-                  'Run your business.\nNot your admin.',
-                  style: textTheme.displayMedium,
-                ),
-                const SizedBox(height: AppSpacing.md),
-                Text(
-                  'Your bookings, clients, and payments — one app built for people who work for themselves.',
-                  style: textTheme.bodyLarge?.copyWith(
-                    color: AppColors.t3,
-                    height: 1.45,
                   ),
                 ),
-                const SizedBox(height: AppSpacing.xl),
-                const _OperatingLoopGraphic(),
-                const SizedBox(height: AppSpacing.xl),
-                const _ValueProp(
-                  icon: LucideIcons.calendarDays,
-                  text: 'Know exactly what is on today',
-                ),
-                const SizedBox(height: AppSpacing.md),
-                const _ValueProp(
-                  icon: LucideIcons.banknote,
-                  text: 'Get paid faster, with less chasing',
-                ),
-                const SizedBox(height: AppSpacing.md),
-                const _ValueProp(
-                  icon: LucideIcons.users,
-                  text: 'Every client, every history, one place',
-                ),
-                const Spacer(),
-                const SizedBox(height: AppSpacing.xl),
-                SlateButton(
-                  label: 'Get started',
-                  icon: LucideIcons.arrowRight,
-                  onPressed: onNext,
-                ),
-                const SizedBox(height: AppSpacing.md),
-              ],
+              ),
             ),
-          ),
-        ),
-      ],
+          ],
+        );
+      },
     );
   }
 }
 
-class _OperatingLoopGraphic extends StatelessWidget {
-  const _OperatingLoopGraphic();
-
-  static const _stages = [
-    (LucideIcons.userRound, 'Client'),
-    (LucideIcons.calendarDays, 'Booking'),
-    (LucideIcons.briefcaseBusiness, 'Work'),
-    (LucideIcons.circlePoundSterling, 'Pay · repeat'),
-  ];
+/// An illustrated introduction to the real workspace, without sample records
+/// or progress states that could be mistaken for the owner's business data.
+class _BusinessOrganiser extends StatelessWidget {
+  const _BusinessOrganiser();
 
   @override
   Widget build(BuildContext context) {
     final tokens = SlateTheme.of(context);
-    return Semantics(
-      label: 'Workloop operating loop: client, booking, work, payment, repeat.',
-      child: ExcludeSemantics(
-        child: WorkloopSurface(
-          color: tokens.inkSurface,
-          borderColor: tokens.divider,
-          radius: AppRadius.xl,
-          padding: const EdgeInsets.fromLTRB(
-            AppSpacing.sm,
-            AppSpacing.md,
-            AppSpacing.sm,
-            AppSpacing.sm,
+    return WorkloopPaperPanel(
+      title: 'A clearer working day',
+      padding: EdgeInsets.zero,
+      child: Column(
+        children: [
+          const _WorkspaceRow(
+            illustration: WorkloopIllustrationKind.calendar,
+            title: 'Know what’s next',
+            description: 'Your bookings and tasks, together.',
           ),
-          child: SizedBox(
-            height: 84,
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                return Stack(
-                  children: [
-                    Positioned.fill(
-                      child: CustomPaint(
-                        painter: _OperatingLoopPainter(
-                          line: tokens.onInkMuted,
-                          active: tokens.accentStrong,
-                        ),
-                      ),
-                    ),
-                    Row(
-                      children: [
-                        for (final (index, stage) in _stages.indexed)
-                          Expanded(
-                            child: Column(
-                              children: [
-                                Container(
-                                  width: AppSpacing.minTouch,
-                                  height: AppSpacing.minTouch,
-                                  decoration: BoxDecoration(
-                                    color: index == 0
-                                        ? tokens.accentStrong
-                                        : tokens.onInk.withValues(alpha: 0.08),
-                                    shape: BoxShape.circle,
-                                    border: Border.all(
-                                      color: index == 0
-                                          ? tokens.accentBorder
-                                          : tokens.onInk.withValues(
-                                              alpha: 0.16,
-                                            ),
-                                    ),
-                                  ),
-                                  child: Icon(
-                                    stage.$1,
-                                    size: 18,
-                                    color: index == 0
-                                        ? tokens.onAccent
-                                        : tokens.onInk,
-                                  ),
-                                ),
-                                const SizedBox(height: AppSpacing.xxs),
-                                FittedBox(
-                                  fit: BoxFit.scaleDown,
-                                  child: Text(
-                                    stage.$2,
-                                    maxLines: 1,
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .labelSmall
-                                        ?.copyWith(color: tokens.onInkMuted),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                      ],
-                    ),
-                  ],
-                );
-              },
-            ),
+          Divider(
+            height: 1,
+            color: tokens.divider,
+            indent: AppSpacing.md,
+            endIndent: AppSpacing.md,
           ),
-        ),
+          const _WorkspaceRow(
+            illustration: WorkloopIllustrationKind.clients,
+            title: 'Every client, remembered',
+            description: 'Their details and history, ready.',
+          ),
+          Divider(
+            height: 1,
+            color: tokens.divider,
+            indent: AppSpacing.md,
+            endIndent: AppSpacing.md,
+          ),
+          const _WorkspaceRow(
+            illustration: WorkloopIllustrationKind.receipt,
+            title: 'Money in view',
+            description: 'Quotes, invoices and payments.',
+          ),
+        ],
       ),
     );
   }
 }
 
-class _OperatingLoopPainter extends CustomPainter {
-  final Color line;
-  final Color active;
+class _WorkspaceRow extends StatelessWidget {
+  final WorkloopIllustrationKind illustration;
+  final String title;
+  final String description;
 
-  const _OperatingLoopPainter({required this.line, required this.active});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final y = AppSpacing.xl;
-    final first = size.width / 8;
-    final last = size.width - first;
-    final basePaint = Paint()
-      ..color = line
-      ..strokeWidth = 2
-      ..strokeCap = StrokeCap.round
-      ..style = PaintingStyle.stroke;
-    canvas.drawLine(Offset(first, y), Offset(last, y), basePaint);
-
-    final activePaint = Paint()
-      ..color = active
-      ..strokeWidth = 2.5
-      ..strokeCap = StrokeCap.round
-      ..style = PaintingStyle.stroke;
-    canvas.drawLine(Offset(first, y), Offset(last, y), activePaint);
-
-    final arrowX = last - AppSpacing.xs;
-    final arrow = Path()
-      ..moveTo(arrowX - AppSpacing.xxs, y - AppSpacing.xxs)
-      ..lineTo(arrowX, y)
-      ..lineTo(arrowX - AppSpacing.xxs, y + AppSpacing.xxs);
-    canvas.drawPath(arrow, activePaint);
-  }
-
-  @override
-  bool shouldRepaint(_OperatingLoopPainter oldDelegate) {
-    return oldDelegate.line != line || oldDelegate.active != active;
-  }
-}
-
-class _ValueProp extends StatelessWidget {
-  final IconData icon;
-  final String text;
-  const _ValueProp({required this.icon, required this.text});
+  const _WorkspaceRow({
+    required this.illustration,
+    required this.title,
+    required this.description,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Container(
-          width: 34,
-          height: 34,
-          decoration: BoxDecoration(
-            color: AppColors.t1.withValues(alpha: 0.06),
-            borderRadius: BorderRadius.circular(AppRadius.sm),
+    final textTheme = Theme.of(context).textTheme;
+    final tokens = SlateTheme.of(context);
+    return Padding(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          WorkloopIllustration(kind: illustration, size: 48),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: textTheme.titleLarge),
+                const SizedBox(height: AppSpacing.xxs),
+                Text(
+                  description,
+                  style: textTheme.bodyMedium?.copyWith(
+                    color: tokens.textSecondary,
+                    height: 1.4,
+                  ),
+                ),
+              ],
+            ),
           ),
-          child: Icon(icon, color: AppColors.t3, size: 17),
-        ),
-        const SizedBox(width: AppSpacing.sm),
-        Expanded(
-          child: Text(
-            text,
-            style: Theme.of(
-              context,
-            ).textTheme.bodyLarge?.copyWith(color: AppColors.t2),
-          ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

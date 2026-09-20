@@ -1,3 +1,7 @@
+import 'package:timezone/timezone.dart' as timezone;
+
+import 'booking_time.dart';
+
 /// Returns the start of a recurring appointment while preserving the local
 /// wall-clock time selected by the business owner.
 ///
@@ -8,8 +12,9 @@
 DateTime appointmentOccurrenceStart(
   DateTime startTime,
   String? rule,
-  int index,
-) {
+  int index, {
+  String? timezoneName,
+}) {
   if (index < 0) {
     throw ArgumentError.value(index, 'index', 'Must not be negative.');
   }
@@ -42,14 +47,16 @@ DateTime appointmentOccurrenceStart(
   }
   if (index == 0) return startTime;
 
-  final local = startTime.toLocal();
+  final local = timezoneName == null
+      ? startTime.toLocal()
+      : bookingTimeInZone(startTime, timezoneName);
   final DateTime occurrence;
   if (frequency == 'MONTHLY') {
     final targetMonth = local.month + (index * interval);
     final targetYear = local.year + ((targetMonth - 1) ~/ 12);
     final normalizedMonth = ((targetMonth - 1) % 12) + 1;
-    final lastDay = DateTime(targetYear, normalizedMonth + 1, 0).day;
-    occurrence = DateTime(
+    final lastDay = DateTime.utc(targetYear, normalizedMonth + 1, 0).day;
+    occurrence = DateTime.utc(
       targetYear,
       normalizedMonth,
       local.day.clamp(1, lastDay),
@@ -60,7 +67,7 @@ DateTime appointmentOccurrenceStart(
       local.microsecond,
     );
   } else {
-    occurrence = DateTime(
+    occurrence = DateTime.utc(
       local.year,
       local.month,
       local.day + (7 * interval * index),
@@ -72,7 +79,81 @@ DateTime appointmentOccurrenceStart(
     );
   }
 
-  return startTime.isUtc ? occurrence.toUtc() : occurrence;
+  if (timezoneName != null) {
+    return recurringBookingInstant(occurrence, timezoneName);
+  }
+  final deviceLocal = DateTime(
+    occurrence.year,
+    occurrence.month,
+    occurrence.day,
+    occurrence.hour,
+    occurrence.minute,
+    occurrence.second,
+    occurrence.millisecond,
+    occurrence.microsecond,
+  );
+  return startTime.isUtc ? deviceLocal.toUtc() : deviceLocal;
+}
+
+/// Interprets date/time picker fields in the business timezone. Rejecting a
+/// spring-forward gap avoids silently creating a booking an hour later.
+DateTime recurringBookingInstant(DateTime wallClock, String timezoneName) {
+  final location = bookingTimeLocation(timezoneName);
+  final instant = timezone.TZDateTime(
+    location,
+    wallClock.year,
+    wallClock.month,
+    wallClock.day,
+    wallClock.hour,
+    wallClock.minute,
+    wallClock.second,
+    wallClock.millisecond,
+    wallClock.microsecond,
+  );
+  if (instant.year != wallClock.year ||
+      instant.month != wallClock.month ||
+      instant.day != wallClock.day ||
+      instant.hour != wallClock.hour ||
+      instant.minute != wallClock.minute) {
+    throw const RecurringBookingTimeException(
+      'A booking falls in the hour skipped when the clocks change. Choose another time.',
+    );
+  }
+  return instant.toUtc();
+}
+
+class RecurringBookingTimeException implements Exception {
+  final String message;
+  const RecurringBookingTimeException(this.message);
+}
+
+/// Editing a title or note must preserve the selected instant even during the
+/// repeated autumn hour, when two instants share the same visible clock fields.
+DateTime editedAppointmentStart({
+  required DateTime originalStart,
+  required DateTime selectedWallClock,
+  String? timezoneName,
+}) {
+  final originalDisplay = timezoneName == null
+      ? originalStart.toLocal()
+      : bookingTimeInZone(originalStart, timezoneName);
+  if (originalDisplay.year == selectedWallClock.year &&
+      originalDisplay.month == selectedWallClock.month &&
+      originalDisplay.day == selectedWallClock.day &&
+      originalDisplay.hour == selectedWallClock.hour &&
+      originalDisplay.minute == selectedWallClock.minute) {
+    return originalStart.toUtc();
+  }
+  if (timezoneName != null) {
+    return recurringBookingInstant(selectedWallClock, timezoneName);
+  }
+  return DateTime(
+    selectedWallClock.year,
+    selectedWallClock.month,
+    selectedWallClock.day,
+    selectedWallClock.hour,
+    selectedWallClock.minute,
+  ).toUtc();
 }
 
 String? _ruleValue(String rule, String key) {

@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(51);
+select plan(54);
 
 select has_table('public', table_name, table_name || ' exists')
 from unnest(array[
@@ -12,12 +12,15 @@ from unnest(array[
   'workspace_settings',
   'contacts',
   'services',
+  'service_add_ons',
   'appointments',
+  'appointment_items',
   'invoices',
   'invoice_line_items',
   'tasks',
   'business_profiles',
   'booking_requests',
+  'booking_request_items',
   'notifications',
   'notification_preferences',
   'push_tokens',
@@ -44,12 +47,15 @@ select is(
         'workspace_settings',
         'contacts',
         'services',
+        'service_add_ons',
         'appointments',
+        'appointment_items',
         'invoices',
         'invoice_line_items',
         'tasks',
         'business_profiles',
         'booking_requests',
+        'booking_request_items',
         'notifications',
         'notification_preferences',
         'push_tokens',
@@ -81,12 +87,15 @@ select is(
         'workspace_settings',
         'contacts',
         'services',
+        'service_add_ons',
         'appointments',
+        'appointment_items',
         'invoices',
         'invoice_line_items',
         'tasks',
         'business_profiles',
         'booking_requests',
+        'booking_request_items',
         'notifications',
         'notification_preferences',
         'push_tokens',
@@ -127,12 +136,15 @@ select is(
         'workspace_members',
         'contacts',
         'services',
+        'service_add_ons',
         'appointments',
+        'appointment_items',
         'invoices',
         'invoice_line_items',
         'tasks',
         'business_profiles',
         'booking_requests',
+        'booking_request_items',
         'notifications',
         'task_checklist_items',
         'expenses',
@@ -199,7 +211,7 @@ select is(
       and permissive = 'RESTRICTIVE'
       and roles @> array['authenticated'::name]
   ),
-  22::bigint,
+  25::bigint,
   'every authenticated application table has the restrictive MFA policy'
 );
 

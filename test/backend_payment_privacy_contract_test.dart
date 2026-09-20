@@ -89,8 +89,15 @@ void main() {
       'supabase/functions/request-account-deletion/index.ts',
     ]) {
       final source = File(path).readAsStringSync();
-      expect(source, contains('"current_user_meets_mfa_policy"'));
-      expect(source, contains('meetsMfaPolicy !== true'));
+      final mfaCall = RegExp(
+        r'const\s+\{\s*data:\s*(\w+),\s*error:\s*(\w+)\s*\}\s*'
+        r'=\s*await\s+userClient\.rpc\(\s*"current_user_meets_mfa_policy"',
+      ).firstMatch(source);
+      expect(mfaCall, isNotNull, reason: '$path must check the caller MFA RPC');
+      final result = mfaCall!.group(1)!;
+      final error = mfaCall.group(2)!;
+      expect(source, contains('if ($error)'));
+      expect(source, contains('if ($result !== true)'));
       expect(source, contains('code: "mfa_required"'));
     }
   });

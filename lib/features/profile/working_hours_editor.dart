@@ -9,6 +9,7 @@ import '../../shared/providers/workspace_provider.dart';
 import '../../shared/repositories/slate_repositories.dart';
 import '../../shared/utils/working_hours.dart';
 import '../../shared/widgets/slate_ui.dart';
+import '../../shared/widgets/workloop_form_field.dart';
 import '../settings/providers/settings_providers.dart';
 
 class WorkingHoursEditor extends ConsumerStatefulWidget {
@@ -25,6 +26,7 @@ class _WorkingHoursEditorState extends ConsumerState<WorkingHoursEditor> {
   bool _saving = false;
   bool _allowPop = false;
   String _initialSnapshot = '';
+  Map<String, String> _errors = {};
 
   void _hydrate(Map<String, dynamic> settings) {
     if (_hydrated) return;
@@ -146,6 +148,7 @@ class _WorkingHoursEditorState extends ConsumerState<WorkingHoursEditor> {
     setState(() => _saving = true);
     try {
       final workspaceId = await ref.read(workspaceIdProvider.future);
+      if (!mounted) return;
       if (workspaceId == null) return;
       final nextHours = <String, dynamic>{};
       for (final day in workingHourDays) {
@@ -164,11 +167,14 @@ class _WorkingHoursEditorState extends ConsumerState<WorkingHoursEditor> {
           if (blocks.isNotEmpty) 'end': blocks.last['end'],
         };
       }
+      final errors = validateWorkingHours(nextHours);
+      setState(() => _errors = errors);
+      if (errors.isNotEmpty) return;
       await ref.read(workspaceSettingsRepositoryProvider).update(workspaceId, {
         'working_hours': nextHours,
       });
-      ref.invalidate(settingsWorkspaceSettingsProvider);
       if (!mounted) return;
+      ref.invalidate(settingsWorkspaceSettingsProvider);
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('Working hours updated')));
@@ -193,8 +199,10 @@ class _WorkingHoursEditorState extends ConsumerState<WorkingHoursEditor> {
         if (!didPop && !_saving) _attemptExit();
       },
       child: settings.when(
-        loading: () => const Center(
-          child: CircularProgressIndicator(color: AppColors.accentPrimary),
+        loading: () => Center(
+          child: CircularProgressIndicator(
+            color: AppColors.of(context).accentPrimary,
+          ),
         ),
         error: (_, _) => WorkloopEmptyState(
           icon: LucideIcons.clock3,
@@ -207,64 +215,227 @@ class _WorkingHoursEditorState extends ConsumerState<WorkingHoursEditor> {
         ),
         data: (data) {
           _hydrate(data ?? const {});
-          return ListView(
-            padding: const EdgeInsets.fromLTRB(
-              AppSpacing.pageX,
-              0,
-              AppSpacing.pageX,
-              AppSpacing.xxl,
-            ),
-            children: [
-              const Text(
-                'Set when you usually work. These hours appear on your public profile and guide booking checks.',
-                style: TextStyle(
-                  color: AppColors.t3,
-                  fontSize: 14,
-                  height: 1.45,
-                  fontWeight: FontWeight.w400,
-                ),
-              ),
-              const SizedBox(height: AppSpacing.xl),
-              for (
-                var dayIndex = 0;
-                dayIndex < workingHourDays.length;
-                dayIndex++
-              ) ...[
-                _DayHoursEditor(
-                  day: workingHourDays[dayIndex],
-                  enabled: _enabled[workingHourDays[dayIndex]] ?? false,
-                  blocks: _blocks[workingHourDays[dayIndex]] ?? const [],
-                  onEnabled: (value) => setState(
-                    () => _enabled[workingHourDays[dayIndex]] = value,
-                  ),
-                  onPickStart: (index) =>
-                      _pickTime(workingHourDays[dayIndex], index, start: true),
-                  onPickEnd: (index) =>
-                      _pickTime(workingHourDays[dayIndex], index, start: false),
-                  onAddBlock: () => setState(
-                    () => _blocks[workingHourDays[dayIndex]]!.add(
-                      const _HoursBlock(
-                        start: TimeOfDay(hour: 16, minute: 0),
-                        end: TimeOfDay(hour: 20, minute: 0),
-                      ),
-                    ),
-                  ),
-                  onRemoveBlock: (index) => setState(
-                    () => _blocks[workingHourDays[dayIndex]]!.removeAt(index),
+          return Padding(
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.pageX),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  'All days can be off. Tap hours to edit or add a break.',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: SlateTheme.of(context).textSecondary,
                   ),
                 ),
-                if (dayIndex != workingHourDays.length - 1)
-                  const WorkloopDivider(
-                    margin: EdgeInsets.symmetric(vertical: AppSpacing.md),
+                const SizedBox(height: AppSpacing.sm),
+                Expanded(
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final rowHeight = ((constraints.maxHeight - 8) / 7).clamp(
+                        AppSpacing.minTouch,
+                        56.0,
+                      );
+                      return ListView(
+                        key: const ValueKey('working-hours-week'),
+                        padding: EdgeInsets.zero,
+                        children: [
+                          WorkloopPaperPanel(
+                            padding: EdgeInsets.zero,
+                            child: Column(
+                              children: [
+                                for (final (index, day)
+                                    in workingHourDays.indexed) ...[
+                                  _weekRow(day, rowHeight),
+                                  if (_errors[day] case final error?)
+                                    Padding(
+                                      padding: const EdgeInsets.all(8),
+                                      child: Semantics(
+                                        liveRegion: true,
+                                        child: Text(
+                                          error,
+                                          style: TextStyle(
+                                            color: AppColors.of(context).error,
+                                            fontSize: 13,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  if (index < workingHourDays.length - 1)
+                                    Divider(
+                                      height: 1,
+                                      color: SlateTheme.of(context).divider,
+                                    ),
+                                ],
+                              ],
+                            ),
+                          ),
+                        ],
+                      );
+                    },
                   ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+                  child: WorkloopPrimaryButton(
+                    label: _saving ? 'Saving' : 'Save hours',
+                    icon: LucideIcons.check,
+                    onPressed: _saving ? null : _save,
+                  ),
+                ),
               ],
-              const SizedBox(height: AppSpacing.xl),
-              WorkloopPrimaryButton(
-                label: _saving ? 'Saving' : 'Save hours',
-                icon: LucideIcons.check,
-                onPressed: _saving ? null : _save,
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _weekRow(String day, double rowHeight) {
+    final enabled = _enabled[day] ?? false;
+    final blocks = _blocks[day]!;
+    final tokens = SlateTheme.of(context);
+    final largeText = MediaQuery.textScalerOf(context).scale(14) > 19;
+    final summary = !enabled
+        ? 'Closed'
+        : '${_storageTime(blocks.first.start)}–${_storageTime(blocks.first.end)}'
+              '${blocks.length > 1 ? '\n+${blocks.length - 1} ${blocks.length == 2 ? 'block' : 'blocks'}' : ''}';
+    final toggle = Semantics(
+      label: '$day working day',
+      toggled: enabled,
+      onTap: () => setState(() => _enabled[day] = !enabled),
+      child: ExcludeSemantics(
+        child: InkWell(
+          onTap: () => setState(() => _enabled[day] = !enabled),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: AppSpacing.minTouch),
+            child: Row(
+              children: [
+                Icon(
+                  enabled
+                      ? Icons.check_box_outlined
+                      : Icons.check_box_outline_blank,
+                  size: 22,
+                  color: enabled ? tokens.accentInk : tokens.textTertiary,
+                ),
+                const SizedBox(width: AppSpacing.xs),
+                Expanded(
+                  child: Text(
+                    largeText ? day : day.substring(0, 3),
+                    style: TextStyle(fontSize: 14, color: tokens.textPrimary),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    final hours = Semantics(
+      label: 'Edit $day hours',
+      value: enabled
+          ? blocks
+                .map(
+                  (b) => '${_storageTime(b.start)} to ${_storageTime(b.end)}',
+                )
+                .join(', ')
+          : 'Closed',
+      button: true,
+      onTap: () => _editDay(day),
+      child: ExcludeSemantics(
+        child: InkWell(
+          onTap: () => _editDay(day),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: AppSpacing.minTouch),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    summary,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 14, color: tokens.textPrimary),
+                  ),
+                ),
+                Icon(
+                  LucideIcons.chevronRight,
+                  size: 16,
+                  color: tokens.textTertiary,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    return Container(
+      constraints: BoxConstraints(minHeight: rowHeight),
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xs),
+      child: largeText
+          ? Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [toggle, hours],
+            )
+          : Row(
+              children: [
+                SizedBox(width: 88, child: toggle),
+                Expanded(child: hours),
+              ],
+            ),
+    );
+  }
+
+  Future<void> _editDay(String day) async {
+    await showWorkloopBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setSheetState) {
+          void update(VoidCallback change) {
+            setState(change);
+            setSheetState(() {});
+          }
+
+          Future<void> pick(int index, {required bool start}) async {
+            await _pickTime(day, index, start: start);
+            if (context.mounted) setSheetState(() {});
+          }
+
+          return ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.sizeOf(context).height * 0.85,
+            ),
+            child: SafeArea(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(AppSpacing.pageX),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _DayHoursEditor(
+                      day: day,
+                      enabled: _enabled[day] ?? false,
+                      blocks: _blocks[day]!,
+                      onEnabled: (value) => update(() => _enabled[day] = value),
+                      onPickStart: (index) => pick(index, start: true),
+                      onPickEnd: (index) => pick(index, start: false),
+                      onAddBlock: () => update(
+                        () => _blocks[day]!.add(
+                          const _HoursBlock(
+                            start: TimeOfDay(hour: 16, minute: 0),
+                            end: TimeOfDay(hour: 20, minute: 0),
+                          ),
+                        ),
+                      ),
+                      onRemoveBlock: (index) =>
+                          update(() => _blocks[day]!.removeAt(index)),
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    WorkloopPrimaryButton(
+                      label: 'Done',
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                  ],
+                ),
               ),
-            ],
+            ),
           );
         },
       ),
@@ -303,8 +474,8 @@ class _DayHoursEditor extends StatelessWidget {
             Expanded(
               child: Text(
                 day,
-                style: const TextStyle(
-                  color: AppColors.t1,
+                style: TextStyle(
+                  color: AppColors.of(context).t1,
                   fontSize: 16,
                   fontWeight: FontWeight.w600,
                 ),
@@ -312,8 +483,8 @@ class _DayHoursEditor extends StatelessWidget {
             ),
             Text(
               enabled ? 'Working' : 'Off',
-              style: const TextStyle(
-                color: AppColors.t3,
+              style: TextStyle(
+                color: AppColors.of(context).t3,
                 fontSize: 12,
                 fontWeight: FontWeight.w600,
               ),
@@ -324,37 +495,64 @@ class _DayHoursEditor extends StatelessWidget {
         ),
         if (enabled) ...[
           const SizedBox(height: AppSpacing.sm),
+          const WorkloopFieldLabel('Working hours', isRequired: true),
+          const SizedBox(height: AppSpacing.xs),
+          Text(
+            'Each block must end after it starts. Blocks cannot overlap.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: AppSpacing.sm),
           for (var index = 0; index < blocks.length; index++) ...[
-            Row(
-              children: [
-                Expanded(
-                  child: _TimeButton(
-                    label: 'Start',
-                    time: blocks[index].start,
-                    onTap: () => onPickStart(index),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final stackTimes =
+                    constraints.maxWidth < 360 &&
+                    MediaQuery.textScalerOf(context).scale(15) > 19;
+                final start = _TimeButton(
+                  label: 'Start',
+                  semanticLabel: '$day start time, block ${index + 1}',
+                  time: blocks[index].start,
+                  onTap: () => onPickStart(index),
+                );
+                final end = _TimeButton(
+                  label: 'End',
+                  semanticLabel: '$day end time, block ${index + 1}',
+                  time: blocks[index].end,
+                  onTap: () => onPickEnd(index),
+                );
+                final remove = Tooltip(
+                  message: 'Remove $day time block ${index + 1}',
+                  child: WorkloopIconButton(
+                    icon: LucideIcons.x,
+                    semanticLabel: 'Remove $day time block ${index + 1}',
+                    size: AppSpacing.minTouch,
+                    onTap: () => onRemoveBlock(index),
                   ),
-                ),
-                const SizedBox(width: AppSpacing.sm),
-                Expanded(
-                  child: _TimeButton(
-                    label: 'End',
-                    time: blocks[index].end,
-                    onTap: () => onPickEnd(index),
-                  ),
-                ),
-                if (blocks.length > 1) ...[
-                  const SizedBox(width: AppSpacing.xs),
-                  Tooltip(
-                    message: 'Remove $day time block ${index + 1}',
-                    child: WorkloopIconButton(
-                      icon: LucideIcons.x,
-                      semanticLabel: 'Remove $day time block ${index + 1}',
-                      size: AppSpacing.minTouch,
-                      onTap: () => onRemoveBlock(index),
-                    ),
-                  ),
-                ],
-              ],
+                );
+                if (stackTimes) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      start,
+                      const SizedBox(height: AppSpacing.sm),
+                      end,
+                      if (blocks.length > 1)
+                        Align(alignment: Alignment.centerRight, child: remove),
+                    ],
+                  );
+                }
+                return Row(
+                  children: [
+                    Expanded(child: start),
+                    const SizedBox(width: AppSpacing.sm),
+                    Expanded(child: end),
+                    if (blocks.length > 1) ...[
+                      const SizedBox(width: AppSpacing.xs),
+                      remove,
+                    ],
+                  ],
+                );
+              },
             ),
             if (index != blocks.length - 1)
               const SizedBox(height: AppSpacing.sm),
@@ -369,57 +567,75 @@ class _DayHoursEditor extends StatelessWidget {
 
 class _TimeButton extends StatelessWidget {
   final String label;
+  final String semanticLabel;
   final TimeOfDay time;
   final VoidCallback onTap;
 
   const _TimeButton({
     required this.label,
+    required this.semanticLabel,
     required this.time,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
+    return Semantics(
+      button: true,
+      label: semanticLabel,
+      value: time.format(context),
       onTap: onTap,
-      borderRadius: BorderRadius.circular(AppRadius.sm),
-      child: Container(
-        height: 54,
-        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
-        decoration: BoxDecoration(
-          color: AppColors.bgRaised.withValues(alpha: 0.82),
+      child: ExcludeSemantics(
+        child: InkWell(
+          onTap: onTap,
           borderRadius: BorderRadius.circular(AppRadius.sm),
-          border: Border.all(color: AppColors.border),
-        ),
-        child: Row(
-          children: [
-            Expanded(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    label,
-                    style: const TextStyle(
-                      color: AppColors.t3,
-                      fontSize: 10,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    time.format(context),
-                    style: const TextStyle(
-                      color: AppColors.t1,
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-              ),
+          child: Container(
+            constraints: const BoxConstraints(minHeight: 54),
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.sm,
+              vertical: AppSpacing.xs,
             ),
-            const Icon(LucideIcons.clock3, color: AppColors.t3, size: 16),
-          ],
+            decoration: BoxDecoration(
+              color: AppColors.of(context).bgRaised.withValues(alpha: 0.82),
+              borderRadius: BorderRadius.circular(AppRadius.sm),
+              border: Border.all(color: AppColors.of(context).border),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        label,
+                        style: TextStyle(
+                          color: AppColors.of(context).t3,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        time.format(context),
+                        style: TextStyle(
+                          color: AppColors.of(context).t1,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(
+                  LucideIcons.clock3,
+                  color: AppColors.of(context).t3,
+                  size: 16,
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );

@@ -1,7 +1,11 @@
+import 'shared/email/email_journey_bootstrap.dart';
+import 'shared/diagnostics/crash_reporter.dart';
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'features/subscription/subscription_access.dart';
+import 'features/subscription/subscription_gate.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_web_plugins/url_strategy.dart';
@@ -11,17 +15,26 @@ import 'package:lucide_flutter/lucide_flutter.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/workloop_font_license.dart';
 import 'core/supabase/supabase_config.dart';
+import 'core/supabase/secure_auth_storage.dart';
+import 'core/supabase/secure_session_recovery_screen.dart';
 import 'core/workloop_app_info.dart';
 import 'features/auth/auth_screen.dart';
+import 'features/settings/account_deletion_confirmation_screen.dart';
+import 'shared/repositories/privacy_repository.dart';
+import 'features/auth/auth_contact_email_screen.dart';
 import 'features/auth/mfa_screens.dart';
 import 'features/auth/password_recovery_screen.dart';
-import 'features/business_feed/business_feed_screen.dart';
 import 'features/dashboard/dashboard_screen.dart';
 import 'features/clients/clients_screen.dart';
+import 'features/clients/client_record_link_screen.dart';
 import 'features/clients/add_client_screen.dart';
 import 'features/appointments/add_appointment_screen.dart';
+import 'features/appointments/appointments_screen.dart';
 import 'features/business/business_screen.dart';
 import 'features/finance/finance_screen.dart';
+import 'features/getting_started/getting_started_guide.dart';
+import 'features/notes/notes_screen.dart';
+import 'features/tasks/tasks_screen.dart';
 import 'features/work/work_screen.dart';
 import 'features/work/work_workspace_switcher.dart';
 import 'features/onboarding/onboarding_screen.dart';
@@ -31,15 +44,18 @@ import 'features/notifications/notifications_screen.dart';
 import 'features/public_profile/booking_requests_screen.dart';
 import 'features/public_profile/public_profile_screen.dart';
 import 'shared/providers/debug_demo_data_provider.dart';
-import 'shared/providers/appointments_provider.dart';
-import 'shared/providers/dashboard_provider.dart';
+import 'shared/providers/workspace_refresh.dart';
 import 'shared/providers/theme_mode_provider.dart';
+import 'shared/providers/onboarding_provider.dart';
 import 'shared/providers/workspace_provider.dart';
+import 'shared/repositories/auth_repository.dart';
 import 'shared/notifications/local_reminder_bootstrap.dart';
+import 'shared/notifications/remote_push_bootstrap.dart';
+import 'shared/notifications/remote_push_service.dart';
 import 'shared/utils/public_profile_routes.dart';
 import 'shared/widgets/slate_ui.dart';
 
-const workloopMinimumLaunchDuration = Duration(milliseconds: 700);
+const workloopMinimumLaunchDuration = Duration.zero;
 
 Duration remainingLaunchDuration(
   Duration elapsed, {
@@ -56,16 +72,56 @@ void main() async {
   usePathUrlStrategy();
   SupabaseConfig.validate();
   final appInfoFuture = WorkloopAppInfo.initialize();
-  await Supabase.initialize(
-    url: SupabaseConfig.supabaseUrl,
-    publishableKey: SupabaseConfig.supabasePublishableKey,
+  final firebaseReadyFuture = initializeWorkloopFirebase();
+  final crashReporter = WorkloopCrashReporter(FirebaseCrashReportSink());
+  unawaited(
+    crashReporter.initialize(
+      firebaseReady: firebaseReadyFuture,
+      enabled: workloopCrashReportingEnabled,
+    ),
   );
-  await appInfoFuture;
-  final remaining = remainingLaunchDuration(launchClock.elapsed);
-  if (remaining > Duration.zero) {
-    await Future<void>.delayed(remaining);
+  crashReporter.installHandlers();
+  final secureAuth = kIsWeb
+      ? null
+      : WorkloopSecureAuthStorage(supabaseUrl: SupabaseConfig.supabaseUrl);
+  Future<void> startApp() async {
+    var initializingSupabase = false;
+    try {
+      await secureAuth?.initialize();
+      initializingSupabase = true;
+      await Supabase.initialize(
+        url: SupabaseConfig.supabaseUrl,
+        publishableKey: SupabaseConfig.supabasePublishableKey,
+        authOptions: FlutterAuthClientOptions(
+          localStorage: secureAuth?.session,
+          pkceAsyncStorage: secureAuth?.pkce,
+        ),
+      );
+    } on SecureAuthStorageException {
+      if (initializingSupabase) await Supabase.instance.dispose();
+      runApp(SecureSessionRecoveryScreen(onRetry: startApp));
+      return;
+    }
+    await appInfoFuture;
+    final firebaseReady = await firebaseReadyFuture;
+    final remaining = remainingLaunchDuration(launchClock.elapsed);
+    if (remaining > Duration.zero) {
+      await Future<void>.delayed(remaining);
+    }
+    runApp(
+      ProviderScope(
+        overrides: [
+          workloopFirebaseReadyProvider.overrideWithValue(firebaseReady),
+          clearPersistedAuthProvider.overrideWithValue(
+            secureAuth?.clearSession,
+          ),
+        ],
+        child: const WorkloopApp(),
+      ),
+    );
   }
-  runApp(const ProviderScope(child: WorkloopApp()));
+
+  await startApp();
 }
 
 class WorkloopApp extends ConsumerStatefulWidget {
@@ -73,6 +129,26 @@ class WorkloopApp extends ConsumerStatefulWidget {
 
   @override
   ConsumerState<WorkloopApp> createState() => _WorkloopAppState();
+}
+
+/// Observe account ownership before route-level auth listeners rebuild. Token
+/// refreshes for the same user keep the shared workspace cache intact.
+StreamSubscription<AuthState> listenForWorkloopAuthChanges(
+  GoTrueClient auth, {
+  required VoidCallback onAccountChanged,
+  required VoidCallback onPasswordRecovery,
+}) {
+  var userId = auth.currentSession?.user.id;
+  return auth.onAuthStateChange.listen((state) {
+    final currentUserId = auth.currentSession?.user.id;
+    if (currentUserId != userId) {
+      userId = currentUserId;
+      onAccountChanged();
+    }
+    if (state.event == AuthChangeEvent.passwordRecovery) {
+      onPasswordRecovery();
+    }
+  });
 }
 
 class _WorkloopAppState extends ConsumerState<WorkloopApp>
@@ -83,14 +159,20 @@ class _WorkloopAppState extends ConsumerState<WorkloopApp>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _authSubscription = Supabase.instance.client.auth.onAuthStateChange.listen((
-      state,
-    ) {
-      if (state.event != AuthChangeEvent.passwordRecovery) return;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _router.go('/reset-password');
-      });
-    });
+    _authSubscription = listenForWorkloopAuthChanges(
+      Supabase.instance.client.auth,
+      onAccountChanged: () {
+        // Account changes are reloads, not background refreshes of the same
+        // user's data. New gates must wait instead of painting retained values.
+        ref.invalidate(sessionIntegrityProvider, asReload: true);
+        ref.invalidate(workspaceProvider, asReload: true);
+      },
+      onPasswordRecovery: () {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _router.go('/reset-password');
+        });
+      },
+    );
   }
 
   @override
@@ -101,26 +183,21 @@ class _WorkloopAppState extends ConsumerState<WorkloopApp>
   }
 
   @override
-  void didChangePlatformBrightness() {
-    if (mounted) setState(() {});
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed ||
+        Supabase.instance.client.auth.currentSession == null) {
+      return;
+    }
+    // One app-level refresh, not one network fan-out for every retained route.
+    ref.invalidate(sessionIntegrityProvider);
+    ref.invalidate(workspaceProvider);
+    refreshWorkspaceData(ref.invalidate);
   }
 
   @override
   Widget build(BuildContext context) {
     final appearance = ref.watch(workloopAppearanceProvider);
     final themeMode = appearance.value?.themeMode ?? ThemeMode.system;
-    final effectiveBrightness = WorkloopLegacyPalette.resolve(
-      themeMode: themeMode,
-      platformBrightness:
-          WidgetsBinding.instance.platformDispatcher.platformBrightness,
-    );
-
-    // Legacy adaptive colours must resolve before MaterialApp builds its child
-    // tree. Synchronising inside MaterialApp.builder is one frame too late: the
-    // new theme reaches the screen while legacy icon chips still paint with the
-    // outgoing appearance until another rebuild.
-    WorkloopLegacyPalette.sync(effectiveBrightness);
-
     return MaterialApp.router(
       title: 'Workloop',
       debugShowCheckedModeBanner: false,
@@ -143,13 +220,21 @@ class _WorkloopAppState extends ConsumerState<WorkloopApp>
                 systemNavigationBarColor: SlateTheme.of(context).background,
                 systemNavigationBarIconBrightness: Brightness.dark,
               );
-        return AnnotatedRegion<SystemUiOverlayStyle>(
-          value: overlayStyle,
-          child: WorkloopNavigationAssistRegion(
-            observer: _navigationObserver,
-            child: WorkloopLocalReminderBootstrap(
-              child: WorkloopKeyboardDismissRegion(
-                child: child ?? const SizedBox.shrink(),
+        return WorkloopAppCanvas(
+          child: AnnotatedRegion<SystemUiOverlayStyle>(
+            value: overlayStyle,
+            child: WorkloopNavigationAssistRegion(
+              observer: _navigationObserver,
+              child: WorkloopRemotePushBootstrap(
+                router: _router,
+                child: WorkloopLocalReminderBootstrap(
+                  router: _router,
+                  child: WorkloopKeyboardDismissRegion(
+                    child: WorkloopEmailJourneyBootstrap(
+                      child: child ?? const SizedBox.shrink(),
+                    ),
+                  ),
+                ),
               ),
             ),
           ),
@@ -167,6 +252,14 @@ final _router = GoRouter(
     GoRoute(path: '/', builder: (context, state) => const AuthGate()),
     GoRoute(path: '/auth', builder: (context, state) => const AuthScreen()),
     GoRoute(
+      path: '/account-deletion-requested',
+      builder: (context, state) => state.extra is AccountDeletionResult
+          ? AccountDeletionConfirmationScreen(
+              result: state.extra! as AccountDeletionResult,
+            )
+          : const AuthScreen(),
+    ),
+    GoRoute(
       path: '/reset-password',
       builder: (context, state) => const PasswordRecoveryScreen(),
     ),
@@ -181,10 +274,11 @@ final _router = GoRouter(
       builder: (context, state) =>
           const AuthGate(authenticatedChild: MainShell()),
     ),
+    GoRoute(path: '/business-feed', redirect: (context, state) => '/home'),
     GoRoute(
-      path: '/business-feed',
+      path: '/business',
       builder: (context, state) =>
-          const AuthGate(authenticatedChild: BusinessFeedScreen()),
+          const AuthGate(authenticatedChild: MainShell(initialIndex: 6)),
     ),
     GoRoute(
       path: '/clients',
@@ -195,6 +289,14 @@ final _router = GoRouter(
       path: '/clients/new',
       builder: (context, state) =>
           const AuthGate(authenticatedChild: AddClientScreen()),
+    ),
+    GoRoute(
+      path: '/clients/:clientId',
+      builder: (context, state) => AuthGate(
+        authenticatedChild: ClientRecordLinkScreen(
+          clientId: state.pathParameters['clientId']!,
+        ),
+      ),
     ),
     GoRoute(
       path: '/tasks',
@@ -212,9 +314,27 @@ final _router = GoRouter(
           const AuthGate(authenticatedChild: AddAppointmentScreen()),
     ),
     GoRoute(
+      path: '/bookings/:bookingId',
+      builder: (context, state) => AuthGate(
+        authenticatedChild: AppointmentsScreen(
+          initialAppointmentId: state.pathParameters['bookingId'],
+          showBackButton: true,
+        ),
+      ),
+    ),
+    GoRoute(
       path: '/payments',
       builder: (context, state) =>
           const AuthGate(authenticatedChild: MainShell(initialIndex: 3)),
+    ),
+    GoRoute(
+      path: '/payments/:paymentId',
+      builder: (context, state) => AuthGate(
+        authenticatedChild: FinanceScreen(
+          initialPaymentId: state.pathParameters['paymentId'],
+          showBackButton: true,
+        ),
+      ),
     ),
     GoRoute(
       path: '/notifications',
@@ -227,9 +347,34 @@ final _router = GoRouter(
           const AuthGate(authenticatedChild: MainShell(initialIndex: 5)),
     ),
     GoRoute(
+      path: '/notes/:noteId',
+      builder: (context, state) => AuthGate(
+        authenticatedChild: NotesScreen(
+          initialNoteId: state.pathParameters['noteId'],
+        ),
+      ),
+    ),
+    GoRoute(
       path: '/booking-requests',
       builder: (context, state) =>
           const AuthGate(authenticatedChild: BookingRequestsScreen()),
+    ),
+    GoRoute(
+      path: '/booking-requests/:requestId',
+      builder: (context, state) => AuthGate(
+        authenticatedChild: BookingRequestsScreen(
+          initialRequestId: state.pathParameters['requestId'],
+        ),
+      ),
+    ),
+    GoRoute(
+      path: '/tasks/:taskId',
+      builder: (context, state) => AuthGate(
+        authenticatedChild: TasksScreen(
+          initialTaskId: state.pathParameters['taskId'],
+          showBackButton: true,
+        ),
+      ),
     ),
     GoRoute(
       path: '/calendar-sync',
@@ -272,23 +417,113 @@ class AuthGate extends ConsumerStatefulWidget {
 
 class _AuthGateState extends ConsumerState<AuthGate> {
   String? _lastUserId;
+  String? _providersReadyForUserId;
+  String? _providerResetScheduledForUserId;
+  String? _discardingInvalidUserId;
+  bool _accountBootstrapFailed = false;
+  String? _verifiedUserId;
+
+  @override
+  void initState() {
+    super.initState();
+    final currentUserId = Supabase.instance.client.auth.currentSession?.user.id;
+    // Authenticated routes create their own gate. Seed it with the already
+    // restored account so ordinary route pushes do not invalidate the shared
+    // session and workspace providers or flash the opening screen again.
+    _lastUserId = currentUserId;
+    _providersReadyForUserId = currentUserId;
+  }
+
+  Future<void> _discardInvalidSession(String expectedUserId) async {
+    bool stillInvalidAccount() =>
+        mounted &&
+        Supabase.instance.client.auth.currentUser?.id == expectedUserId;
+    if (_discardingInvalidUserId == expectedUserId || !stillInvalidAccount()) {
+      return;
+    }
+    _discardingInvalidUserId = expectedUserId;
+    final repository = ref.read(authRepositoryProvider);
+    try {
+      await ref.read(onboardingProvider.notifier).clearDraft();
+      if (!stillInvalidAccount()) return;
+      await repository.signOutLocal(expectedUserId: expectedUserId);
+      if (!mounted ||
+          (Supabase.instance.client.auth.currentUser?.id != null &&
+              !stillInvalidAccount())) {
+        return;
+      }
+      ref.invalidate(sessionIntegrityProvider);
+      ref.invalidate(workspaceProvider);
+    } finally {
+      if (_discardingInvalidUserId == expectedUserId) {
+        _discardingInvalidUserId = null;
+      }
+    }
+  }
+
+  Future<void> _verifyChangedAccount(String userId) async {
+    if (!mounted || _lastUserId != userId) return;
+    setState(() => _accountBootstrapFailed = false);
+    ref.invalidate(sessionIntegrityProvider, asReload: true);
+    ref.invalidate(workspaceProvider, asReload: true);
+    var completed = false;
+    try {
+      // A changed account must never reuse the previous account's retained
+      // AsyncValue while its own identity/workspace requests are pending.
+      await Future.wait<Object?>([
+        ref.read(sessionIntegrityProvider.future),
+        ref.read(workspaceProvider.future),
+      ]);
+      completed = true;
+    } catch (_) {
+      // Keep the account blocked, including after a failed first attempt.
+    }
+    if (!mounted || _lastUserId != userId) return;
+    setState(() {
+      _providersReadyForUserId = completed ? userId : null;
+      _accountBootstrapFailed = !completed;
+      _providerResetScheduledForUserId = null;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<AuthState>(
       stream: Supabase.instance.client.auth.onAuthStateChange,
       builder: (context, snapshot) {
-        final session =
-            snapshot.data?.session ??
-            Supabase.instance.client.auth.currentSession;
+        // The SDK state changes before its asynchronous auth notification is
+        // delivered; a previous stream snapshot must not revive an old user.
+        final session = Supabase.instance.client.auth.currentSession;
         final currentUserId = session?.user.id;
         if (currentUserId != _lastUserId) {
           _lastUserId = currentUserId;
-          WidgetsBinding.instance.addPostFrameCallback((_) {
+          _providersReadyForUserId = null;
+          _verifiedUserId = null;
+          if (currentUserId != null &&
+              _providerResetScheduledForUserId != currentUserId) {
+            _providerResetScheduledForUserId = currentUserId;
+            WidgetsBinding.instance.addPostFrameCallback(
+              (_) => unawaited(_verifyChangedAccount(currentUserId)),
+            );
+          } else if (currentUserId == null) {
+            _providerResetScheduledForUserId = null;
+            _accountBootstrapFailed = false;
+            ref.invalidate(sessionIntegrityProvider);
             ref.invalidate(workspaceProvider);
-          });
+          }
         }
         if (session == null) return const AuthScreen();
+        if (_providersReadyForUserId != currentUserId) {
+          if (_accountBootstrapFailed) {
+            return _WorkspaceErrorScreen(
+              message:
+                  'Your account could not be opened. Check your connection and try again.',
+              onRetry: () => unawaited(_verifyChangedAccount(session.user.id)),
+              onSignOut: () => ref.read(authRepositoryProvider).signOutLocal(),
+            );
+          }
+          return const _LoadingScreen();
+        }
         final assurance = Supabase.instance.client.auth.mfa
             .getAuthenticatorAssuranceLevel();
         final needsMfa =
@@ -297,89 +532,169 @@ class _AuthGateState extends ConsumerState<AuthGate> {
         if (needsMfa) {
           return MfaChallengeScreen(onVerified: () => setState(() {}));
         }
-        return WorkspaceGate(child: widget.authenticatedChild);
+        final sessionIntegrity = ref.watch(sessionIntegrityProvider);
+        Widget verificationError() => _WorkspaceErrorScreen(
+          message:
+              'Your sign-in could not be verified. Check your connection and try again.',
+          onRetry: () => ref.invalidate(sessionIntegrityProvider),
+          onSignOut: () async {
+            await ref.read(authRepositoryProvider).signOutLocal();
+            ref.invalidate(sessionIntegrityProvider);
+            ref.invalidate(workspaceProvider);
+          },
+        );
+        return sessionIntegrity.when(
+          // Keep a previously verified route mounted during a temporary
+          // revalidation failure, but block it behind an opaque retry screen.
+          // A false result still removes the route and discards the session.
+          skipError: _verifiedUserId == currentUserId,
+          loading: () => const _LoadingScreen(),
+          error: (error, _) => verificationError(),
+          data: (valid) {
+            if (!valid) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (mounted) {
+                  unawaited(_discardInvalidSession(session.user.id));
+                }
+              });
+              return const _LoadingScreen();
+            }
+            if (!sessionIntegrity.isLoading && !sessionIntegrity.hasError) {
+              _verifiedUserId = currentUserId;
+            }
+            return _VerifiedWorkspaceContent(
+              identity: 'authenticated-workspace-$currentUserId',
+              errorScreen: sessionIntegrity.hasError
+                  ? verificationError()
+                  : null,
+              child:
+                  accountNeedsVerifiedEmail(
+                    Supabase.instance.client.auth.currentUser ?? session.user,
+                  )
+                  ? AuthContactEmailScreen(
+                      onVerified: () {
+                        if (!mounted) return;
+                        ref.invalidate(sessionIntegrityProvider);
+                        ref.invalidate(workspaceProvider);
+                        setState(() {});
+                      },
+                    )
+                  : WorkspaceGate(child: widget.authenticatedChild),
+            );
+          },
+        );
       },
     );
   }
 }
 
-class WorkspaceGate extends ConsumerWidget {
+class WorkspaceGate extends ConsumerStatefulWidget {
   final Widget child;
 
   const WorkspaceGate({super.key, this.child = const MainShell()});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<WorkspaceGate> createState() => _WorkspaceGateState();
+}
+
+class _WorkspaceGateState extends ConsumerState<WorkspaceGate> {
+  bool _hasVerifiedWorkspace = false;
+
+  @override
+  Widget build(BuildContext context) {
     final workspace = ref.watch(workspaceProvider);
+    Widget workspaceError() => _WorkspaceErrorScreen(
+      message:
+          'Your workspace could not be opened. Check your connection and try again.',
+      onRetry: () => ref.invalidate(workspaceProvider),
+      onSignOut: () async {
+        await ref.read(authRepositoryProvider).signOut();
+        ref.invalidate(workspaceProvider);
+      },
+    );
     return workspace.when(
+      skipError: _hasVerifiedWorkspace,
       loading: () => const _LoadingScreen(),
-      error: (e, _) => _WorkspaceErrorScreen(
-        message:
-            'Your workspace could not be opened. Check your connection and try again.',
-        onRetry: () => ref.invalidate(workspaceProvider),
-        onSignOut: () async {
-          await Supabase.instance.client.auth.signOut();
-          ref.invalidate(workspaceProvider);
-        },
-      ),
+      error: (e, _) => workspaceError(),
       data: (ws) {
-        if (ws == null) return const OnboardingScreen();
+        final accountId = ref.read(authRepositoryProvider).currentUserId;
+        final subscriptionsEnabled = ref.watch(subscriptionsEnabledProvider);
+        Widget withSubscriptionAccess(Widget child) =>
+            subscriptionsEnabled && accountId != null
+            ? SubscriptionGate(
+                key: ValueKey('subscription-$accountId'),
+                userId: accountId,
+                child: child,
+              )
+            : child;
+        if (ws == null) {
+          return workspace.hasError
+              ? workspaceError()
+              // Verify the store trial before asking a new owner to set up
+              // their business. The same gate protects an existing workspace.
+              : withSubscriptionAccess(const OnboardingScreen());
+        }
+        if (!workspace.isLoading && !workspace.hasError) {
+          _hasVerifiedWorkspace = true;
+        }
         const seedDemoData = bool.fromEnvironment('SEED_DEMO_DATA');
         if (kDebugMode && seedDemoData) {
           ref.watch(debugDemoSeedProvider);
         }
-        final destination = child;
-        final opensOnDashboard =
-            destination is MainShell && destination.initialIndex == 0;
-        return opensOnDashboard ? _DashboardInitialGate(child: child) : child;
+        // Render usable navigation as soon as the workspace is verified.
+        // Each section owns its honest loading/error state independently.
+        final guideUserId = widget.child is MainShell
+            ? ref.read(authRepositoryProvider).currentUserId
+            : null;
+        final content = _VerifiedWorkspaceContent(
+          identity: 'workspace-${ws['id']}',
+          errorScreen: workspace.hasError ? workspaceError() : null,
+          child: guideUserId != null
+              ? FirstUseGuideGate(
+                  userId: guideUserId,
+                  workspaceId: ws['id'].toString(),
+                  child: widget.child,
+                )
+              : widget.child,
+        );
+        return withSubscriptionAccess(content);
       },
     );
   }
 }
 
-class _DashboardInitialGate extends ConsumerStatefulWidget {
+/// Preserve drafts and navigation while a known account/workspace temporarily
+/// cannot be revalidated. The opaque error surface blocks interaction and
+/// accessibility; changing the verified identity creates a fresh subtree.
+class _VerifiedWorkspaceContent extends StatelessWidget {
+  final String identity;
   final Widget child;
+  final Widget? errorScreen;
 
-  const _DashboardInitialGate({required this.child});
-
-  @override
-  ConsumerState<_DashboardInitialGate> createState() =>
-      _DashboardInitialGateState();
-}
-
-class _DashboardInitialGateState extends ConsumerState<_DashboardInitialGate> {
-  bool _opened = false;
-  bool _revealScheduled = false;
+  const _VerifiedWorkspaceContent({
+    required this.identity,
+    required this.child,
+    this.errorScreen,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final appointments = ref.watch(appointmentsProvider);
-    final attention = ref.watch(dashboardAttentionProvider);
-    final sourcesSettled =
-        (appointments.hasValue || appointments.hasError) &&
-        (attention.hasValue || attention.hasError);
-
-    if (!_opened && sourcesSettled && !_revealScheduled) {
-      _revealScheduled = true;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        setState(() => _opened = true);
-      });
-    }
-
-    return AnimatedSwitcher(
-      duration: AppMotion.responsive(context, AppMotion.standard),
-      switchInCurve: AppMotion.curve,
-      switchOutCurve: Curves.easeOut,
-      child: _opened
-          ? KeyedSubtree(
-              key: const ValueKey('dashboard-ready'),
-              child: widget.child,
-            )
-          : const KeyedSubtree(
-              key: ValueKey('dashboard-opening'),
-              child: _LoadingScreen(),
+    final blocked = errorScreen != null;
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        ExcludeFocus(
+          excluding: blocked,
+          child: ExcludeSemantics(
+            excluding: blocked,
+            child: IgnorePointer(
+              ignoring: blocked,
+              child: KeyedSubtree(key: ValueKey(identity), child: child),
             ),
+          ),
+        ),
+        if (errorScreen != null) Positioned.fill(child: errorScreen!),
+      ],
     );
   }
 }
@@ -467,6 +782,12 @@ class _MainShellState extends State<MainShell> {
     int index, {
     FinanceInitialFocus financeFocus = FinanceInitialFocus.top,
   }) {
+    // Reselecting Work returns its visible section to the top. Explicit Tasks
+    // and Notes destinations below still open their requested section.
+    if (index == 2 && _currentIndex == 2) {
+      WorkloopNavigationAssistRegion.scrollToTop(context);
+      return;
+    }
     if (index == 2 || index == 4 || index == 5) {
       _workSectionController.value = _workSectionForDestination(index);
       index = 2;
@@ -476,7 +797,10 @@ class _MainShellState extends State<MainShell> {
       _destinations[3] = FinanceScreen(initialFocus: financeFocus);
     }
     _ensureDestination(index);
-    if (index == _currentIndex) return;
+    if (index == _currentIndex) {
+      WorkloopNavigationAssistRegion.scrollToTop(context);
+      return;
+    }
     setState(() {
       _currentIndex = index;
     });
@@ -498,7 +822,6 @@ class _MainShellState extends State<MainShell> {
 
   @override
   Widget build(BuildContext context) {
-    final tokens = SlateTheme.of(context);
     final destinationChildren = List<Widget>.generate(
       _destinations.length,
       (index) => PrimaryScrollController(
@@ -510,7 +833,7 @@ class _MainShellState extends State<MainShell> {
       ),
     );
     return Scaffold(
-      backgroundColor: tokens.background,
+      backgroundColor: SlateTheme.of(context).background,
       extendBody: true,
       body: WorkloopInteractiveWorkspaceStack(
         key: const ValueKey('main-shell-tabs'),
@@ -521,31 +844,31 @@ class _MainShellState extends State<MainShell> {
       ),
       bottomNavigationBar: WorkloopBottomNav(
         currentIndex: _primaryNavIndexForDestination(_currentIndex),
-        items: const [
+        items: [
           WorkloopNavItem(
             label: 'Today',
             icon: LucideIcons.home,
-            color: AppColors.accentPrimary,
+            color: AppColors.of(context).modHome,
           ),
           WorkloopNavItem(
             label: 'Clients',
             icon: LucideIcons.users,
-            color: AppColors.accentPrimary,
+            color: AppColors.of(context).modClients,
           ),
           WorkloopNavItem(
             label: 'Work',
             icon: LucideIcons.briefcase,
-            color: AppColors.accentPrimary,
+            color: AppColors.of(context).modCalendar,
           ),
           WorkloopNavItem(
             label: 'Money',
             icon: LucideIcons.circlePoundSterling,
-            color: AppColors.accentPrimary,
+            color: AppColors.of(context).modFinance,
           ),
           WorkloopNavItem(
             label: 'Business',
             icon: LucideIcons.store,
-            color: AppColors.accentPrimary,
+            color: AppColors.of(context).modHome,
           ),
         ],
         onTap: (i) {
@@ -557,7 +880,6 @@ class _MainShellState extends State<MainShell> {
             4 => 6,
             _ => 0,
           };
-          if (destination == _currentIndex) return;
           _navigateTo(destination);
         },
       ),
@@ -580,7 +902,7 @@ class _WorkspaceErrorScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final tokens = SlateTheme.of(context);
     return Scaffold(
-      backgroundColor: tokens.background,
+      backgroundColor: SlateTheme.of(context).background,
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(AppSpacing.lg),
@@ -656,7 +978,7 @@ class _LoadingScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final tokens = SlateTheme.of(context);
     return Scaffold(
-      backgroundColor: tokens.background,
+      backgroundColor: SlateTheme.of(context).background,
       body: Center(
         child: TweenAnimationBuilder<double>(
           tween: Tween(begin: 0.92, end: 1),

@@ -6,7 +6,7 @@ class _AppointmentListView extends StatelessWidget {
   final String emptyTitle;
   final String emptySubtitle;
   final Function(Map<String, dynamic>) onTap;
-  final VoidCallback onRefresh;
+  final RefreshCallback onRefresh;
   final bool groupByDate;
   final bool showStatusBadge;
 
@@ -25,8 +25,8 @@ class _AppointmentListView extends StatelessWidget {
   Widget build(BuildContext context) {
     if (appointments.isEmpty) {
       return RefreshIndicator(
-        onRefresh: () async => onRefresh(),
-        color: AppColors.accentPrimary,
+        onRefresh: onRefresh,
+        color: AppColors.of(context).accentPrimary,
         child: CustomScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
           slivers: [
@@ -60,9 +60,10 @@ class _AppointmentListView extends StatelessWidget {
 
     if (!groupByDate) {
       return RefreshIndicator(
-        onRefresh: () async => onRefresh(),
-        color: AppColors.accentPrimary,
+        onRefresh: onRefresh,
+        color: AppColors.of(context).accentPrimary,
         child: ListView.separated(
+          physics: const AlwaysScrollableScrollPhysics(),
           padding: EdgeInsets.fromLTRB(
             AppSpacing.pageX,
             0,
@@ -94,9 +95,10 @@ class _AppointmentListView extends StatelessWidget {
     final keys = grouped.keys.toList();
 
     return RefreshIndicator(
-      onRefresh: () async => onRefresh(),
-      color: AppColors.accentPrimary,
+      onRefresh: onRefresh,
+      color: AppColors.of(context).accentPrimary,
       child: ListView.builder(
+        physics: const AlwaysScrollableScrollPhysics(),
         padding: EdgeInsets.fromLTRB(
           AppSpacing.pageX,
           0,
@@ -114,11 +116,11 @@ class _AppointmentListView extends StatelessWidget {
                 padding: const EdgeInsets.only(bottom: 10, top: 4),
                 child: Text(
                   key,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w600,
                     letterSpacing: 0,
-                    color: AppColors.t3,
+                    color: AppColors.of(context).t3,
                   ),
                 ),
               ),
@@ -177,7 +179,7 @@ class _BookingCalendarView extends StatelessWidget {
   final List<Map<String, dynamic>> selectedDayAppointments;
   final ValueChanged<DateTime> onDateSelected;
   final Function(Map<String, dynamic>) onTap;
-  final VoidCallback onRefresh;
+  final RefreshCallback onRefresh;
   final VoidCallback onEmptyAction;
 
   const _BookingCalendarView({
@@ -201,9 +203,10 @@ class _BookingCalendarView extends StatelessWidget {
         return aStart.compareTo(bStart);
       });
     return RefreshIndicator(
-      onRefresh: () async => onRefresh(),
-      color: AppColors.accentPrimary,
+      onRefresh: onRefresh,
+      color: AppColors.of(context).accentPrimary,
       child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
         padding: EdgeInsets.fromLTRB(
           0,
           0,
@@ -223,7 +226,7 @@ class _BookingCalendarView extends StatelessWidget {
           Divider(
             key: const ValueKey('calendar-agenda-divider'),
             height: 1,
-            color: AppColors.border.withValues(alpha: 0.9),
+            color: AppColors.of(context).border.withValues(alpha: 0.9),
           ),
           Padding(
             key: const ValueKey('calendar-agenda-header'),
@@ -352,8 +355,8 @@ class _MonthCalendar extends StatelessWidget {
                 children: [
                   Text(
                     _monthName(month),
-                    style: const TextStyle(
-                      color: AppColors.t1,
+                    style: TextStyle(
+                      color: AppColors.of(context).t1,
                       fontSize: 25,
                       height: 1.05,
                       fontWeight: FontWeight.w700,
@@ -362,8 +365,8 @@ class _MonthCalendar extends StatelessWidget {
                   const SizedBox(height: 3),
                   Text(
                     '${month.year}',
-                    style: const TextStyle(
-                      color: AppColors.t3,
+                    style: TextStyle(
+                      color: AppColors.of(context).t3,
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
                     ),
@@ -373,7 +376,7 @@ class _MonthCalendar extends StatelessWidget {
             ),
             TextButton(
               style: TextButton.styleFrom(
-                foregroundColor: AppColors.modCalendar,
+                foregroundColor: AppColors.of(context).modCalendar,
                 minimumSize: const Size(58, AppSpacing.minTouch),
               ),
               onPressed: () => onDateSelected(effectiveToday),
@@ -401,8 +404,8 @@ class _MonthCalendar extends StatelessWidget {
                   child: Center(
                     child: Text(
                       label,
-                      style: const TextStyle(
-                        color: AppColors.t3,
+                      style: TextStyle(
+                        color: AppColors.of(context).t3,
                         fontSize: 11,
                         fontWeight: FontWeight.w600,
                       ),
@@ -473,12 +476,12 @@ class _MonthCalendar extends StatelessWidget {
                             alignment: Alignment.center,
                             decoration: BoxDecoration(
                               color: selected
-                                  ? AppColors.modCalendar
+                                  ? AppColors.of(context).modCalendar
                                   : Colors.transparent,
                               shape: BoxShape.circle,
                               border: isToday && !selected
                                   ? Border.all(
-                                      color: AppColors.modCalendar,
+                                      color: AppColors.of(context).modCalendar,
                                       width: 1.5,
                                     )
                                   : null,
@@ -489,8 +492,10 @@ class _MonthCalendar extends StatelessWidget {
                                 color: selected
                                     ? selectedInk
                                     : inMonth
-                                    ? AppColors.t1
-                                    : AppColors.t3.withValues(alpha: 0.45),
+                                    ? AppColors.of(context).t1
+                                    : AppColors.of(
+                                        context,
+                                      ).t3.withValues(alpha: 0.45),
                                 fontSize: 14,
                                 fontWeight: selected || isToday
                                     ? FontWeight.w700
@@ -513,7 +518,7 @@ class _MonthCalendar extends StatelessWidget {
                                   decoration: BoxDecoration(
                                     color: selected
                                         ? selectedInk
-                                        : AppColors.modCalendar,
+                                        : AppColors.of(context).modCalendar,
                                     shape: BoxShape.circle,
                                   ),
                                 ),
@@ -582,14 +587,14 @@ class _DayAgendaHeader extends StatelessWidget {
           width: 48,
           height: 48,
           alignment: Alignment.center,
-          decoration: const BoxDecoration(
-            color: AppColors.violetDim,
+          decoration: BoxDecoration(
+            color: AppColors.of(context).modBg,
             shape: BoxShape.circle,
           ),
           child: Text(
             '${date.day}',
-            style: const TextStyle(
-              color: AppColors.modCalendar,
+            style: TextStyle(
+              color: AppColors.of(context).modCalendar,
               fontSize: 19,
               fontWeight: FontWeight.w700,
             ),
@@ -602,8 +607,8 @@ class _DayAgendaHeader extends StatelessWidget {
             children: [
               Text(
                 relativeLabel,
-                style: const TextStyle(
-                  color: AppColors.t1,
+                style: TextStyle(
+                  color: AppColors.of(context).t1,
                   fontSize: 17,
                   fontWeight: FontWeight.w600,
                 ),
@@ -611,7 +616,7 @@ class _DayAgendaHeader extends StatelessWidget {
               const SizedBox(height: 3),
               Text(
                 '${_fullDate(date)} · $count booking${count == 1 ? '' : 's'}',
-                style: const TextStyle(color: AppColors.t3, fontSize: 12),
+                style: TextStyle(color: AppColors.of(context).t3, fontSize: 12),
               ),
             ],
           ),
@@ -635,14 +640,14 @@ class _CalendarOpenDay extends StatelessWidget {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const SizedBox(
+        SizedBox(
           width: 54,
           child: Align(
             alignment: Alignment.topLeft,
             child: Text(
               'OPEN',
               style: TextStyle(
-                color: AppColors.t3,
+                color: AppColors.of(context).t3,
                 fontSize: 10,
                 fontWeight: FontWeight.w600,
                 letterSpacing: 0.6,
@@ -660,11 +665,11 @@ class _CalendarOpenDay extends StatelessWidget {
               borderRadius: BorderRadius.circular(AppRadius.md),
               border: Border.all(color: tokens.divider),
             ),
-            child: const Row(
+            child: Row(
               children: [
                 Icon(
                   LucideIcons.calendarPlus,
-                  color: AppColors.modCalendar,
+                  color: AppColors.of(context).modCalendar,
                   size: 19,
                 ),
                 SizedBox(width: AppSpacing.sm),
@@ -675,7 +680,7 @@ class _CalendarOpenDay extends StatelessWidget {
                       Text(
                         'This day is open',
                         style: TextStyle(
-                          color: AppColors.t1,
+                          color: AppColors.of(context).t1,
                           fontSize: 14,
                           fontWeight: FontWeight.w600,
                         ),
@@ -683,7 +688,10 @@ class _CalendarOpenDay extends StatelessWidget {
                       SizedBox(height: 2),
                       Text(
                         'Use Add booking to schedule work here.',
-                        style: TextStyle(color: AppColors.t3, fontSize: 12),
+                        style: TextStyle(
+                          color: AppColors.of(context).t3,
+                          fontSize: 12,
+                        ),
                       ),
                     ],
                   ),
@@ -732,10 +740,10 @@ class _BookingRecordRow extends StatelessWidget {
     final notes = appointment['notes'] as String? ?? '';
     final recurrenceRule = appointment['recurrence_rule'] as String?;
     final color = switch (status) {
-      'completed' => AppColors.success,
-      'cancelled' => AppColors.error,
-      'no_show' => AppColors.warning,
-      _ => AppColors.modCalendar,
+      'completed' => AppColors.of(context).success,
+      'cancelled' => AppColors.of(context).error,
+      'no_show' => AppColors.of(context).warning,
+      _ => AppColors.of(context).modCalendar,
     };
     final exceptionalStatusLabel = switch (status) {
       'completed' => 'Completed',
@@ -769,8 +777,8 @@ class _BookingRecordRow extends StatelessWidget {
                   children: [
                     Text(
                       start == null ? '--:--' : _calendarTime(start),
-                      style: const TextStyle(
-                        color: AppColors.t1,
+                      style: TextStyle(
+                        color: AppColors.of(context).t1,
                         fontSize: 12,
                         fontWeight: FontWeight.w600,
                         fontFeatures: [FontFeature.tabularFigures()],
@@ -780,8 +788,8 @@ class _BookingRecordRow extends StatelessWidget {
                       const SizedBox(height: 2),
                       Text(
                         _calendarTime(end),
-                        style: const TextStyle(
-                          color: AppColors.t3,
+                        style: TextStyle(
+                          color: AppColors.of(context).t3,
                           fontSize: 10,
                           fontFeatures: [FontFeature.tabularFigures()],
                         ),
@@ -820,8 +828,8 @@ class _BookingRecordRow extends StatelessWidget {
                         client,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: AppColors.t1,
+                        style: TextStyle(
+                          color: AppColors.of(context).t1,
                           fontSize: 15,
                           fontWeight: FontWeight.w600,
                         ),
@@ -831,8 +839,8 @@ class _BookingRecordRow extends StatelessWidget {
                       const SizedBox(width: AppSpacing.xs),
                       Text(
                         formatPounds(price),
-                        style: const TextStyle(
-                          color: AppColors.t1,
+                        style: TextStyle(
+                          color: AppColors.of(context).t1,
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
                         ),
@@ -847,7 +855,10 @@ class _BookingRecordRow extends StatelessWidget {
                       [service, if (location.isNotEmpty) location].join(' · '),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: AppColors.t2, fontSize: 12),
+                      style: TextStyle(
+                        color: AppColors.of(context).t2,
+                        fontSize: 12,
+                      ),
                     ),
                     if (statusLabel != null) ...[
                       const SizedBox(height: 5),
@@ -868,20 +879,20 @@ class _BookingRecordRow extends StatelessWidget {
                           ),
                           if (recurrenceRule != null &&
                               recurrenceRule.isNotEmpty)
-                            const _BookingMetaLabel(
+                            _BookingMetaLabel(
                               label: 'Repeats',
                               icon: LucideIcons.repeat,
-                              color: AppColors.t3,
+                              color: AppColors.of(context).t3,
                             ),
                         ],
                       ),
                     ] else if (recurrenceRule != null &&
                         recurrenceRule.isNotEmpty) ...[
                       const SizedBox(height: 5),
-                      const _BookingMetaLabel(
+                      _BookingMetaLabel(
                         label: 'Repeats',
                         icon: LucideIcons.repeat,
-                        color: AppColors.t3,
+                        color: AppColors.of(context).t3,
                       ),
                     ],
                     if ((status == 'cancelled' || status == 'no_show') &&
@@ -895,15 +906,17 @@ class _BookingRecordRow extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           fontSize: 11,
-                          color: AppColors.error.withValues(alpha: 0.78),
+                          color: AppColors.of(
+                            context,
+                          ).error.withValues(alpha: 0.78),
                         ),
                       ),
                     ],
                   ],
                 ),
-                trailing: const Icon(
+                trailing: Icon(
                   LucideIcons.chevronRight,
-                  color: AppColors.t3,
+                  color: AppColors.of(context).t3,
                   size: 15,
                 ),
               ),

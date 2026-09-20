@@ -10,7 +10,9 @@ import '../../core/theme/app_theme.dart';
 import 'local_reminder_plan.dart';
 
 final localReminderServiceProvider = Provider<LocalReminderService>((ref) {
-  return LocalReminderService();
+  final service = LocalReminderService();
+  ref.onDispose(() => unawaited(service.dispose()));
+  return service;
 });
 
 enum LocalReminderPermission { granted, denied, unsupported }
@@ -41,12 +43,13 @@ class LocalReminderService {
 
   Future<void>? _initializing;
   String? _pendingLaunchRoute;
+  bool _disposed = false;
 
   LocalReminderService({FlutterLocalNotificationsPlugin? plugin})
     : _plugin = plugin ?? FlutterLocalNotificationsPlugin();
 
   bool get isSupported {
-    if (kIsWeb) return false;
+    if (kIsWeb || _disposed) return false;
     return defaultTargetPlatform == TargetPlatform.android ||
         defaultTargetPlatform == TargetPlatform.iOS;
   }
@@ -56,7 +59,10 @@ class LocalReminderService {
 
   Future<void> initialize() {
     if (!isSupported) return Future<void>.value();
-    return _initializing ??= _initialize();
+    return _initializing ??= _initialize().catchError((Object error) {
+      _initializing = null;
+      throw error;
+    });
   }
 
   Future<void> _initialize() async {
@@ -73,12 +79,12 @@ class LocalReminderService {
       settings,
       onDidReceiveNotificationResponse: (response) {
         final route = routeFromReminderPayload(response.payload);
-        if (route != null) _selectedRoutes.add(route);
+        if (!_disposed && route != null) _selectedRoutes.add(route);
       },
     );
 
     final launchDetails = await _plugin.getNotificationAppLaunchDetails();
-    if (launchDetails?.didNotificationLaunchApp == true) {
+    if (!_disposed && launchDetails?.didNotificationLaunchApp == true) {
       _pendingLaunchRoute = routeFromReminderPayload(
         launchDetails?.notificationResponse?.payload,
       );
@@ -136,15 +142,16 @@ class LocalReminderService {
     }
 
     if (granted == true) {
-      _permissionChanges.add(null);
+      if (!_disposed) _permissionChanges.add(null);
       return LocalReminderPermission.granted;
     }
     return LocalReminderPermission.denied;
   }
 
   Future<LocalReminderSyncResult> reconcile(
-    List<LocalReminderPlan> plans,
-  ) async {
+    List<LocalReminderPlan> plans, {
+    bool Function()? isCurrent,
+  }) async {
     if (!isSupported) {
       return const LocalReminderSyncResult(
         scheduled: 0,
@@ -153,6 +160,7 @@ class LocalReminderService {
       );
     }
     await initialize();
+    bool stillCurrent() => !_disposed && (isCurrent?.call() ?? true);
 
     final desired = plans
         .where((plan) => plan.scheduledAtUtc.isAfter(DateTime.now().toUtc()))
@@ -167,26 +175,29 @@ class LocalReminderService {
     );
 
     var cancelled = 0;
+    var failed = 0;
     for (final item in stale) {
+      if (!stillCurrent()) break;
       try {
         await _plugin.cancel(item.id);
         cancelled++;
       } catch (_) {
+        failed++;
         // Reconciliation continues so one platform-level failure does not
         // prevent other valid reminders from being refreshed.
       }
     }
 
     var scheduled = 0;
-    var failed = 0;
     for (final plan in desired) {
+      if (!stillCurrent()) break;
       try {
         await _plugin.zonedSchedule(
           plan.id,
           plan.title,
           plan.body,
           tz.TZDateTime.from(plan.scheduledAtUtc, tz.UTC),
-          const NotificationDetails(
+          NotificationDetails(
             android: AndroidNotificationDetails(
               _channelId,
               _channelName,
@@ -194,7 +205,7 @@ class LocalReminderService {
               importance: Importance.high,
               priority: Priority.high,
               category: AndroidNotificationCategory.reminder,
-              color: AppColors.brandAccent,
+              color: AppColors.light.brandAccent,
             ),
             iOS: DarwinNotificationDetails(
               presentAlert: true,
@@ -219,5 +230,12 @@ class LocalReminderService {
       cancelled: cancelled,
       failed: failed,
     );
+  }
+
+  Future<void> dispose() async {
+    if (_disposed) return;
+    _disposed = true;
+    await _selectedRoutes.close();
+    await _permissionChanges.close();
   }
 }

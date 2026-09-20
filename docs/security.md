@@ -46,6 +46,16 @@ The public booking/profile Edge Functions remain deployed with JWT verification 
   `BOOKING_CONFIRMATION_EMAIL_FROM` secrets. The protected scheduled drain also
   requires `BOOKING_CONFIRMATION_DRAIN_TOKEN`. Never put those values in
   Flutter, a migration, a public schema or client environment.
+- Supabase Auth owns verification, invitation, magic-link, email-change,
+  recovery, reauthentication and security-change messages. Their branded HTML
+  sources live in `supabase/templates`; hosted Dashboard templates must match
+  those reviewed files. The templates never embed a service secret or accept a
+  user-controlled destination URL.
+- The separate post-verification welcome is triggered only when
+  `auth.users.email_confirmed_at` first becomes non-null. It uses a private,
+  unique outbox job and `account-email-verified/<outbox-id>` Resend idempotency
+  key. There is deliberately no historical-user backfill and no promotional
+  campaign hidden inside the transactional workflow.
 - Deploy only `drain-booking-confirmation-emails` with gateway JWT verification
   disabled and schedule a POST every minute with its 32+ character
   `x-workloop-drain-token`. All other authenticated Edge boundaries retain JWT
@@ -75,6 +85,11 @@ The public booking/profile Edge Functions remain deployed with JWT verification 
   the workspace rows through cascade, deletes the Supabase Auth user through
   the admin API, and writes a non-identifying audit row with a hashed email.
 - `complete-account-deletion` requires an `ACCOUNT_DELETION_ADMIN_TOKEN` Edge Function secret. Do not put this token in Flutter, `.env`, docs, commits, screenshots, or logs.
+- Account deletion emails are database-state driven. Recording a new request
+  creates one `deletion_requested` outbox job; only the transition to
+  `completed` creates `account_deleted`. The client and administrative caller
+  cannot choose the recipient, event or message. The private worker uses
+  stable provider idempotency keys and never logs the address or body.
 - `account_deletion_audit` has RLS enabled with an explicit deny-all client policy. It is service-role/admin-only.
 
 ## Immediate Security Priorities
@@ -84,10 +99,13 @@ The public booking/profile Edge Functions remain deployed with JWT verification 
 - Google OAuth and native Apple sign-in are enabled. Keep Google in testing
   mode until the consent-screen domain, policies and external cohort are ready,
   and record an existing-email identity-linking test before public launch.
-- Re-check that the next scheduled Pro database backup is created. Point-in-time
-  recovery is a separately billed add-on and has not been enabled.
+- The scoped backup monitor confirmed a completed Pro database backup from
+  15 August 2026. Keep the weekly freshness check active; point-in-time recovery
+  is a separately billed add-on and has not been enabled.
 - Keep all workspace-scoped queries filtered by the active workspace.
-- Set `ACCOUNT_DELETION_ADMIN_TOKEN` in Supabase Edge Function secrets before using account deletion completion.
+- Keep `ACCOUNT_DELETION_ADMIN_TOKEN` in Supabase Edge Function secrets and
+  rotate it through the guarded worker deployment process; never expose it to
+  Flutter or CI output.
 - Consider CAPTCHA only with a native flow that preserves accessibility and does
   not leak a provider secret into the app.
 
@@ -156,3 +174,48 @@ The public booking/profile Edge Functions remain deployed with JWT verification 
   branch, with the missing booking/contact hardening applied before the
   privileged MFA/payment-retention migration. Production changes remain
   unauthorised in this evidence run.
+
+## 2026-08-15 Account Lifecycle Automation Security
+
+- Requesting deletion immediately applies a long-lived Auth ban and revokes
+  refresh sessions. Existing access JWTs remain bounded by their normal expiry,
+  so Flutter and the onboarding RPC also reject a pending deletion explicitly.
+- App launch validates the current access token against Supabase Auth instead
+  of treating a cached local session as proof that the user still exists.
+  Only definitive Auth/session failures force local sign-out; network failures
+  expose retry/sign-out recovery rather than destroying valid local state.
+- Scheduled completion requires both the service-role credential and the
+  separate 32+ character deletion admin token. The worker returns counts only
+  and does not log identities, recipients or message bodies.
+- Orphan recovery is deliberately narrow: a missing Auth identity may complete
+  only if zero workspace memberships remain. Any surviving or conflicting
+  membership blocks automatic deletion for human review.
+- Operational alerts live in `app_private`, have RLS enabled, and expose claim
+  and finish RPCs only to `service_role`. Retention removes customer identifiers
+  after their delivery/recovery purpose expires while retaining bounded,
+  non-identifying audit evidence.
+- Backup monitoring uses a read-only Supabase Management API token stored as a
+  GitHub secret. The script reports status and age only and never prints the
+  token or backup contents. The current token is restricted to the production
+  project and expires after 90 days, so rotation must be scheduled before
+  13 November 2026.
+- Account-deletion email claim and finish RPCs are security invoker functions.
+  This preserves `service_role` as `current_user` for their explicit guard;
+  `anon` and `authenticated` retain no table grants or RPC execution rights.
+
+## 2026-09-01 Build 8 Public And Push Boundaries
+
+- `get-public-profile` and `create-booking-request` use the service role and
+  therefore check for a current workspace member explicitly. The booking
+  request table also rejects ownerless inserts through a private, non-callable
+  before-insert trigger.
+- Notification deep links accept only known static routes or UUID entity paths.
+  The database route trigger is non-callable by client roles, verifies entity
+  ownership inside the notification workspace and never infers across tenants.
+- APNs payloads use privacy-safe titles/bodies and a durable opaque delivery ID
+  as FlutterFire's message marker. Customer names, phone numbers, requested
+  times and payment values remain out of lock-screen payloads.
+- Production is not yet protected by the new public-member checks. A read-only
+  count found 8 ownerless profiles with 29 active public services; promote only
+  after isolated migration/pgTAP rehearsal, then verify those handles fail
+  closed without exposing their identifiers.

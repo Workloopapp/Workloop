@@ -1,6 +1,16 @@
 # Workloop Launch Readiness
 
-Last updated: 2026-08-13
+> Current evidence: [7 September launch preparation](releases/2026-09-07-launch-preparation.md). Dated sections below retain their historical findings.
+
+## Current launch decision — 4 September 2026
+
+**Public launch on both iPhone and Android is not yet ready.** iOS Build 10 is externally testing; Android has a signed, emulator-verified AAB but no completed Play registration or distribution. The new personal account requires real-device verification and 12 closed testers continuously opted in for 14 days before a production-access application. Card collection also needs a genuine verified merchant and real charge/refund evidence; demo Clearview cannot supply that.
+
+See [the dated launch audit](releases/2026-09-04-launch-audit.md) for the current authoritative gate list and completed repairs. Historic version numbers, missing-signing claims and earlier test counts below remain historical evidence.
+
+---
+
+Last updated: 2026-08-31
 
 This is the release gate for Workloop 1.0 on iOS and Android. “Code ready”
 means the repository passes its automated and device checks. “Store ready”
@@ -590,3 +600,256 @@ boundaries.
       link closed until approval.
 - [ ] Share `https://testflight.apple.com/join/1ycJPHWx` after approval, then record
       one real TestFlight install/launch and the short physical-device smoke.
+
+## 2026-08-15 account email pack
+
+- [x] Author consistent Workloop templates for confirmation, invitation,
+      magic-link, email change, recovery, reauthentication and all seven
+      enabled Auth security notifications.
+- [x] Add a private one-per-user post-verification welcome outbox, service-only
+      claim/finish boundaries, bounded retry and shared scheduled delivery.
+- [x] Prove a clean 56-migration replay, 156 pgTAP assertions, zero database
+      lint findings, and the 48-test Edge suite locally.
+- [x] Confirm every reviewed template is saved in hosted Auth settings.
+- [x] Promote the new migration and scheduled-worker version 8; verify the live
+      trigger, private grants and empty initial queue.
+- [ ] Complete one fresh external signup: branded verification received, link
+      opens the app, one welcome received after confirmation, no duplicate
+      welcome on retry.
+
+## 2026-08-15 account deletion email receipts
+
+- [x] Queue a request-received email only after the protected deletion request
+      is recorded, with explicit copy that deletion is not yet complete.
+- [x] Queue a separate completion email only on the authoritative transition to
+      `completed`, after workspace and Auth deletion.
+- [x] Keep recipients/events private and fixed, with unique jobs, leases,
+      provider idempotency and bounded retry.
+- [ ] Exercise both messages with a disposable deletion account and controlled
+      inbox before calling the destructive production journey externally proven.
+
+## 2026-08-15 lifecycle and operating automation gates
+
+- [x] Block pending/deleted identities before workspace resolution and prevent
+      them from re-entering onboarding with a cached local session.
+- [x] Revoke refresh sessions and ban the identity when deletion is requested;
+      complete requests through a bounded protected scheduled worker.
+- [x] Make deletion independent from transactional-email failures and support
+      only the unambiguous zero-membership orphan recovery case.
+- [x] Add preference-aware waiting-booking, overdue-payment and daily-brief
+      attention with stable deduplication; retain the existing appointment and
+      task device reminder scheduler.
+- [x] Add private stuck-deletion/email-health alerts and scheduled minimisation
+      for notification, token, rate-limit, webhook and deletion metadata.
+- [x] Add an opt-in weekly completed-backup freshness check using a read-only
+      Management API credential.
+- [x] Replay the new migrations and pgTAP suite on a disposable Supabase branch;
+      the hosted operational suite passed all 20 assertions and the branch was
+      deleted.
+- [x] Promote migrations and the scheduled worker in reviewed order, configure
+      `OPERATIONS_ALERT_EMAIL`, and verify the existing minute schedule invokes
+      the new worker version successfully.
+- [x] Configure `ENABLE_BACKUP_HEALTH`, `SUPABASE_PROJECT_REF` and a 90-day,
+      single-project, backup-read-only token in GitHub. A direct check passed
+      against a completed 15 August backup; the first scheduled GitHub run
+      still depends on committing this workflow and script to the default branch.
+- [ ] Prove request, forced sign-out, completion, both emails, fresh re-signup,
+      alert delivery and retention with a disposable account before calling the
+      production lifecycle automated.
+
+## 2026-08-31 Build 6 push and TestFlight gates
+
+- [x] Advance the app to `1.0.0+6` without changing its bundle ID or Supabase
+      workspace identity, so Build 5 testers update in place and keep data.
+- [x] Add FCM/APNs client registration, refresh, sign-out cleanup, foreground
+      refresh and allow-listed notification routing.
+- [x] Add a private durable push outbox, preference/quiet-hour enforcement,
+      leased claim/finish RPCs, bounded retries, dead-token disabling and
+      privacy-safe lock-screen copy.
+- [x] Pass Flutter analysis, all 386 Flutter tests, focused golden/push tests,
+      Edge format/type-check/tests, database lint, plist lint, diff check and
+      the `1.0.0 (6)` iOS profile build.
+- [x] Attach Firebase to billed project `workloop-502614`, register the iOS app,
+      enable Push Notifications for `com.ismaeel.workloop`, create one APNs
+      authentication key, and configure both Apple environments in Firebase.
+- [x] Store the APNs provider fields as Supabase Edge secrets; never commit the
+      private key. `GoogleService-Info.plist` is Firebase's client-safe app
+      configuration file.
+- [x] Apply migration `20260831165521`, deploy the reviewed scheduled worker,
+      and verify security/performance advisors plus an empty healthy outbox.
+- [x] Install a development-signed Build 6 profile on a physical iPhone, grant
+      notification permission, register a live APNs token and visibly receive
+      controlled privacy-safe sandbox alerts, including after termination.
+- [ ] Complete the remaining physical-device matrix for foreground duplicate
+      suppression, tap/deep-link routing, quiet hours and sign-out/re-sign-in
+      token reassignment.
+- [x] Produce and strictly verify a distribution-signed Build 6 IPA with
+      production APNs entitlement, upload it, and attach the same processed
+      build to `Workloop Internal Beta` and `Workloop Private Beta`.
+- [x] Keep the existing public link and tester membership. Publish the update
+      instruction after processing; TestFlight will offer Build 6 as the normal
+      update to the existing Workloop app.
+- [x] Confirm App Store Connect reports Build 6 as `Testing` in both groups,
+      with all 9 private-beta testers invited and automatic notification
+      enabled. An unrelated Build 7 upload remains `Ready to Submit` and is not
+      attached to the external group; Build 6 is the active beta release.
+
+## 2026-09-01 Build 8 feedback gates
+
+- [x] Refresh expired Auth access tokens before treating a session as terminal;
+      clear user-scoped providers before revealing another workspace.
+- [x] Keep standard-iPhone sign-in visible, preserve small-phone/keyboard/large-
+      text scrolling, and hold dashboard reveal for one coherent data snapshot.
+- [x] Route booking, booking-request, payment, task and note notifications to
+      exact allow-listed UUID entities; fall back safely for malformed routes.
+- [x] Add a booking-request push route and exact routes for local booking/task
+      reminders without exposing customer detail on the lock screen.
+- [x] Let owners explicitly accept overlaps and outside-hours work after a calm
+      warning while keeping server conflict rejection as the default.
+- [x] Preserve public request date/time as `timestamptz` plus the verified
+      workspace timezone, with DST-invalid wall times rejected.
+- [x] Keep the booking Edge endpoint backward compatible with Build 6 payloads
+      during staged backend promotion.
+- [x] Make public services selectable, show friendly durations and 12-hour
+      opening times, anchor preview navigation, and accept service hours/minutes.
+- [x] Pass Flutter analysis, all 406 Flutter tests, auth/public golden review,
+      Edge format/lint/type-check, all 65 Edge tests, diff hygiene and a signed
+      `1.0.0 (8)` iOS profile build with development APNs entitlement.
+- [x] Make request-time availability guidance use the workspace wall clock and
+      selected service duration without exposing existing bookings or implying
+      that a request is confirmed.
+- [x] Add the APNs message identifier required by FlutterFire tap callbacks,
+      route from the app router rather than an inherited context above it and
+      defer an exact route safely through sign-in.
+- [x] Guard async saves, navigation refreshes and push registration against
+      disposal, sign-out and superseded user/workspace context.
+- [x] Require a current workspace member at both public service-role endpoints
+      and at booking-request insert time. Production still has 8 ownerless
+      public profiles exposing 29 active services until this is promoted.
+- [ ] Replay and lint the three new migrations on an isolated Supabase branch;
+      run the expanded pgTAP push/scheduling/public-boundary assertions. The
+      production project currently has no preview branch and local
+      Docker/Podman is unavailable, so this evidence is not yet captured.
+- [ ] Promote migrations and the backward-compatible Edge Functions in reviewed
+      order, then verify production function versions, grants and outbox health.
+- [ ] On a physical iPhone, prove background/terminated/foreground push taps to
+      each entity type, expired-session resume, no dashboard data flash, exact
+      booking-request wall time, and both schedule-exception confirmation paths.
+- [ ] Produce an immutable distribution-signed Build 8 archive, upload it and
+      assign it to the intended TestFlight groups. Build 6 remains active until
+      those release-specific gates pass.
+
+## 2026-09-01 Build 9 booking and interface gates
+
+- [x] Replace the Auth loop mark with the canonical app icon and remove the
+      standard-iPhone crowding without breaking compact-height scrolling.
+- [x] Replace underline-led navigation with restrained filled selection states,
+      align root create actions and normalize shared header colour hierarchy.
+- [x] Standardize all feature and Settings bottom sheets on one theme-owned
+      handle, radius, surface and padding system.
+- [x] Remove decorative service icons and add parent-scoped owner extras with
+      bounded price/duration inputs.
+- [x] Add immutable request/appointment item snapshots, including automatic
+      trusted base snapshots for requests created by legacy intake clients.
+- [x] Add privacy-safe suggested public times and recalculate them from trusted
+      selected-extra duration while retaining manual exceptional requests.
+- [x] Pass format, analysis, 432 Flutter tests, refreshed light/dark golden
+      review, all configured Edge type-checks and 71 Edge tests.
+- [x] Keep the candidate operational against the current production schema by
+      retrying legacy projections only when the new snapshot/add-on relations
+      are specifically absent.
+- [ ] Replay the availability/add-on migrations and pgTAP 011/012 on isolated
+      PostgreSQL, including legacy confirmation, appointment snapshot and email
+      outbox assertions. Local Docker/Postgres is unavailable.
+- [ ] Promote migrations in order and deploy `get-public-profile`,
+      `create-booking-request` and `get-public-booking-availability`; then run
+      security/performance advisors and controlled public-flow smoke tests.
+- [x] Build, strictly verify, install and launch the development-signed
+      `1.0.0 (9)` profile on the paired physical iPhone.
+- [ ] Exercise light/dark, keyboard sheets, overlap, outside-hours, extras,
+      suggested times and notification route lifecycles after backend staging.
+- [x] Produce and strictly verify the 34,770,219-byte distribution-signed
+      Build 9 IPA with production APNs and App Store beta entitlements.
+- [ ] Upload Build 9 and attach the processed build to the intended TestFlight
+      groups after backend promotion and the physical feature matrix.
+
+## 2026-09-02 Build 9 promotion evidence and remaining release gates
+
+- [x] Replay all five booking migrations on a disposable hosted branch and run
+      controlled exact-time, duplicate, snapshot, route, availability,
+      overlap, outside-hours, retry and orphan-workspace smoke checks.
+- [x] Correct the two rehearsal failures, add the four missing composite
+      foreign-key indexes and re-run RLS, ACL, trigger and advisor checks.
+- [x] Delete the paid preview branch after the final evidence was captured.
+- [x] Promote production migrations `20260902172036` through
+      `20260902172046` in order and deploy the four matching Edge bundles.
+- [x] Verify production function versions and file equality, service-role-only
+      RPC execution, new-table RLS/grants, required triggers and absence of new
+      migration-specific security or unindexed-foreign-key findings.
+- [x] Confirm the live public-profile and bounded suggested-availability flows
+      return HTTP 200 against a published production service.
+- [x] Confirm the protected minute worker returns HTTP 200 after the v21 push
+      bundle deployment and dead provider tokens remain disabled.
+- [x] Re-run the complete local gate: formatting, analysis, 435 Flutter tests,
+      71 Edge tests, configured type-checks, diff hygiene and signed iOS profile
+      build.
+- [x] Produce and strictly verify a fresh distribution-signed `1.0.0 (9)` IPA:
+      34,766,683 bytes, SHA-256
+      `2d4179b6043cd241ee1365fa03d173918ed8497f553c3775644fd5d14f6128a4`,
+      production APNs, Store profile, `get-task-allow=false` and
+      `beta-reports-active=true`.
+- [ ] Correct or unpublish the two active public services whose stored duration
+      is zero or 9,999,999 minutes after the owner supplies their real values.
+- [ ] Connect and unlock the paired iPhone, install this post-promotion source,
+      and exercise light/dark, keyboard sheets, add-ons, suggestions, overlap,
+      outside-hours, exact request time, session resume and notification taps.
+- [ ] Launch the TestFlight-signed build with notification permission and
+      confirm it replaces the disabled development APNs token with an active
+      production token before sending the tap-routing matrix.
+- [ ] Upload Build 9, wait for processing, attach that exact build to the
+      intended TestFlight groups and verify the existing public link offers the
+      update. Build 6 remains the tester-visible release until then.
+
+## 2026-09-02 service duration production guard
+
+- [x] Quarantine the two invalid public services without deleting owner data or
+      altering booking history; both are inactive and hidden pending review.
+- [x] Validate `services_duration_mins_check` in production at 5-1,440 minutes
+      and prove an attempted 9,999,999-minute update is rejected.
+- [x] Deploy `get-public-profile` v26 with matching duration filters and verify
+      both affected public profiles omit their quarantined service.
+- [x] Add repository, migration, Edge and pgTAP regression coverage.
+- [x] Re-run analysis, 438 Flutter tests, 71 Edge tests, Edge format/lint/check,
+      hosted pgTAP and the signed iOS profile build.
+- [x] Rebuild and strictly verify the App Store `1.0.0 (9)` IPA: 34,766,747
+      bytes, SHA-256
+      `e8e0df6a5b657a8043049503cf5f33d7b68d760120da92eddeeff59d16145006`,
+      production APNs, Store profile, `get-task-allow=false` and
+      `beta-reports-active=true`.
+
+## 2026-09-04 Quiet + Warm Build 11 superseding release status
+
+- [x] Implement and review the approved full visual identity across app, native
+      assets, public/private websites, hosted emails and Stripe platform branding.
+- [x] Pass analysis, 485 Flutter tests and the separate enabled-payment flag suite.
+- [x] Produce strictly verified signed iOS and Android Build 11 artifacts.
+- [x] Install and launch the signed iOS profile on the physical iPhone; derive,
+      install and inspect Android APKs from the exact signed release bundle.
+- [x] Upload iOS Build 11, obtain external beta approval and assign it to the
+      existing 13 private beta testers. It is now available to update.
+- [x] Create editable Canva masters and a reproducible brand export kit.
+- [x] Apply and visually verify the new Instagram avatar.
+- [ ] Apply the prepared TikTok avatar after completion of sign-in.
+- [ ] Complete Google Play registration, verification and required testing.
+- [ ] Validate real merchant card collection/refund after genuine onboarding;
+      the only connected sample company is fictional and must not be activated.
+- [ ] Complete remaining physical workflow and production notification checks.
+- [ ] Complete public store review and approval for both platforms.
+
+See `docs/releases/2026-09-04-quiet-warm-rollout.md` for exact artifacts, coverage
+and evidence limits. Earlier build entries remain historical records.
+
+
+## Launch gate update — 7 September 2026
+
+See [the overnight release record](releases/2026-09-07-launch-preparation.md) for current source/backend/site evidence, lifetime beta access and new pricing. Older brand/build/pricing descriptions above are historical. Public iOS launch remains gated on verified store purchases, public review and genuine merchant payment testing; Android additionally requires external account/push setup.

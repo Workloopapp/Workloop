@@ -113,62 +113,71 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('Business leads with the live booking page and essentials', (
-    tester,
-  ) async {
-    const profile = BusinessProfile(
-      id: 'profile-1',
-      workspaceId: 'workspace-1',
-      handle: 'workloop-studio',
-    );
-    const request = BookingRequest(
-      id: 'request-1',
-      workspaceId: 'workspace-1',
-      name: 'Jamie Taylor',
-      phone: '07000000000',
-    );
-    await _pump(
-      tester,
-      const BusinessScreen(),
-      overrides: [
-        workspaceProvider.overrideWith(
-          (ref) async => const {'id': 'workspace-1', 'name': 'Workloop Studio'},
-        ),
-        settingsBusinessProfileProvider.overrideWith((ref) async => profile),
-        settingsWorkspaceSettingsProvider.overrideWith(
-          (ref) async => const {
-            'working_hours': {
-              'monday': {'enabled': true},
+  testWidgets(
+    'Business leads with booking requests and compact management rows',
+    (tester) async {
+      const profile = BusinessProfile(
+        id: 'profile-1',
+        workspaceId: 'workspace-1',
+        handle: 'workloop-studio',
+      );
+      const request = BookingRequest(
+        id: 'request-1',
+        workspaceId: 'workspace-1',
+        name: 'Jamie Taylor',
+        phone: '07000000000',
+      );
+      await _pump(
+        tester,
+        const BusinessScreen(),
+        overrides: [
+          workspaceProvider.overrideWith(
+            (ref) async => const {
+              'id': 'workspace-1',
+              'name': 'Workloop Studio',
             },
-          },
-        ),
-        settingsServicesProvider.overrideWith(
-          (ref) async => const [
-            {
-              'id': 'service-1',
-              'name': 'Window cleaning',
-              'active': true,
-              'show_on_profile': true,
+          ),
+          settingsBusinessProfileProvider.overrideWith((ref) async => profile),
+          settingsWorkspaceSettingsProvider.overrideWith(
+            (ref) async => const {
+              'working_hours': {
+                'monday': {'enabled': true},
+              },
             },
-          ],
-        ),
-        bookingRequestsProvider.overrideWith((ref) async => const [request]),
-      ],
-    );
+          ),
+          settingsServicesProvider.overrideWith(
+            (ref) async => const [
+              {
+                'id': 'service-1',
+                'name': 'Window cleaning',
+                'active': true,
+                'show_on_profile': true,
+              },
+            ],
+          ),
+          bookingRequestsProvider.overrideWith((ref) async => const [request]),
+        ],
+      );
 
-    expect(find.text('Business'), findsOneWidget);
-    expect(find.text('Your booking page'), findsOneWidget);
-    expect(find.text('Live'), findsOneWidget);
-    expect(find.text('1 request waiting'), findsOneWidget);
-    expect(find.text('Manage booking page'), findsOneWidget);
-    expect(find.text('Run your business'), findsOneWidget);
-    expect(find.byIcon(LucideIcons.settings), findsOneWidget);
-    expect(find.text('Services'), findsOneWidget);
-    expect(find.text('Working hours'), findsOneWidget);
-    await tester.scrollUntilVisible(find.text('Business profile'), 120);
-    expect(find.text('Business profile'), findsOneWidget);
-    expect(tester.takeException(), isNull);
-  });
+      expect(find.text('Business'), findsOneWidget);
+      expect(find.text('Your booking page'), findsOneWidget);
+      expect(find.text('Live'), findsOneWidget);
+      expect(find.text('1 request waiting'), findsOneWidget);
+      expect(find.text('Booking requests'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('business-booking-page')),
+        findsOneWidget,
+      );
+      expect(find.text('Run your business'), findsOneWidget);
+      expect(find.byIcon(LucideIcons.settings), findsOneWidget);
+      expect(find.text('Services'), findsOneWidget);
+      await tester.scrollUntilVisible(find.text('Working hours'), 120);
+      expect(find.text('Working hours'), findsOneWidget);
+      await tester.scrollUntilVisible(find.text('Business profile'), 120);
+      expect(find.text('Business profile'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
 }
 
 Future<void> _pump(

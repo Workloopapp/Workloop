@@ -13,6 +13,7 @@ void main() {
       idempotencyKey: 'workflow-key-1234567890',
       contactId: 'contact-1',
       serviceId: 'service-1',
+      addOnIds: const ['add-on-1', 'add-on-2'],
       startTime: DateTime(2027, 1, 31, 9).toUtc(),
       endTime: DateTime(2027, 1, 31, 10).toUtc(),
       price: 80,
@@ -40,6 +41,70 @@ void main() {
     );
     expect(payload['contact_id'], 'contact-1');
     expect(payload['create_payment_due'], isTrue);
+    expect(payload['allow_overlap'], isFalse);
+  });
+
+  test('overlap consent is explicit in the atomic workflow payload', () {
+    final payload = buildBookingWorkflowPayload(
+      workspaceId: 'workspace-1',
+      idempotencyKey: 'workflow-key-overlap-123456',
+      contactId: 'contact-1',
+      startTime: DateTime.utc(2027, 2, 1, 9),
+      endTime: DateTime.utc(2027, 2, 1, 10),
+      price: 80,
+      notificationTitle: 'Booking created',
+      notificationBody: 'Booking created.',
+      allowOverlap: true,
+    );
+
+    expect(payload['allow_overlap'], isTrue);
+  });
+
+  test('booking workflow sends selected add-on identifiers only', () {
+    final payload = buildBookingWorkflowPayload(
+      workspaceId: 'workspace-1',
+      idempotencyKey: 'workflow-key-add-ons-123456',
+      contactId: 'contact-1',
+      serviceId: 'service-1',
+      addOnIds: const ['add-on-1', 'add-on-2'],
+      startTime: DateTime.utc(2027, 2, 1, 9),
+      endTime: DateTime.utc(2027, 2, 1, 10, 30),
+      price: 95,
+      notificationTitle: 'Booking created',
+      notificationBody: 'Booking created.',
+    );
+
+    expect(payload['add_on_ids'], const ['add-on-1', 'add-on-2']);
+    expect(payload, isNot(contains('add_on_prices')));
+    expect(payload, isNot(contains('add_on_names')));
+  });
+
+  test('legacy booking workflow payload omits the optional add-on field', () {
+    final payload = buildBookingWorkflowPayload(
+      workspaceId: 'workspace-1',
+      idempotencyKey: 'workflow-key-legacy-123456',
+      contactId: 'contact-1',
+      startTime: DateTime.utc(2027, 2, 1, 9),
+      endTime: DateTime.utc(2027, 2, 1, 10),
+      price: 80,
+      notificationTitle: 'Booking created',
+      notificationBody: 'Booking created.',
+    );
+
+    expect(payload, isNot(contains('add_on_ids')));
+  });
+
+  test('schedule review explains both intentional exceptions calmly', () {
+    const review = AppointmentScheduleReview(
+      outsideWorkingHoursCount: 1,
+      conflictCount: 2,
+    );
+
+    expect(review.hasWarnings, isTrue);
+    expect(review.title, 'Check this booking');
+    expect(review.detail, contains('overlaps 2 existing bookings'));
+    expect(review.detail, contains('outside your saved working hours'));
+    expect(review.detail, contains('still save'));
   });
 
   test('new request client context is carried into the atomic workflow', () {
@@ -76,11 +141,14 @@ void main() {
       email: 'ada@example.com',
       requestToken: 'ad5f5592-9f8f-4b35-9604-8fc09270982d',
       serviceId: 'service-1',
+      addOnIds: const ['add-on-1', 'add-on-2'],
     );
 
     expect(payload['email'], 'ada@example.com');
     expect(payload['phone'], '07123456789');
     expect(payload['requestToken'], isNotEmpty);
+    expect(payload['addOnIds'], const ['add-on-1', 'add-on-2']);
+    expect(payload, isNot(contains('addOnPrices')));
   });
 
   test(
@@ -111,6 +179,24 @@ void main() {
       expect(outcome.confirmationEmailStatus, entry.value);
     }
   });
+
+  test(
+    'legacy confirmation response without email payload is treated safely',
+    () {
+      final outcome = BookingRequestConfirmationOutcome.fromResponse({
+        'ok': true,
+        'result': {
+          'appointment_ids': ['appointment-1'],
+          'contact_id': 'contact-1',
+          'booking_request_id': 'request-1',
+        },
+      });
+      expect(
+        outcome.confirmationEmailStatus,
+        BookingRequestConfirmationEmailStatus.notApplicable,
+      );
+    },
+  );
 
   test(
     'owner confirmation copy reports email outcome without undoing booking',
@@ -276,5 +362,60 @@ void main() {
     expect(migration, contains('pg_advisory_xact_lock'));
     expect(migration, contains('from public, anon'));
     expect(migration, isNot(contains('to anon')));
+  });
+
+  test('schedule exception migration keeps overlap consent server-side', () {
+    final migration = File(
+      'supabase/migrations/'
+      '20260902172036_allow_booking_schedule_exceptions.sql',
+    ).readAsStringSync();
+
+    expect(migration, contains('requested_for timestamptz'));
+    expect(migration, contains('requested_timezone text'));
+    expect(migration, contains('pg_catalog.pg_timezone_names'));
+    expect(migration, contains("v_allow_overlap boolean"));
+    expect(
+      migration,
+      matches(
+        RegExp(
+          r"v_allow_overlap\s*:=\s*coalesce\(\s*\(p_payload\s*->>\s*'allow_overlap'\)::boolean,\s*false\s*\)",
+          multiLine: true,
+        ),
+      ),
+      reason: 'omitting allow_overlap must keep conflict rejection on',
+    );
+    expect(
+      migration,
+      matches(
+        RegExp(
+          r"if\s+not\s+v_allow_overlap\s+and\s+exists\s*\([\s\S]*?appointment\.start_time\s*<\s*v_end[\s\S]*?appointment\.end_time\s*>\s*v_start[\s\S]*?\)\s+then\s+raise exception 'Appointment overlaps an existing booking'",
+          multiLine: true,
+        ),
+      ),
+      reason:
+          'allow_overlap=false rejects conflicts while true bypasses only that guarded rejection',
+    );
+    expect(
+      migration,
+      isNot(contains("raise exception 'service role required'")),
+    );
+    expect(migration, contains('from public, anon, authenticated'));
+    expect(migration, contains('to service_role'));
+  });
+
+  test('public booking Edge rollout remains compatible with older builds', () {
+    final edgeHandler = File(
+      'supabase/functions/create-booking-request/index.ts',
+    ).readAsStringSync();
+
+    expect(edgeHandler, contains('hasStructuredRequestedTime'));
+    expect(edgeHandler, contains('Keep the legacy service-role overload'));
+    expect(
+      edgeHandler,
+      contains('p_requested_for: requestedFor!.toISOString()'),
+    );
+    expect(edgeHandler, contains('create_public_booking_request_v3'));
+    expect(edgeHandler, contains('p_add_on_ids: addOnIds'));
+    expect(edgeHandler, isNot(contains('p_add_on_prices')));
   });
 }

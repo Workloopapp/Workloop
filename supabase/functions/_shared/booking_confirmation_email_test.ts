@@ -48,13 +48,21 @@ Deno.test("confirmation content escapes public and owner supplied values", () =>
       business_name: "A&B Studio",
       booking_title: 'Cut "and" finish',
       start_time: "2026-08-14T09:30:00Z",
+      end_time: "2026-08-14T10:30:00Z",
       timezone: "Europe/London",
       location: "1 <High> Street",
     },
   });
+  assert(
+    content.plainText.includes("Duration: 1 hour"),
+    "duration computed",
+  );
   assert(content.html.includes("&lt;Ada&gt;"), "customer escaped");
   assert(content.html.includes("A&amp;B"), "business escaped");
   assert(!content.html.includes("1 <High>"), "location escaped");
+  assert(content.html.includes("#f5edd9"), "Workloop paper background");
+  assert(content.html.includes("#c3d7e4"), "Workloop blue title strip");
+  assert(content.html.includes("BOOKING CONFIRMED"), "specific email purpose");
   assert(escapeHtml("'\"<>&") === "&#39;&quot;&lt;&gt;&amp;", "escape order");
 });
 
@@ -111,6 +119,6 @@ Deno.test("drain acknowledges provider failure as a retry, not a booking failure
       Promise.resolve(new Response("unavailable", { status: 503 })),
   });
   assert(result.pending === 1, "retry remains pending");
-  assert(calls.length === 2, "claim and finish");
-  assert(calls[1].params?.p_sent === false, "failure acknowledged");
+  assert(calls.length === 3, "claim, frozen contact lookup and finish");
+  assert(calls[2].params?.p_sent === false, "failure acknowledged");
 });

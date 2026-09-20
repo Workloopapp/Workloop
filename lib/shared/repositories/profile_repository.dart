@@ -2,9 +2,17 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/slate_models.dart';
+import '../models/public_booking_availability.dart';
+import '../utils/booking_time.dart';
 import 'appointments_repository.dart';
 import 'repository_pagination.dart';
+import 'repository_schema_compatibility.dart';
 import 'supabase_client_provider.dart';
+
+const _legacyBookingRequestSelect = '*, services(name, duration_mins, price)';
+const _bookingRequestSelect =
+    '$_legacyBookingRequestSelect, '
+    'booking_request_items(id, workspace_id, item_kind, source_service_id, source_add_on_id, name, duration_mins, price, position)';
 
 final profileRepositoryProvider = Provider<ProfileRepository>((ref) {
   return ProfileRepository(ref.watch(supabaseClientProvider));
@@ -13,6 +21,29 @@ final profileRepositoryProvider = Provider<ProfileRepository>((ref) {
 class ProfileRepository {
   final SupabaseClient _client;
   const ProfileRepository(this._client);
+
+  /// Older public requests omitted a zone. Resolve it from their workspace,
+  /// never from the phone or an unrelated currently selected workspace.
+  Future<String> bookingRequestTimezone(BookingRequest request) async {
+    var zone = request.requestedTimezone?.trim();
+    if (zone == null || zone.isEmpty) {
+      final userId = _client.auth.currentUser?.id;
+      final settings = await _client
+          .from('workspace_settings')
+          .select('timezone')
+          .eq('workspace_id', request.workspaceId)
+          .maybeSingle();
+      if (_client.auth.currentUser?.id != userId) {
+        throw const FormatException('Booking account changed');
+      }
+      zone = (settings?['timezone'] as String?)?.trim();
+    }
+    if (zone == null || zone.isEmpty) {
+      throw const FormatException('Booking time zone unavailable');
+    }
+    bookingTimeLocation(zone);
+    return zone;
+  }
 
   Future<bool> isHandleAvailable(String handle) async {
     return await getPublicProfile(handle.trim().toLowerCase()) == null;
@@ -34,19 +65,46 @@ class ProfileRepository {
     final profileMap = Map<String, dynamic>.from(data['profile'] as Map);
     final businessProfile = BusinessProfile.fromMap(profileMap);
     final services = List<dynamic>.from(data['services'] as List? ?? []);
+    final timezone = data['timezone'] as String? ?? 'Europe/London';
+    bookingTimeLocation(timezone);
 
     return PublicProfile(
       profile: businessProfile,
       businessName: data['businessName'] as String? ?? 'Business',
+      logoUrl: data['logoUrl'] as String?,
       industry: data['industry'] as String?,
       workingHours: Map<String, dynamic>.from(
         data['workingHours'] as Map? ?? {},
       ),
+      timezone: timezone,
       services: services
           .map<Service>(
             (row) => Service.fromMap(Map<String, dynamic>.from(row)),
           )
           .toList(),
+    );
+  }
+
+  Future<PublicBookingAvailability> getPublicBookingAvailability({
+    required String handle,
+    required String serviceId,
+    List<String> addOnIds = const [],
+    List<String> serviceIds = const [],
+  }) async {
+    final response = await _client.functions.invoke(
+      'get-public-booking-availability',
+      body: {
+        'handle': handle.trim().toLowerCase(),
+        'serviceId': serviceId,
+        'addOnIds': addOnIds,
+        if (serviceIds.length > 1) 'serviceIds': serviceIds,
+      },
+    );
+    if (response.data is! Map) {
+      throw const FormatException('Invalid public availability response');
+    }
+    return PublicBookingAvailability.fromMap(
+      Map<String, dynamic>.from(response.data as Map),
     );
   }
 
@@ -77,6 +135,10 @@ class ProfileRepository {
     required String email,
     required String requestToken,
     String? serviceId,
+    List<String> addOnIds = const [],
+    List<String> serviceIds = const [],
+    DateTime? requestedFor,
+    String? requestedTimezone,
     String? preferredTimeText,
     String? message,
   }) async {
@@ -89,6 +151,10 @@ class ProfileRepository {
         email: email,
         requestToken: requestToken,
         serviceId: serviceId,
+        addOnIds: addOnIds,
+        serviceIds: serviceIds,
+        requestedFor: requestedFor,
+        requestedTimezone: requestedTimezone,
         preferredTimeText: preferredTimeText,
         message: message,
       ),
@@ -96,38 +162,82 @@ class ProfileRepository {
   }
 
   Future<List<BookingRequest>> bookingRequests(String workspaceId) async {
-    final rows = await fetchAllRepositoryPages<Map<String, dynamic>>(
-      loadPage: (from, to) async {
-        final page = await _client
-            .from('booking_requests')
-            .select('*, services(name, duration_mins, price)')
-            .eq('workspace_id', workspaceId)
-            .order('created_at', ascending: false)
-            .order('id', ascending: true)
-            .range(from, to);
-        return List<Map<String, dynamic>>.from(page);
-      },
+    final rows = await loadWithPostgrestSchemaFallback(
+      objectName: 'booking_request_items',
+      loadCurrent: () => fetchAllRepositoryPages<Map<String, dynamic>>(
+        loadPage: (from, to) => _loadBookingRequestPage(
+          select: _bookingRequestSelect,
+          workspaceId: workspaceId,
+          from: from,
+          to: to,
+        ),
+      ),
+      loadLegacy: () => fetchAllRepositoryPages<Map<String, dynamic>>(
+        loadPage: (from, to) => _loadBookingRequestPage(
+          select: _legacyBookingRequestSelect,
+          workspaceId: workspaceId,
+          from: from,
+          to: to,
+        ),
+      ),
     );
     return rows.map<BookingRequest>(BookingRequest.fromMap).toList();
+  }
+
+  Future<List<Map<String, dynamic>>> _loadBookingRequestPage({
+    required String select,
+    required String workspaceId,
+    required int from,
+    required int to,
+  }) async {
+    final page = await _client
+        .from('booking_requests')
+        .select(select)
+        .eq('workspace_id', workspaceId)
+        .order('created_at', ascending: false)
+        .order('id', ascending: true)
+        .range(from, to);
+    return List<Map<String, dynamic>>.from(page);
   }
 
   Future<List<BookingRequest>> pendingBookingRequestsForBusinessFeed(
     String workspaceId, {
     int limit = 8,
   }) async {
-    final rows = await _client
-        .from('booking_requests')
-        .select('*, services(name, duration_mins, price)')
-        .eq('workspace_id', workspaceId)
-        .eq('status', 'pending')
-        .order('created_at', ascending: false)
-        .order('id', ascending: true)
-        .limit(limit);
+    final rows = await loadWithPostgrestSchemaFallback(
+      objectName: 'booking_request_items',
+      loadCurrent: () => _loadPendingBookingRequests(
+        select: _bookingRequestSelect,
+        workspaceId: workspaceId,
+        limit: limit,
+      ),
+      loadLegacy: () => _loadPendingBookingRequests(
+        select: _legacyBookingRequestSelect,
+        workspaceId: workspaceId,
+        limit: limit,
+      ),
+    );
     return rows
         .map<BookingRequest>(
           (row) => BookingRequest.fromMap(Map<String, dynamic>.from(row)),
         )
         .toList();
+  }
+
+  Future<List<Map<String, dynamic>>> _loadPendingBookingRequests({
+    required String select,
+    required String workspaceId,
+    required int limit,
+  }) async {
+    final rows = await _client
+        .from('booking_requests')
+        .select(select)
+        .eq('workspace_id', workspaceId)
+        .eq('status', 'pending')
+        .order('created_at', ascending: false)
+        .order('id', ascending: true)
+        .limit(limit);
+    return List<Map<String, dynamic>>.from(rows);
   }
 
   Future<void> updateBookingRequestStatus({
@@ -164,7 +274,9 @@ class ProfileRepository {
     String? extraNotes,
     bool createPaymentDue = false,
     bool enforceWorkingHours = true,
+    bool allowOverlap = false,
   }) async {
+    final alreadyConfirmed = await _bookingRequestAlreadyConfirmed(request);
     final endTime = startTime.add(Duration(minutes: durationMins));
     final title = serviceTitle?.trim().isNotEmpty == true
         ? serviceTitle!.trim()
@@ -177,25 +289,36 @@ class ProfileRepository {
       if (request.message?.trim().isNotEmpty == true) request.message!.trim(),
       if (extraNotes?.trim().isNotEmpty == true) extraNotes!.trim(),
     ].join('\n\n');
-    final serviceId = await _validServiceIdForRequest(request);
-    final settings = await _client
-        .from('workspace_settings')
-        .select('working_hours')
-        .eq('workspace_id', request.workspaceId)
-        .maybeSingle();
+    final serviceId = alreadyConfirmed
+        ? request.serviceId
+        : await _validServiceIdForRequest(request);
+    final settings = alreadyConfirmed
+        ? null
+        : await _client
+              .from('workspace_settings')
+              .select('working_hours, timezone')
+              .eq('workspace_id', request.workspaceId)
+              .maybeSingle();
     final workingHours = settings?['working_hours'] is Map
         ? Map<String, dynamic>.from(settings!['working_hours'] as Map)
         : <String, dynamic>{};
     final startUtc = startTime.toUtc();
     final endUtc = endTime.toUtc();
 
-    await AppointmentsRepository(_client).ensureScheduleAvailable(
-      workspaceId: request.workspaceId,
-      startTime: startUtc,
-      endTime: endUtc,
-      workingHours: workingHours,
-      enforceWorkingHours: enforceWorkingHours,
-    );
+    // A previous attempt may have committed before its response was lost.
+    // The server's idempotency result must be allowed to resolve that retry;
+    // otherwise its own new booking would fail this client's overlap check.
+    if (!alreadyConfirmed) {
+      await AppointmentsRepository(_client).ensureScheduleAvailable(
+        workspaceId: request.workspaceId,
+        startTime: startUtc,
+        endTime: endUtc,
+        workingHours: workingHours,
+        workingHoursTimezone: _settingsTimezone(settings),
+        enforceWorkingHours: enforceWorkingHours,
+        enforceConflicts: !allowOverlap,
+      );
+    }
 
     final phone = clientPhone?.trim().isNotEmpty == true
         ? clientPhone!.trim()
@@ -233,6 +356,7 @@ class ProfileRepository {
       paymentNote: createPaymentDue ? 'Payment due for $title' : null,
       notificationTitle: 'Booking request confirmed',
       notificationBody: '${request.name} has been added to your calendar.',
+      allowOverlap: allowOverlap,
     );
     try {
       final response = await _client.functions.invoke(
@@ -261,6 +385,58 @@ class ProfileRepository {
     }
   }
 
+  Future<AppointmentScheduleReview> reviewBookingRequestSchedule({
+    required BookingRequest request,
+    required DateTime startTime,
+    required DateTime endTime,
+  }) async {
+    if (await _bookingRequestAlreadyConfirmed(request)) {
+      return const AppointmentScheduleReview(
+        outsideWorkingHoursCount: 0,
+        conflictCount: 0,
+      );
+    }
+    final settings = await _client
+        .from('workspace_settings')
+        .select('working_hours, timezone')
+        .eq('workspace_id', request.workspaceId)
+        .maybeSingle();
+    final workingHours = settings?['working_hours'] is Map
+        ? Map<String, dynamic>.from(settings!['working_hours'] as Map)
+        : <String, dynamic>{};
+    return AppointmentsRepository(_client).reviewSchedule(
+      workspaceId: request.workspaceId,
+      startTime: startTime,
+      endTime: endTime,
+      workingHours: workingHours,
+      workingHoursTimezone: _settingsTimezone(settings),
+    );
+  }
+
+  Future<bool> _bookingRequestAlreadyConfirmed(BookingRequest request) async {
+    final current = await _client
+        .from('booking_requests')
+        .select('status')
+        .eq('workspace_id', request.workspaceId)
+        .eq('id', request.id)
+        .maybeSingle();
+    final status = current?['status'];
+    if (status == 'confirmed') return true;
+    if (status != 'pending' && status != 'contacted') {
+      throw const BookingRequestStateException(
+        'This request was already handled or is no longer available.',
+      );
+    }
+    return false;
+  }
+
+  String _settingsTimezone(Map<String, dynamic>? settings) {
+    final zone = settings?['timezone']?.toString().trim() ?? '';
+    // Matches the existing legacy workspace-timezone fallback at the public
+    // booking boundary. A nonempty invalid zone is rejected by the time helper.
+    return zone.isEmpty ? 'Europe/London' : zone;
+  }
+
   Future<String?> _validServiceIdForRequest(BookingRequest request) async {
     final serviceId = request.serviceId;
     if (serviceId == null || serviceId.trim().isEmpty) return null;
@@ -281,6 +457,10 @@ Map<String, dynamic> buildPublicBookingRequestPayload({
   required String email,
   required String requestToken,
   String? serviceId,
+  List<String> addOnIds = const [],
+  List<String> serviceIds = const [],
+  DateTime? requestedFor,
+  String? requestedTimezone,
   String? preferredTimeText,
   String? message,
 }) => {
@@ -290,6 +470,12 @@ Map<String, dynamic> buildPublicBookingRequestPayload({
   'email': email,
   'requestToken': requestToken,
   'serviceId': serviceId,
+  if (addOnIds.isNotEmpty) 'addOnIds': addOnIds,
+  if (serviceIds.length > 1) 'serviceIds': serviceIds,
+  if (requestedFor != null)
+    'requestedFor': requestedFor.toUtc().toIso8601String(),
+  if (requestedTimezone?.trim().isNotEmpty == true)
+    'requestedTimezone': requestedTimezone!.trim(),
   'preferredTimeText': preferredTimeText,
   'message': message,
 };
@@ -318,6 +504,11 @@ class BookingRequestConfirmationOutcome {
     final response = value is Map
         ? Map<String, dynamic>.from(value)
         : const <String, dynamic>{};
+    if (response.isEmpty) {
+      throw const FormatException(
+        'Booking confirmation returned an empty response.',
+      );
+    }
     final confirmationEmail = response['confirmationEmail'] is Map
         ? Map<String, dynamic>.from(response['confirmationEmail'] as Map)
         : const <String, dynamic>{};
@@ -326,9 +517,8 @@ class BookingRequestConfirmationOutcome {
       'pending' => BookingRequestConfirmationEmailStatus.pending,
       'failed' => BookingRequestConfirmationEmailStatus.failed,
       'not_applicable' => BookingRequestConfirmationEmailStatus.notApplicable,
-      _ => throw const FormatException(
-        'Booking confirmation returned an invalid email status.',
-      ),
+      null => BookingRequestConfirmationEmailStatus.notApplicable,
+      _ => BookingRequestConfirmationEmailStatus.failed,
     };
     return BookingRequestConfirmationOutcome(confirmationEmailStatus: status);
   }
@@ -374,9 +564,11 @@ class BookingRequestStateException implements Exception {
 class PublicProfile {
   final BusinessProfile profile;
   final String businessName;
+  final String? logoUrl;
   final String? industry;
   final Map<String, dynamic> workingHours;
   final List<Service> services;
+  final String timezone;
 
   const PublicProfile({
     required this.profile,
@@ -384,5 +576,7 @@ class PublicProfile {
     required this.workingHours,
     required this.services,
     this.industry,
+    this.timezone = 'Europe/London',
+    this.logoUrl,
   });
 }

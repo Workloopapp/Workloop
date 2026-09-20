@@ -24,19 +24,23 @@ class ObPreferences extends ConsumerWidget {
         AppSpacing.xxl,
       ),
       children: [
-        const Text(
+        Text(
           'Bring your work with you',
           style: TextStyle(
-            color: AppColors.t1,
+            color: AppColors.of(context).t1,
             fontSize: 27,
             height: 1.05,
             fontWeight: FontWeight.w600,
           ),
         ),
         const SizedBox(height: AppSpacing.sm),
-        const Text(
+        Text(
           'Choose what you want to do next. You can change all of this later.',
-          style: TextStyle(color: AppColors.t2, fontSize: 15, height: 1.4),
+          style: TextStyle(
+            color: AppColors.of(context).t2,
+            fontSize: 15,
+            height: 1.4,
+          ),
         ),
         const SizedBox(height: AppSpacing.xl),
         _PreferenceSwitch(
@@ -49,9 +53,13 @@ class ObPreferences extends ConsumerWidget {
         const SizedBox(height: AppSpacing.xxl),
         const WorkloopSectionHeader(label: 'Useful notifications'),
         const SizedBox(height: AppSpacing.xs),
-        const Text(
+        Text(
           'Choose which business activity appears in your in-app notification centre.',
-          style: TextStyle(color: AppColors.t3, fontSize: 13, height: 1.4),
+          style: TextStyle(
+            color: AppColors.of(context).t3,
+            fontSize: 13,
+            height: 1.4,
+          ),
         ),
         const SizedBox(height: AppSpacing.sm),
         _PreferenceSwitch(

@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'supabase_client_provider.dart';
+import '../utils/working_hours.dart';
 
 final workspaceSettingsRepositoryProvider =
     Provider<WorkspaceSettingsRepository>((ref) {
@@ -22,6 +23,14 @@ class WorkspaceSettingsRepository {
   }
 
   Future<void> update(String workspaceId, Map<String, dynamic> values) async {
+    if (values.containsKey('working_hours')) {
+      final hours = values['working_hours'];
+      if (hours is! Map<String, dynamic>) {
+        throw const FormatException('Working hours must be an object.');
+      }
+      final errors = validateWorkingHours(hours);
+      if (errors.isNotEmpty) throw FormatException(errors.values.first);
+    }
     await _client
         .from('workspace_settings')
         .update(values)

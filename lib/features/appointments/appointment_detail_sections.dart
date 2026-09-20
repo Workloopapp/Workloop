@@ -18,133 +18,123 @@ Future<_PickedAppointmentDetailTime?> _showAppointmentDetailTimePicker({
   int tempHour = initialHour;
   int tempMinute = initialMinute;
 
-  return showModalBottomSheet<_PickedAppointmentDetailTime>(
+  return showWorkloopBottomSheet<_PickedAppointmentDetailTime>(
     context: context,
-    backgroundColor: AppColors.bgCard,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-    ),
     builder: (context) => StatefulBuilder(
-      builder: (context, setModal) => SizedBox(
-        height: 280,
-        child: Column(
-          children: [
-            Container(
-              margin: const EdgeInsets.only(top: 12),
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: AppColors.border,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: AppSpacing.pageX,
-                vertical: AppSpacing.md,
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text(
-                    'Select time',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.t1,
-                    ),
-                  ),
-                  WorkloopTextButton(
-                    label: 'Done',
-                    onPressed: () => Navigator.pop(
-                      context,
-                      _PickedAppointmentDetailTime(
-                        hour: tempHour,
-                        minute: tempMinute,
+      builder: (context, setModal) => SlateSheetFrame(
+        child: SizedBox(
+          height: 240,
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Select time',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.of(context).t1,
                       ),
                     ),
-                  ),
-                ],
-              ),
-            ),
-            Expanded(
-              child: Row(
-                children: [
-                  Expanded(
-                    child: ListWheelScrollView.useDelegate(
-                      itemExtent: 48,
-                      perspective: 0.003,
-                      diameterRatio: 1.8,
-                      physics: const FixedExtentScrollPhysics(),
-                      controller: FixedExtentScrollController(
-                        initialItem: tempHour,
+                    WorkloopTextButton(
+                      label: 'Done',
+                      onPressed: () => Navigator.pop(
+                        context,
+                        _PickedAppointmentDetailTime(
+                          hour: tempHour,
+                          minute: tempMinute,
+                        ),
                       ),
-                      onSelectedItemChanged: (i) =>
-                          setModal(() => tempHour = i),
-                      childDelegate: ListWheelChildBuilderDelegate(
-                        childCount: 24,
-                        builder: (context, i) {
-                          final selected = i == tempHour;
-                          return Center(
-                            child: Text(
-                              i.toString().padLeft(2, '0'),
-                              style: TextStyle(
-                                fontSize: selected ? 24 : 18,
-                                fontWeight: selected
-                                    ? FontWeight.w600
-                                    : FontWeight.w400,
-                                color: selected ? AppColors.t1 : AppColors.t3,
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: ListWheelScrollView.useDelegate(
+                        itemExtent: 48,
+                        perspective: 0.003,
+                        diameterRatio: 1.8,
+                        physics: const FixedExtentScrollPhysics(),
+                        controller: FixedExtentScrollController(
+                          initialItem: tempHour,
+                        ),
+                        onSelectedItemChanged: (i) =>
+                            setModal(() => tempHour = i),
+                        childDelegate: ListWheelChildBuilderDelegate(
+                          childCount: 24,
+                          builder: (context, i) {
+                            final selected = i == tempHour;
+                            return Center(
+                              child: Text(
+                                i.toString().padLeft(2, '0'),
+                                style: TextStyle(
+                                  fontSize: selected ? 24 : 18,
+                                  fontWeight: selected
+                                      ? FontWeight.w600
+                                      : FontWeight.w400,
+                                  color: selected
+                                      ? AppColors.of(context).t1
+                                      : AppColors.of(context).t3,
+                                ),
                               ),
-                            ),
-                          );
-                        },
+                            );
+                          },
+                        ),
                       ),
                     ),
-                  ),
-                  const Text(
-                    ':',
-                    style: TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.t1,
-                    ),
-                  ),
-                  Expanded(
-                    child: ListWheelScrollView.useDelegate(
-                      itemExtent: 48,
-                      perspective: 0.003,
-                      diameterRatio: 1.8,
-                      physics: const FixedExtentScrollPhysics(),
-                      controller: FixedExtentScrollController(
-                        initialItem: tempMinute ~/ 15,
+                    Text(
+                      ':',
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.of(context).t1,
                       ),
-                      onSelectedItemChanged: (i) =>
-                          setModal(() => tempMinute = i * 15),
-                      childDelegate: ListWheelChildBuilderDelegate(
-                        childCount: 4,
-                        builder: (context, i) {
-                          final min = i * 15;
-                          final selected = min == tempMinute;
-                          return Center(
-                            child: Text(
-                              min.toString().padLeft(2, '0'),
-                              style: TextStyle(
-                                fontSize: selected ? 24 : 18,
-                                fontWeight: selected
-                                    ? FontWeight.w600
-                                    : FontWeight.w400,
-                                color: selected ? AppColors.t1 : AppColors.t3,
+                    ),
+                    Expanded(
+                      child: ListWheelScrollView.useDelegate(
+                        itemExtent: 48,
+                        perspective: 0.003,
+                        diameterRatio: 1.8,
+                        physics: const FixedExtentScrollPhysics(),
+                        controller: FixedExtentScrollController(
+                          initialItem: tempMinute ~/ 15,
+                        ),
+                        onSelectedItemChanged: (i) =>
+                            setModal(() => tempMinute = i * 15),
+                        childDelegate: ListWheelChildBuilderDelegate(
+                          childCount: 4,
+                          builder: (context, i) {
+                            final min = i * 15;
+                            final selected = min == tempMinute;
+                            return Center(
+                              child: Text(
+                                min.toString().padLeft(2, '0'),
+                                style: TextStyle(
+                                  fontSize: selected ? 24 : 18,
+                                  fontWeight: selected
+                                      ? FontWeight.w600
+                                      : FontWeight.w400,
+                                  color: selected
+                                      ? AppColors.of(context).t1
+                                      : AppColors.of(context).t3,
+                                ),
                               ),
-                            ),
-                          );
-                        },
+                            );
+                          },
+                        ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     ),
@@ -154,6 +144,8 @@ Future<_PickedAppointmentDetailTime?> _showAppointmentDetailTimePicker({
 String _repeatLabel(String rule) {
   if (rule.contains('FREQ=MONTHLY')) return 'Repeats monthly';
   if (rule.contains('INTERVAL=2')) return 'Repeats fortnightly';
+  if (rule.contains('INTERVAL=3')) return 'Repeats every 3 weeks';
+  if (rule.contains('INTERVAL=4')) return 'Repeats every 4 weeks';
   if (rule.contains('FREQ=WEEKLY')) return 'Repeats weekly';
   return 'Repeating booking';
 }
@@ -177,22 +169,26 @@ class _BookingTasksCard extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: AppColors.bgCard,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.border),
+        color: AppColors.of(context).bgCard,
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        border: Border.all(color: AppColors.of(context).border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              const Icon(LucideIcons.listChecks, color: AppColors.t3, size: 16),
+              Icon(
+                LucideIcons.listChecks,
+                color: AppColors.of(context).t3,
+                size: 16,
+              ),
               const SizedBox(width: 10),
-              const Expanded(
+              Expanded(
                 child: Text(
                   'Booking tasks',
                   style: TextStyle(
-                    color: AppColors.t1,
+                    color: AppColors.of(context).t1,
                     fontSize: 15,
                     fontWeight: FontWeight.w600,
                   ),
@@ -217,28 +213,38 @@ class _BookingTasksCard extends StatelessWidget {
             ),
             data: (items) {
               if (items.isEmpty) {
-                return const Text(
+                return Text(
                   'Add prep, follow-up, or payment tasks for this booking.',
-                  style: TextStyle(color: AppColors.t3, fontSize: 13),
+                  style: TextStyle(
+                    color: AppColors.of(context).t3,
+                    fontSize: 13,
+                  ),
                 );
               }
               return Column(
                 children: items.map((task) {
                   final done = task.status == 'done';
-                  return ListTile(
-                    dense: true,
-                    contentPadding: EdgeInsets.zero,
-                    onTap: () => onToggle(task),
-                    leading: Icon(
-                      done ? LucideIcons.checkCircle2 : LucideIcons.circle,
-                      color: done ? AppColors.success : AppColors.t3,
-                      size: 19,
-                    ),
-                    title: Text(
-                      task.title,
-                      style: TextStyle(
-                        color: done ? AppColors.t3 : AppColors.t1,
-                        decoration: done ? TextDecoration.lineThrough : null,
+                  return Material(
+                    type: MaterialType.transparency,
+                    child: ListTile(
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      onTap: () => onToggle(task),
+                      leading: Icon(
+                        done ? LucideIcons.checkCircle2 : LucideIcons.circle,
+                        color: done
+                            ? AppColors.of(context).success
+                            : AppColors.of(context).t3,
+                        size: 19,
+                      ),
+                      title: Text(
+                        task.title,
+                        style: TextStyle(
+                          color: done
+                              ? AppColors.of(context).t3
+                              : AppColors.of(context).t1,
+                          decoration: done ? TextDecoration.lineThrough : null,
+                        ),
                       ),
                     ),
                   );
@@ -257,12 +263,14 @@ class _BookingPaymentCard extends StatelessWidget {
   final double price;
   final VoidCallback onRecordPayment;
   final ValueChanged<Payment> onMarkPaid;
+  final ValueChanged<Payment> onOpenInvoice;
 
   const _BookingPaymentCard({
     required this.payments,
     required this.price,
     required this.onRecordPayment,
     required this.onMarkPaid,
+    required this.onOpenInvoice,
   });
 
   @override
@@ -272,12 +280,23 @@ class _BookingPaymentCard extends StatelessWidget {
       error: (_, _) =>
           const SlateErrorState(message: 'Could not load booking payment'),
       data: (rows) {
-        final paid = rows.where((payment) => payment.status == 'paid').toList();
-        final unpaid = rows
-            .where((payment) => payment.status != 'paid')
+        final active = rows
+            .where(
+              (payment) =>
+                  payment.status != 'cancelled' && payment.status != 'declined',
+            )
             .toList();
-        final primary = rows.isEmpty ? null : rows.first;
-        final statusLabel = paid.isNotEmpty
+
+        final unpaid = active
+            .where((payment) => payment.outstandingAmount > 0)
+            .toList();
+        final primary = unpaid.isNotEmpty ? unpaid.first : active.firstOrNull;
+        final statusLabel =
+            primary != null &&
+                primary.collectedAmount > 0 &&
+                primary.outstandingAmount > 0
+            ? 'Part paid'
+            : primary?.status == 'paid'
             ? 'Paid'
             : unpaid.isNotEmpty
             ? 'Unpaid'
@@ -288,9 +307,9 @@ class _BookingPaymentCard extends StatelessWidget {
           width: double.infinity,
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: AppColors.bgCard,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: AppColors.border),
+            color: AppColors.of(context).bgCard,
+            borderRadius: BorderRadius.circular(AppRadius.md),
+            border: Border.all(color: AppColors.of(context).border),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -301,13 +320,13 @@ class _BookingPaymentCard extends StatelessWidget {
                     width: 36,
                     height: 36,
                     decoration: BoxDecoration(
-                      color: AppColors.t1.withValues(alpha: 0.07),
+                      color: AppColors.of(context).t1.withValues(alpha: 0.07),
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(
+                    child: Icon(
                       LucideIcons.banknote,
                       size: 17,
-                      color: AppColors.t2,
+                      color: AppColors.of(context).t2,
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -315,12 +334,12 @@ class _BookingPaymentCard extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
+                        Text(
                           'Payment',
                           style: TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.w600,
-                            color: AppColors.t3,
+                            color: AppColors.of(context).t3,
                           ),
                         ),
                         const SizedBox(height: 2),
@@ -329,11 +348,11 @@ class _BookingPaymentCard extends StatelessWidget {
                           style: TextStyle(
                             fontSize: 15,
                             fontWeight: FontWeight.w600,
-                            color: paid.isNotEmpty
-                                ? AppColors.success
+                            color: primary?.status == 'paid'
+                                ? AppColors.of(context).success
                                 : unpaid.isNotEmpty
-                                ? AppColors.warning
-                                : AppColors.t1,
+                                ? AppColors.of(context).warning
+                                : AppColors.of(context).t1,
                           ),
                         ),
                       ],
@@ -341,14 +360,42 @@ class _BookingPaymentCard extends StatelessWidget {
                   ),
                 ],
               ),
-              if (unpaid.isNotEmpty) ...[
+              if (primary?.sourceDocumentId != null) ...[
+                const SizedBox(height: AppSpacing.sm),
+                if (primary!.hasDeposit)
+                  Text(
+                    primary.depositReceived
+                        ? '${formatPounds(primary.depositAmount)} deposit received'
+                        : '${formatPounds(primary.depositOutstandingAmount)} deposit due'
+                              '${primary.depositDueDate == null ? '' : ' · ${slateShortDate(primary.depositDueDate!)}'}',
+                    style: TextStyle(
+                      color: AppColors.of(context).t2,
+                      fontSize: 13,
+                    ),
+                  ),
+                if (primary.outstandingAmount > 0)
+                  Text(
+                    '${formatPounds(primary.outstandingAmount)} left on invoice',
+                    style: TextStyle(
+                      color: AppColors.of(context).t2,
+                      fontSize: 13,
+                    ),
+                  ),
+                const SizedBox(height: AppSpacing.md),
+                SlateButton(
+                  label: 'Open invoice',
+                  icon: LucideIcons.fileText,
+                  secondary: true,
+                  onPressed: () => onOpenInvoice(primary),
+                ),
+              ] else if (unpaid.isNotEmpty) ...[
                 const SizedBox(height: 14),
                 SlateButton(
                   label: 'Mark Payment Received',
                   icon: LucideIcons.checkCircle,
                   onPressed: () => onMarkPaid(unpaid.first),
                 ),
-              ] else if (rows.isEmpty) ...[
+              ] else if (active.isEmpty) ...[
                 const SizedBox(height: 14),
                 SlateButton(
                   label: 'Record Payment',

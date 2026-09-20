@@ -3,9 +3,16 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/slate_models.dart';
 import '../utils/appointment_recurrence.dart';
+import '../utils/booking_time.dart';
 import '../utils/working_hours.dart';
 import 'repository_pagination.dart';
+import 'repository_schema_compatibility.dart';
 import 'supabase_client_provider.dart';
+
+const _legacyAppointmentSelect = '*, contacts(name), services(name)';
+const _appointmentSelect =
+    '$_legacyAppointmentSelect, '
+    'appointment_items(id, workspace_id, item_kind, source_service_id, source_add_on_id, name, duration_mins, price, position)';
 
 final appointmentsRepositoryProvider = Provider<AppointmentsRepository>((ref) {
   return AppointmentsRepository(ref.watch(supabaseClientProvider));
@@ -15,15 +22,36 @@ class AppointmentsRepository {
   final SupabaseClient _client;
   const AppointmentsRepository(this._client);
 
+  /// Read a single current booking without trusting a retained screen snapshot.
+  Future<Appointment?> getById(String workspaceId, String id) async {
+    Future<Map<String, dynamic>?> load(String select) async {
+      return await _client
+          .from('appointments')
+          .select(select)
+          .eq('workspace_id', workspaceId)
+          .eq('id', id)
+          .maybeSingle();
+    }
+
+    final row = await loadWithPostgrestSchemaFallback(
+      objectName: 'appointment_items',
+      loadCurrent: () => load(_appointmentSelect),
+      loadLegacy: () => load(_legacyAppointmentSelect),
+    );
+    return row == null ? null : Appointment.fromMap(row);
+  }
+
   Future<void> ensureScheduleAvailable({
     required String workspaceId,
     required DateTime startTime,
     required DateTime endTime,
     Map<String, dynamic>? workingHours,
+    String? workingHoursTimezone,
     String? excludeAppointmentId,
     String? recurrenceRule,
     int repeatOccurrences = 1,
     bool enforceWorkingHours = true,
+    bool enforceConflicts = true,
   }) async {
     final duration = endTime.difference(startTime);
     for (var index = 0; index < repeatOccurrences.clamp(1, 24); index++) {
@@ -31,14 +59,19 @@ class AppointmentsRepository {
         startTime,
         recurrenceRule,
         index,
+        timezoneName: workingHoursTimezone,
       );
       final occurrenceEnd = occurrenceStart.add(duration);
       if (enforceWorkingHours &&
           workingHours != null &&
           workingHours.isNotEmpty) {
-        final localStart = occurrenceStart.toLocal();
-        final localEnd = occurrenceEnd.toLocal();
-        if (!isWithinWorkingHours(
+        final localStart = workingHoursTimezone == null
+            ? occurrenceStart.toLocal()
+            : bookingTimeInZone(occurrenceStart, workingHoursTimezone);
+        final localEnd = workingHoursTimezone == null
+            ? occurrenceEnd.toLocal()
+            : bookingTimeInZone(occurrenceEnd, workingHoursTimezone);
+        if (!isWallClockWithinWorkingHours(
           hours: workingHours,
           start: localStart,
           end: localEnd,
@@ -50,12 +83,14 @@ class AppointmentsRepository {
         }
       }
 
-      final rows = await conflicts(
-        workspaceId: workspaceId,
-        startTime: occurrenceStart,
-        endTime: occurrenceEnd,
-        excludeAppointmentId: excludeAppointmentId,
-      );
+      final rows = enforceConflicts
+          ? await conflicts(
+              workspaceId: workspaceId,
+              startTime: occurrenceStart,
+              endTime: occurrenceEnd,
+              excludeAppointmentId: excludeAppointmentId,
+            )
+          : const <Map<String, dynamic>>[];
       if (rows.isNotEmpty) {
         throw AppointmentScheduleException(
           rows.length == 1
@@ -67,34 +102,111 @@ class AppointmentsRepository {
     }
   }
 
+  Future<AppointmentScheduleReview> reviewSchedule({
+    required String workspaceId,
+    required DateTime startTime,
+    required DateTime endTime,
+    Map<String, dynamic>? workingHours,
+    String? workingHoursTimezone,
+    String? excludeAppointmentId,
+    String? recurrenceRule,
+    int repeatOccurrences = 1,
+  }) async {
+    final duration = endTime.difference(startTime);
+    var outsideWorkingHoursCount = 0;
+    var conflictCount = 0;
+    for (var index = 0; index < repeatOccurrences.clamp(1, 24); index++) {
+      final occurrenceStart = appointmentOccurrenceStart(
+        startTime,
+        recurrenceRule,
+        index,
+        timezoneName: workingHoursTimezone,
+      );
+      final occurrenceEnd = occurrenceStart.add(duration);
+      if (workingHours != null &&
+          workingHours.isNotEmpty &&
+          !isWallClockWithinWorkingHours(
+            hours: workingHours,
+            start: workingHoursTimezone == null
+                ? occurrenceStart.toLocal()
+                : bookingTimeInZone(occurrenceStart, workingHoursTimezone),
+            end: workingHoursTimezone == null
+                ? occurrenceEnd.toLocal()
+                : bookingTimeInZone(occurrenceEnd, workingHoursTimezone),
+          )) {
+        outsideWorkingHoursCount++;
+      }
+      conflictCount += (await conflicts(
+        workspaceId: workspaceId,
+        startTime: occurrenceStart,
+        endTime: occurrenceEnd,
+        excludeAppointmentId: excludeAppointmentId,
+      )).length;
+    }
+    return AppointmentScheduleReview(
+      outsideWorkingHoursCount: outsideWorkingHoursCount,
+      conflictCount: conflictCount,
+    );
+  }
+
   Future<List<Appointment>> list(String workspaceId) async {
-    final rows = await fetchAllRepositoryPages<Map<String, dynamic>>(
-      loadPage: (from, to) async {
-        final page = await _client
-            .from('appointments')
-            .select('*, contacts(name), services(name)')
-            .eq('workspace_id', workspaceId)
-            .order('start_time', ascending: true)
-            .order('id', ascending: true)
-            .range(from, to);
-        return List<Map<String, dynamic>>.from(page);
-      },
+    final rows = await loadWithPostgrestSchemaFallback(
+      objectName: 'appointment_items',
+      loadCurrent: () => fetchAllRepositoryPages<Map<String, dynamic>>(
+        loadPage: (from, to) => _loadAppointmentPage(
+          select: _appointmentSelect,
+          workspaceId: workspaceId,
+          from: from,
+          to: to,
+        ),
+      ),
+      loadLegacy: () => fetchAllRepositoryPages<Map<String, dynamic>>(
+        loadPage: (from, to) => _loadAppointmentPage(
+          select: _legacyAppointmentSelect,
+          workspaceId: workspaceId,
+          from: from,
+          to: to,
+        ),
+      ),
     );
     return rows.map<Appointment>(Appointment.fromMap).toList();
   }
 
+  Future<List<Map<String, dynamic>>> _loadAppointmentPage({
+    required String select,
+    required String workspaceId,
+    required int from,
+    required int to,
+  }) async {
+    final page = await _client
+        .from('appointments')
+        .select(select)
+        .eq('workspace_id', workspaceId)
+        .order('start_time', ascending: true)
+        .order('id', ascending: true)
+        .range(from, to);
+    return List<Map<String, dynamic>>.from(page);
+  }
+
   Future<List<Map<String, dynamic>>> listRows(String workspaceId) async {
-    return fetchAllRepositoryPages<Map<String, dynamic>>(
-      loadPage: (from, to) async {
-        final page = await _client
-            .from('appointments')
-            .select('*, contacts(name), services(name)')
-            .eq('workspace_id', workspaceId)
-            .order('start_time', ascending: true)
-            .order('id', ascending: true)
-            .range(from, to);
-        return List<Map<String, dynamic>>.from(page);
-      },
+    return loadWithPostgrestSchemaFallback(
+      objectName: 'appointment_items',
+      loadCurrent: () => fetchAllRepositoryPages<Map<String, dynamic>>(
+        loadPage: (from, to) => _loadAppointmentPage(
+          select: _appointmentSelect,
+          workspaceId: workspaceId,
+          from: from,
+          to: to,
+        ),
+      ),
+      loadLegacy: () => fetchAllRepositoryPages<Map<String, dynamic>>(
+        loadPage: (from, to) => _loadAppointmentPage(
+          select: _legacyAppointmentSelect,
+          workspaceId: workspaceId,
+          from: from,
+          to: to,
+        ),
+      ),
     );
   }
 
@@ -104,9 +216,36 @@ class AppointmentsRepository {
     required DateTime to,
     int limit = 80,
   }) async {
+    final rows = await loadWithPostgrestSchemaFallback(
+      objectName: 'appointment_items',
+      loadCurrent: () => _loadBusinessFeedRows(
+        select: _appointmentSelect,
+        workspaceId: workspaceId,
+        from: from,
+        to: to,
+        limit: limit,
+      ),
+      loadLegacy: () => _loadBusinessFeedRows(
+        select: _legacyAppointmentSelect,
+        workspaceId: workspaceId,
+        from: from,
+        to: to,
+        limit: limit,
+      ),
+    );
+    return List<Map<String, dynamic>>.from(rows);
+  }
+
+  Future<List<Map<String, dynamic>>> _loadBusinessFeedRows({
+    required String select,
+    required String workspaceId,
+    required DateTime from,
+    required DateTime to,
+    required int limit,
+  }) async {
     final rows = await _client
         .from('appointments')
-        .select('*, contacts(name), services(name)')
+        .select(select)
         .eq('workspace_id', workspaceId)
         .gte('start_time', from.toUtc().toIso8601String())
         .lt('start_time', to.toUtc().toIso8601String())
@@ -124,59 +263,135 @@ class AppointmentsRepository {
     required DateTime endTime,
     String? excludeAppointmentId,
   }) async {
-    return fetchAllRepositoryPages<Map<String, dynamic>>(
-      loadPage: (from, to) async {
-        var query = _client
-            .from('appointments')
-            .select('*, contacts(name), services(name)')
-            .eq('workspace_id', workspaceId)
-            .neq('status', 'cancelled')
-            .lt('start_time', endTime.toUtc().toIso8601String())
-            .gt('end_time', startTime.toUtc().toIso8601String());
-        if (excludeAppointmentId != null) {
-          query = query.neq('id', excludeAppointmentId);
-        }
-        final page = await query
-            .order('start_time', ascending: true)
-            .order('id', ascending: true)
-            .range(from, to);
-        return List<Map<String, dynamic>>.from(page);
-      },
+    return loadWithPostgrestSchemaFallback(
+      objectName: 'appointment_items',
+      loadCurrent: () => fetchAllRepositoryPages<Map<String, dynamic>>(
+        loadPage: (from, to) => _loadConflictPage(
+          select: _appointmentSelect,
+          workspaceId: workspaceId,
+          startTime: startTime,
+          endTime: endTime,
+          excludeAppointmentId: excludeAppointmentId,
+          from: from,
+          to: to,
+        ),
+      ),
+      loadLegacy: () => fetchAllRepositoryPages<Map<String, dynamic>>(
+        loadPage: (from, to) => _loadConflictPage(
+          select: _legacyAppointmentSelect,
+          workspaceId: workspaceId,
+          startTime: startTime,
+          endTime: endTime,
+          excludeAppointmentId: excludeAppointmentId,
+          from: from,
+          to: to,
+        ),
+      ),
     );
   }
 
+  Future<List<Map<String, dynamic>>> _loadConflictPage({
+    required String select,
+    required String workspaceId,
+    required DateTime startTime,
+    required DateTime endTime,
+    required String? excludeAppointmentId,
+    required int from,
+    required int to,
+  }) async {
+    var query = _client
+        .from('appointments')
+        .select(select)
+        .eq('workspace_id', workspaceId)
+        .neq('status', 'cancelled')
+        .lt('start_time', endTime.toUtc().toIso8601String())
+        .gt('end_time', startTime.toUtc().toIso8601String());
+    if (excludeAppointmentId != null) {
+      query = query.neq('id', excludeAppointmentId);
+    }
+    final page = await query
+        .order('start_time', ascending: true)
+        .order('id', ascending: true)
+        .range(from, to);
+    return List<Map<String, dynamic>>.from(page);
+  }
+
   Future<List<Map<String, dynamic>>> forClientRows(String clientId) async {
-    return fetchAllRepositoryPages<Map<String, dynamic>>(
-      loadPage: (from, to) async {
-        final page = await _client
-            .from('appointments')
-            .select('*, services(name), contacts(name)')
-            .eq('contact_id', clientId)
-            .order('start_time', ascending: false)
-            .order('id', ascending: true)
-            .range(from, to);
-        return List<Map<String, dynamic>>.from(page);
-      },
+    return loadWithPostgrestSchemaFallback(
+      objectName: 'appointment_items',
+      loadCurrent: () => fetchAllRepositoryPages<Map<String, dynamic>>(
+        loadPage: (from, to) => _loadClientAppointmentPage(
+          select: _appointmentSelect,
+          clientId: clientId,
+          from: from,
+          to: to,
+        ),
+      ),
+      loadLegacy: () => fetchAllRepositoryPages<Map<String, dynamic>>(
+        loadPage: (from, to) => _loadClientAppointmentPage(
+          select: _legacyAppointmentSelect,
+          clientId: clientId,
+          from: from,
+          to: to,
+        ),
+      ),
     );
+  }
+
+  Future<List<Map<String, dynamic>>> _loadClientAppointmentPage({
+    required String select,
+    required String clientId,
+    required int from,
+    required int to,
+  }) async {
+    final page = await _client
+        .from('appointments')
+        .select(select)
+        .eq('contact_id', clientId)
+        .order('start_time', ascending: false)
+        .order('id', ascending: true)
+        .range(from, to);
+    return List<Map<String, dynamic>>.from(page);
   }
 
   Future<List<Appointment>> upcoming(
     String workspaceId, {
     int limit = 5,
   }) async {
-    final rows = await _client
-        .from('appointments')
-        .select('*, contacts(name), services(name)')
-        .eq('workspace_id', workspaceId)
-        .gte('start_time', DateTime.now().toUtc().toIso8601String())
-        .neq('status', 'cancelled')
-        .order('start_time', ascending: true)
-        .limit(limit);
+    final rows = await loadWithPostgrestSchemaFallback(
+      objectName: 'appointment_items',
+      loadCurrent: () => _loadUpcomingRows(
+        select: _appointmentSelect,
+        workspaceId: workspaceId,
+        limit: limit,
+      ),
+      loadLegacy: () => _loadUpcomingRows(
+        select: _legacyAppointmentSelect,
+        workspaceId: workspaceId,
+        limit: limit,
+      ),
+    );
     return rows
         .map<Appointment>(
           (row) => Appointment.fromMap(Map<String, dynamic>.from(row)),
         )
         .toList();
+  }
+
+  Future<List<Map<String, dynamic>>> _loadUpcomingRows({
+    required String select,
+    required String workspaceId,
+    required int limit,
+  }) async {
+    final rows = await _client
+        .from('appointments')
+        .select(select)
+        .eq('workspace_id', workspaceId)
+        .gte('start_time', DateTime.now().toUtc().toIso8601String())
+        .neq('status', 'cancelled')
+        .order('start_time', ascending: true)
+        .limit(limit);
+    return List<Map<String, dynamic>>.from(rows);
   }
 
   Future<List<String>> create({
@@ -243,6 +458,7 @@ class AppointmentsRepository {
     String? notes,
     String? location,
     String? recurrenceRule,
+    String? recurrenceTimezone,
     int repeatOccurrences = 1,
     List<String> taskTitles = const [],
     DateTime? taskDueDate,
@@ -250,6 +466,9 @@ class AppointmentsRepository {
     String? paymentNote,
     String notificationTitle = 'New booking created',
     String notificationBody = 'A booking was added to your schedule.',
+    bool allowOverlap = false,
+    List<String> addOnIds = const [],
+    List<String> serviceIds = const [],
   }) async {
     final payload = buildBookingWorkflowPayload(
       workspaceId: workspaceId,
@@ -270,6 +489,7 @@ class AppointmentsRepository {
       notes: notes,
       location: location,
       recurrenceRule: recurrenceRule,
+      recurrenceTimezone: recurrenceTimezone,
       repeatOccurrences: repeatOccurrences,
       taskTitles: taskTitles,
       taskDueDate: taskDueDate,
@@ -277,11 +497,24 @@ class AppointmentsRepository {
       paymentNote: paymentNote,
       notificationTitle: notificationTitle,
       notificationBody: notificationBody,
+      allowOverlap: allowOverlap,
+      addOnIds: addOnIds,
+      serviceIds: serviceIds,
     );
+    return createBookingWorkflowFromPayload(payload);
+  }
+
+  /// Retries must use the exact submitted payload and idempotency key, even
+  /// when the first response was lost after the transaction committed.
+  Future<List<String>> createBookingWorkflowFromPayload(
+    Map<String, dynamic> payload,
+  ) async {
     late final dynamic response;
     try {
       response = await _client.rpc(
-        'create_booking_workflow',
+        payload['recurrence_timezone'] == null
+            ? 'create_booking_workflow'
+            : 'create_recurring_booking_workflow',
         params: {'p_payload': payload},
       );
     } on PostgrestException catch (error) {
@@ -333,6 +566,31 @@ class AppointmentsRepository {
     await _client.from('appointments').update(values).eq('id', appointmentId);
   }
 
+  /// The booking and the service snapshot must commit together. Returning the
+  /// saved row also keeps the open detail screen and its invoice prefill current.
+  Future<Map<String, dynamic>> editBookingWorkflow({
+    required String appointmentId,
+    required Map<String, dynamic> values,
+    required bool replaceServiceItems,
+  }) async {
+    try {
+      final result = await _client.rpc(
+        'edit_booking_workflow',
+        params: {
+          'p_appointment_id': appointmentId,
+          'p_values': values,
+          'p_replace_service_items': replaceServiceItems,
+        },
+      );
+      return Map<String, dynamic>.from(result as Map);
+    } on PostgrestException catch (error) {
+      if (error.code == '22023') {
+        throw AppointmentScheduleException(error.message);
+      }
+      rethrow;
+    }
+  }
+
   Future<void> updateStatus(
     String appointmentId,
     String status, {
@@ -340,6 +598,20 @@ class AppointmentsRepository {
   }) async {
     await update(appointmentId, {'status': status, 'notes': ?notes});
   }
+}
+
+/// A known database rejection means the first attempt rolled back. Transport
+/// failures, response parsing failures and in-progress retries remain unknown.
+bool bookingWorkflowDefinitelyRejected(Object error) {
+  if (error is AppointmentScheduleException) return true;
+  if (error is! PostgrestException) return false;
+  final code = error.code ?? '';
+  return code.startsWith('22') ||
+      code.startsWith('23') ||
+      code.startsWith('28') ||
+      code.startsWith('42') ||
+      code == 'P0001' ||
+      code == 'PGRST202';
 }
 
 Map<String, dynamic> buildBookingWorkflowPayload({
@@ -361,6 +633,7 @@ Map<String, dynamic> buildBookingWorkflowPayload({
   String? notes,
   String? location,
   String? recurrenceRule,
+  String? recurrenceTimezone,
   int repeatOccurrences = 1,
   List<String> taskTitles = const [],
   DateTime? taskDueDate,
@@ -368,6 +641,9 @@ Map<String, dynamic> buildBookingWorkflowPayload({
   String? paymentNote,
   required String notificationTitle,
   required String notificationBody,
+  bool allowOverlap = false,
+  List<String> addOnIds = const [],
+  List<String> serviceIds = const [],
 }) {
   final duration = endTime.difference(startTime);
   final occurrences = List.generate(repeatOccurrences.clamp(1, 24), (index) {
@@ -375,11 +651,16 @@ Map<String, dynamic> buildBookingWorkflowPayload({
       startTime,
       recurrenceRule,
       index,
+      timezoneName: recurrenceTimezone,
     );
     return {
       'start_time': occurrenceStart.toUtc().toIso8601String(),
       'end_time': occurrenceStart.add(duration).toUtc().toIso8601String(),
-      'payment_date': _dateOnly(occurrenceStart.toLocal()),
+      'payment_date': _dateOnly(
+        recurrenceTimezone == null
+            ? occurrenceStart.toLocal()
+            : bookingTimeInZone(occurrenceStart, recurrenceTimezone),
+      ),
     };
   }, growable: false);
   return {
@@ -402,6 +683,7 @@ Map<String, dynamic> buildBookingWorkflowPayload({
     'notes': notes,
     'location': location,
     'recurrence_rule': ?recurrenceRule,
+    'recurrence_timezone': ?recurrenceTimezone,
     'appointments': occurrences,
     'task_titles': taskTitles,
     if (taskDueDate != null) 'task_due_date': _dateOnly(taskDueDate),
@@ -409,6 +691,9 @@ Map<String, dynamic> buildBookingWorkflowPayload({
     'payment_note': paymentNote,
     'notification_title': notificationTitle,
     'notification_body': notificationBody,
+    'allow_overlap': allowOverlap,
+    if (addOnIds.isNotEmpty) 'add_on_ids': addOnIds,
+    if (serviceIds.length > 1) 'service_ids': serviceIds,
   };
 }
 
@@ -434,6 +719,43 @@ Map<String, dynamic> buildCompletionWorkflowPayload({
 }
 
 enum AppointmentScheduleIssue { workingHours, conflict, other }
+
+class AppointmentScheduleReview {
+  final int outsideWorkingHoursCount;
+  final int conflictCount;
+
+  const AppointmentScheduleReview({
+    required this.outsideWorkingHoursCount,
+    required this.conflictCount,
+  });
+
+  bool get hasWarnings => outsideWorkingHoursCount > 0 || conflictCount > 0;
+
+  String get title {
+    if (outsideWorkingHoursCount > 0 && conflictCount > 0) {
+      return 'Check this booking';
+    }
+    if (conflictCount > 0) return 'Overlapping booking';
+    return 'Outside working hours';
+  }
+
+  String get detail {
+    final parts = <String>[];
+    if (conflictCount > 0) {
+      parts.add(
+        'It overlaps $conflictCount existing booking${conflictCount == 1 ? '' : 's'}.',
+      );
+    }
+    if (outsideWorkingHoursCount > 0) {
+      parts.add(
+        outsideWorkingHoursCount == 1
+            ? 'It is outside your saved working hours.'
+            : '$outsideWorkingHoursCount bookings are outside your saved working hours.',
+      );
+    }
+    return '${parts.join(' ')} You can still save it if this is intentional.';
+  }
+}
 
 class AppointmentScheduleException implements Exception {
   final String message;

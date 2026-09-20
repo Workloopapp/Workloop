@@ -268,7 +268,7 @@ class _BlockingAppointmentsRepository extends AppointmentsRepository {
   _BlockingAppointmentsRepository(super.client, this.started, this.release);
 
   @override
-  Future<List<Appointment>> list(String workspaceId) async {
+  Future<List<Map<String, dynamic>>> listRows(String workspaceId) async {
     started.complete();
     await release.future;
     return const [];

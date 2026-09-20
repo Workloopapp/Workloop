@@ -9,19 +9,33 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/workloop_capabilities.dart';
 import '../../shared/models/slate_models.dart';
+import '../../shared/providers/finance_provider.dart';
+import '../../shared/providers/workspace_provider.dart';
 import '../../shared/payments/tap_to_pay_service.dart';
 import '../../shared/repositories/stripe_payments_repository.dart';
 import '../../shared/utils/currency_format.dart';
 import '../../shared/utils/workflow_idempotency.dart';
 import '../../shared/widgets/slate_ui.dart';
+import '../../shared/widgets/workloop_form_field.dart';
 
 String friendlyPaymentError(Object error) {
+  if (error is PostgrestException) {
+    return error.code == 'P0001'
+        ? (_safePaymentMessage(error.message) ??
+              'Could not send this payment email. Please try again.')
+        : 'Payments are temporarily unavailable. Please try again.';
+  }
   if (error is FunctionException) {
     final details = error.details;
     final payload = details is Map
         ? Map<String, dynamic>.from(details)
         : const <String, dynamic>{};
     final code = payload['code']?.toString();
+    if (code == 'collection_in_progress' &&
+        payload['error']?.toString() ==
+            'Payment request key was already used') {
+      return 'This payment has changed. Close this sheet and refresh Money before trying again.';
+    }
     if (code == 'platform_configuration_required') {
       return 'Payment setup is being finalised. Please try again shortly.';
     }
@@ -66,13 +80,28 @@ bool isValidReceiptEmail(String value) {
   return RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(email);
 }
 
+/// Parse pounds as decimal digits, avoiding floating-point rounding and NaN.
+int? parseRefundAmountMinor(String input, int refundableMinor) {
+  final match = RegExp(r'^(\d+)(?:\.(\d{1,2}))?$').firstMatch(input.trim());
+  if (match == null) return null;
+  final pounds = int.tryParse(match.group(1)!);
+  if (pounds == null || pounds > refundableMinor ~/ 100) return null;
+  final pennies = int.parse((match.group(2) ?? '').padRight(2, '0'));
+  final amount = pounds * 100 + pennies;
+  return amount > 0 && amount <= refundableMinor ? amount : null;
+}
+
 enum PaymentSetupAction { viewOwed }
 
-String contactlessUnavailableMessage(TargetPlatform platform) {
-  if (platform == TargetPlatform.iOS) {
-    return 'Requires Apple Tap to Pay approval for this app build.';
+String contactlessUnavailableMessage(
+  TargetPlatform platform, {
+  String? reason,
+}) {
+  if (!WorkloopCapabilities.tapToPayEnabled) {
+    return 'Tap to Pay is not enabled in this version of Workloop. Use a card payment link.';
   }
-  return 'Contactless payments are not available on this phone yet.';
+  return _safePaymentMessage(reason) ??
+      'Contactless payments are not available on this phone. Use a card payment link.';
 }
 
 Future<bool> showPaymentCollectionSheet({
@@ -80,11 +109,9 @@ Future<bool> showPaymentCollectionSheet({
   required Payment payment,
 }) async {
   if (!WorkloopCapabilities.paymentCollectionEnabled) return false;
-  return await showModalBottomSheet<bool>(
+  return await showWorkloopBottomSheet<bool>(
         context: context,
         isScrollControlled: true,
-        backgroundColor: Colors.transparent,
-        barrierColor: SlateTheme.of(context).scrim,
         builder: (_) => _PaymentCollectionSheet(payment: payment),
       ) ??
       false;
@@ -95,25 +122,79 @@ Future<PaymentSetupAction?> showPaymentSetupSheet({
   required String workspaceId,
 }) {
   if (!WorkloopCapabilities.paymentCollectionEnabled) {
-    return Future.value();
+    return showWorkloopBottomSheet<PaymentSetupAction>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => SlateSheetFrame(
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Card & contactless payments',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: AppSpacing.md),
+              const Text(
+                'Card payment collection is not enabled in this version of Workloop. You can still record payments you receive by cash or bank transfer.',
+              ),
+              const SizedBox(height: AppSpacing.md),
+              const Text(
+                'Tap to Pay also requires a supported phone and payment-enabled version of Workloop.',
+              ),
+              const SizedBox(height: AppSpacing.lg),
+              SlateButton(
+                label: 'Close',
+                onPressed: () => Navigator.pop(context),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
-  return showModalBottomSheet<PaymentSetupAction>(
+  return showWorkloopBottomSheet<PaymentSetupAction>(
     context: context,
     isScrollControlled: true,
-    backgroundColor: Colors.transparent,
-    barrierColor: SlateTheme.of(context).scrim,
     builder: (_) => _PaymentCollectionSheet(workspaceId: workspaceId),
   );
 }
 
 class PaymentSetupCard extends StatelessWidget {
   final VoidCallback onTap;
+  final bool compact;
 
-  const PaymentSetupCard({super.key, required this.onTap});
+  const PaymentSetupCard({
+    super.key,
+    required this.onTap,
+    this.compact = false,
+  });
 
   @override
   Widget build(BuildContext context) {
     final tokens = SlateTheme.of(context);
+    if (compact) {
+      return ListTile(
+        contentPadding: EdgeInsets.zero,
+        minTileHeight: AppSpacing.minTouch,
+        leading: Icon(
+          LucideIcons.smartphoneNfc,
+          color: tokens.accentInk,
+          size: 20,
+        ),
+        title: Text(
+          'Card & contactless payments',
+          style: TextStyle(fontSize: 13, color: tokens.textPrimary),
+        ),
+        trailing: Icon(
+          LucideIcons.chevronRight,
+          color: tokens.textSecondary,
+          size: 18,
+        ),
+        onTap: onTap,
+      );
+    }
     return SlateSurface(
       onTap: onTap,
       padding: const EdgeInsets.all(AppSpacing.md),
@@ -125,19 +206,19 @@ class PaymentSetupCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'Get paid with Workloop',
+                Text(
+                  'Card & contactless payments',
                   style: TextStyle(
-                    color: AppColors.t1,
+                    color: AppColors.of(context).t1,
                     fontSize: 15,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
                 SizedBox(height: 3),
-                const Text(
-                  'Set up Stripe, send payment links, and manage payouts.',
+                Text(
+                  'Take card payments by link, check Tap to Pay, and manage payouts.',
                   style: TextStyle(
-                    color: AppColors.t3,
+                    color: AppColors.of(context).t3,
                     fontSize: 12,
                     height: 1.35,
                   ),
@@ -146,7 +227,11 @@ class PaymentSetupCard extends StatelessWidget {
             ),
           ),
           SizedBox(width: AppSpacing.xs),
-          const Icon(LucideIcons.chevronRight, color: AppColors.t3, size: 18),
+          Icon(
+            LucideIcons.chevronRight,
+            color: AppColors.of(context).t3,
+            size: 18,
+          ),
         ],
       ),
     );
@@ -172,14 +257,64 @@ class _PaymentCollectionSheetState
   bool _working = false;
   bool _linkCopied = false;
   String? _error;
-  Uri? _paymentLink;
   late final TextEditingController _receiptEmailController;
   String? _paymentLinkIdempotencyKey;
   String? _terminalPaymentIdempotencyKey;
+  Payment? _linkPayment;
+  Payment? _terminalPayment;
+  Payment? _refreshedPayment;
+  String? _terminalReceiptEmail;
   final Map<String, String> _refundIdempotencyKeys = {};
 
   String get _workspaceId =>
       widget.payment?.workspaceId ?? widget.workspaceId ?? '';
+
+  bool get _sameWorkspace =>
+      mounted && ref.read(workspaceIdProvider).value == _workspaceId;
+
+  void _requireWorkspace() {
+    if (!_sameWorkspace) {
+      throw StateError(
+        'Your business changed. Close this sheet and reopen the payment.',
+      );
+    }
+  }
+
+  Payment? get _displayPayment {
+    for (final payment
+        in ref.read(invoicesProvider).value ?? const <Payment>[]) {
+      if (payment.id == widget.payment?.id &&
+          payment.workspaceId == _workspaceId) {
+        return payment;
+      }
+    }
+    return _refreshedPayment ?? widget.payment;
+  }
+
+  Future<Payment> _latestPayment() async {
+    _requireWorkspace();
+    final reviewedAmount = _displayPayment?.collectionAmount;
+    final payments = await ref.refresh(invoicesProvider.future);
+    _requireWorkspace();
+    for (final payment in payments) {
+      if (payment.id == widget.payment?.id &&
+          payment.workspaceId == _workspaceId) {
+        if (payment.outstandingAmount <= 0) {
+          throw StateError('There is no outstanding balance to collect.');
+        }
+        setState(() => _refreshedPayment = payment);
+        if (reviewedAmount != payment.collectionAmount) {
+          throw StateError(
+            'The balance changed. Check the updated amount, then try again.',
+          );
+        }
+        return payment;
+      }
+    }
+    throw StateError(
+      'This payment is no longer available. Close this sheet and refresh Money.',
+    );
+  }
 
   @override
   void initState() {
@@ -189,7 +324,7 @@ class _PaymentCollectionSheetState
     );
     _status = _repository.accountStatus(_workspaceId);
     _tapAvailability = tapToPayService.availability();
-    if ((widget.payment?.stripeAmountPaid ?? 0) > 0) {
+    if (widget.payment != null) {
       _transactions = _repository.transactionsForInvoice(
         _workspaceId,
         widget.payment!.id,
@@ -207,6 +342,7 @@ class _PaymentCollectionSheetState
       ref.read(stripePaymentsRepositoryProvider);
 
   void _refreshStatus() {
+    if (!_sameWorkspace) return;
     setState(() {
       _error = null;
       _status = _repository.accountStatus(_workspaceId);
@@ -216,6 +352,7 @@ class _PaymentCollectionSheetState
   Future<void> _startOnboarding() async {
     await _run(() async {
       final link = await _repository.createOnboardingLink(_workspaceId);
+      _requireWorkspace();
       if (!await launchUrl(link, mode: LaunchMode.externalApplication)) {
         throw StateError('Could not open Stripe setup.');
       }
@@ -225,6 +362,7 @@ class _PaymentCollectionSheetState
   Future<void> _openDashboard() async {
     await _run(() async {
       final link = await _repository.createDashboardLink(_workspaceId);
+      _requireWorkspace();
       if (!await launchUrl(link, mode: LaunchMode.externalApplication)) {
         throw StateError('Could not open Stripe.');
       }
@@ -241,33 +379,93 @@ class _PaymentCollectionSheetState
     });
   }
 
-  Future<Uri> _loadPaymentLink() async {
-    final payment = widget.payment;
-    if (payment == null) {
-      throw StateError('Choose a payment to collect first.');
+  Future<PaymentLinkResult> _loadPaymentLinkResult() async {
+    _requireWorkspace();
+    if (_paymentLinkIdempotencyKey == null) {
+      _linkPayment = await _latestPayment();
+      _paymentLinkIdempotencyKey = createWorkflowIdempotencyKey();
     }
-    final existing = _paymentLink;
-    if (existing != null) return existing;
+    final payment = _linkPayment!;
     final result = await _repository.createPaymentLink(
       workspaceId: payment.workspaceId,
       invoiceId: payment.id,
-      idempotencyKey: _paymentLinkIdempotencyKey ??=
-          createWorkflowIdempotencyKey(),
+      amountMinor: payment.hasDeposit
+          ? (payment.collectionAmount * 100).round()
+          : null,
+      idempotencyKey: _paymentLinkIdempotencyKey!,
     );
-    _paymentLink = result.url;
-    return result.url;
+    _requireWorkspace();
+    return result;
+  }
+
+  Future<Uri> _loadPaymentLink() async => (await _loadPaymentLinkResult()).url;
+
+  Future<void> _emailPaymentRequest() async {
+    await _run(() async {
+      final link = await _loadPaymentLinkResult();
+      final preview = await _repository.paymentRequestEmail(
+        link.transactionId,
+        send: false,
+      );
+      _requireWorkspace();
+      if (!mounted) return;
+      final email = preview['email'] as String;
+      final amount = (preview['amount_minor'] as num).toDouble() / 100;
+      final approved = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Email payment request?'),
+          content: Text(
+            'Send a request for ${formatPounds(amount)} to $email. The email includes a secure Stripe payment link.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Send email'),
+            ),
+          ],
+        ),
+      );
+      if (approved != true) return;
+      _requireWorkspace();
+      final result = await _repository.paymentRequestEmail(
+        link.transactionId,
+        send: true,
+        expectedEmail: email,
+      );
+      _requireWorkspace();
+      if (!mounted) return;
+      final status = result['status'];
+      if (status == 'failed' || status == 'cancelled') {
+        throw StateError(
+          'This payment email could not be sent. Create a fresh payment link or contact support.',
+        );
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            status == 'sent'
+                ? 'This payment request has already been emailed'
+                : 'Payment request queued for $email',
+          ),
+        ),
+      );
+    });
   }
 
   Future<void> _sharePaymentLink() async {
-    final payment = widget.payment;
-    if (payment == null) return;
     await _run(() async {
       final link = await _loadPaymentLink();
+      _requireWorkspace();
       if (!mounted) return;
       final box = context.findRenderObject() as RenderBox?;
       await SharePlus.instance.share(
         ShareParams(
-          text: 'Payment of ${formatPounds(payment.outstandingAmount)}: $link',
+          text: 'Payment link for ${_linkPayment!.number}: $link',
           sharePositionOrigin: box == null
               ? null
               : box.localToGlobal(Offset.zero) & box.size,
@@ -279,7 +477,9 @@ class _PaymentCollectionSheetState
   Future<void> _copyPaymentLink() async {
     await _run(() async {
       final link = await _loadPaymentLink();
+      _requireWorkspace();
       await Clipboard.setData(ClipboardData(text: link.toString()));
+      _requireWorkspace();
       if (!mounted) return;
       setState(() => _linkCopied = true);
       ScaffoldMessenger.of(context).showSnackBar(
@@ -289,42 +489,54 @@ class _PaymentCollectionSheetState
   }
 
   Future<void> _takeContactlessPayment() async {
-    final payment = widget.payment;
-    if (payment == null) return;
     await _run(() async {
       final receiptEmail = _receiptEmailController.text.trim();
       if (!isValidReceiptEmail(receiptEmail)) {
         throw StateError('Enter a valid receipt email or leave it blank.');
       }
       final availability = await tapToPayService.availability();
+      _requireWorkspace();
       if (!availability.supported) {
         throw StateError(
           'Tap to Pay is not enabled for this Workloop build yet. '
           'You can still copy a secure payment link.',
         );
       }
+      if (_terminalPaymentIdempotencyKey == null) {
+        _terminalPayment = await _latestPayment();
+        _terminalReceiptEmail = receiptEmail.isEmpty ? null : receiptEmail;
+        _terminalPaymentIdempotencyKey = createWorkflowIdempotencyKey();
+      }
+      final payment = _terminalPayment!;
       final request = await _repository.createTerminalPayment(
         workspaceId: payment.workspaceId,
         invoiceId: payment.id,
-        receiptEmail: receiptEmail.isEmpty ? null : receiptEmail,
-        idempotencyKey: _terminalPaymentIdempotencyKey ??=
-            createWorkflowIdempotencyKey(),
+        amountMinor: payment.hasDeposit
+            ? (payment.collectionAmount * 100).round()
+            : null,
+        receiptEmail: _terminalReceiptEmail,
+        idempotencyKey: _terminalPaymentIdempotencyKey!,
       );
+      _requireWorkspace();
       final result = await tapToPayService.collect(
         clientSecret: request.clientSecret,
         locationId: request.locationId,
-        connectionTokenLoader: () =>
-            _repository.createConnectionToken(payment.workspaceId),
+        connectionTokenLoader: () {
+          _requireWorkspace();
+          return _repository.createConnectionToken(payment.workspaceId);
+        },
       );
       if (result.status != 'succeeded') {
         throw StateError('Stripe is still processing this payment.');
       }
+      _requireWorkspace();
       if (!mounted) return;
       Navigator.pop(context, true);
     });
   }
 
   Future<void> _refundTransaction(Map<String, dynamic> transaction) async {
+    if (!_sameWorkspace || _working) return;
     final amount = (transaction['amount_minor'] as num?)?.toInt() ?? 0;
     final refunded =
         (transaction['amount_refunded_minor'] as num?)?.toInt() ?? 0;
@@ -333,25 +545,33 @@ class _PaymentCollectionSheetState
     final controller = TextEditingController(
       text: (refundable / 100).toStringAsFixed(2),
     );
-    final confirmed = await showDialog<int>(
+    final route = DialogRoute<int>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Refund card payment'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Up to ${formatPounds(refundable / 100)} can be refunded.'),
-            const SizedBox(height: AppSpacing.md),
-            TextField(
-              controller: controller,
-              autofocus: true,
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Up to ${formatPounds(refundable / 100)} can be refunded.'),
+              const SizedBox(height: AppSpacing.md),
+              TextField(
+                controller: controller,
+                autofocus: true,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                decoration: const InputDecoration(
+                  label: WorkloopFieldLabel(
+                    'Refund amount (£)',
+                    isRequired: true,
+                  ),
+                  floatingLabelBehavior: FloatingLabelBehavior.always,
+                ),
               ),
-              decoration: const InputDecoration(labelText: 'Refund amount (£)'),
-            ),
-          ],
+            ],
+          ),
         ),
         actions: [
           TextButton(
@@ -360,9 +580,8 @@ class _PaymentCollectionSheetState
           ),
           TextButton(
             onPressed: () {
-              final value = double.tryParse(controller.text.trim());
-              final minor = value == null ? 0 : (value * 100).round();
-              if (minor <= 0 || minor > refundable) return;
+              final minor = parseRefundAmountMinor(controller.text, refundable);
+              if (minor == null) return;
               Navigator.pop(dialogContext, minor);
             },
             child: const Text('Refund'),
@@ -370,8 +589,10 @@ class _PaymentCollectionSheetState
         ],
       ),
     );
+    final confirmed = await Navigator.of(context).push(route);
+    await route.completed;
     controller.dispose();
-    if (confirmed == null || !mounted) return;
+    if (confirmed == null || !_sameWorkspace) return;
     final transactionId = transaction['id'] as String;
     final refundOperation = '$transactionId:$confirmed';
     await _run(() async {
@@ -384,13 +605,14 @@ class _PaymentCollectionSheetState
           createWorkflowIdempotencyKey,
         ),
       );
+      _requireWorkspace();
       if (!mounted) return;
       Navigator.pop(context, true);
     });
   }
 
   Future<void> _run(Future<void> Function() action) async {
-    if (_working) return;
+    if (_working || !_sameWorkspace) return;
     setState(() {
       _working = true;
       _error = null;
@@ -407,7 +629,25 @@ class _PaymentCollectionSheetState
 
   @override
   Widget build(BuildContext context) {
-    final payment = widget.payment;
+    final workspace = ref.watch(workspaceIdProvider).value;
+    if (workspace != _workspaceId) {
+      return SlateSheetFrame(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'Your business changed. Close this sheet and reopen the payment.',
+            ),
+            SlateButton(
+              label: 'Close',
+              onPressed: () => Navigator.pop(context),
+            ),
+          ],
+        ),
+      );
+    }
+    ref.watch(invoicesProvider);
+    final payment = _displayPayment;
     final media = MediaQuery.of(context);
     final availableHeight =
         (media.size.height -
@@ -435,11 +675,11 @@ class _PaymentCollectionSheetState
                   children: [
                     Row(
                       children: [
-                        const Expanded(
+                        Expanded(
                           child: Text(
                             'Get paid',
                             style: TextStyle(
-                              color: AppColors.t1,
+                              color: AppColors.of(context).t1,
                               fontSize: 21,
                               fontWeight: FontWeight.w600,
                             ),
@@ -450,10 +690,10 @@ class _PaymentCollectionSheetState
                     ),
                     const SizedBox(height: AppSpacing.xxs),
                     if (payment == null)
-                      const Text(
-                        'Set up once, then collect from each unpaid Money item.',
+                      Text(
+                        'Connect Stripe to take card payments. Open an unpaid Money item to send a secure link or use Tap to Pay when available.',
                         style: TextStyle(
-                          color: AppColors.t3,
+                          color: AppColors.of(context).t3,
                           fontSize: 13,
                           height: 1.4,
                         ),
@@ -468,7 +708,9 @@ class _PaymentCollectionSheetState
                         message: 'Could not check payment setup',
                         onRetry: _refreshStatus,
                       )
-                    else if (status == null || !status.ready)
+                    else if (status == null ||
+                        (!status.ready &&
+                            (payment?.stripeAmountPaid ?? 0) <= 0))
                       _buildSetup(status)
                     else
                       _buildReady(status),
@@ -481,10 +723,10 @@ class _PaymentCollectionSheetState
                       SlateErrorState(message: _error!),
                     ],
                     const SizedBox(height: AppSpacing.md),
-                    const Text(
+                    Text(
                       'Stripe processing fees apply. Workloop adds no platform fee. Card details never pass through Workloop.',
                       style: TextStyle(
-                        color: AppColors.t3,
+                        color: AppColors.of(context).t3,
                         fontSize: 11,
                         height: 1.4,
                       ),
@@ -509,6 +751,8 @@ class _PaymentCollectionSheetState
     final started = status?.connected == true;
     return Column(
       children: [
+        _buildContactlessStatus(),
+        const SizedBox(height: AppSpacing.lg),
         SlateButton(
           label: _working
               ? 'Opening Stripe...'
@@ -530,14 +774,40 @@ class _PaymentCollectionSheetState
     );
   }
 
+  Widget _buildContactlessStatus() {
+    return FutureBuilder<TapToPayAvailability>(
+      future: _tapAvailability,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const SlateLoadingBlock(height: 64, radius: AppRadius.md);
+        }
+        final available = snapshot.data?.supported == true;
+        return _PaymentStatusRow(
+          icon: LucideIcons.smartphoneNfc,
+          iconColor: available
+              ? AppColors.of(context).success
+              : AppColors.of(context).t3,
+          title: 'Contactless payments',
+          detail: available
+              ? 'This phone supports Tap to Pay. A verified Stripe account is required.'
+              : contactlessUnavailableMessage(
+                  Theme.of(context).platform,
+                  reason: snapshot.data?.reason,
+                ),
+          status: available ? 'Supported' : 'Unavailable',
+        );
+      },
+    );
+  }
+
   Widget _buildReady(StripeAccountStatus status) {
-    final payment = widget.payment;
+    final payment = _displayPayment;
     if (payment == null) {
       return Column(
         children: [
-          const _PaymentStatusRow(
+          _PaymentStatusRow(
             icon: LucideIcons.circleCheck,
-            iconColor: AppColors.success,
+            iconColor: AppColors.of(context).success,
             title: 'Stripe is connected',
             detail: 'Secure payment links and payouts are ready.',
           ),
@@ -556,31 +826,11 @@ class _PaymentCollectionSheetState
             onPressed: _working ? null : _openDashboard,
           ),
           const SizedBox(height: AppSpacing.lg),
-          FutureBuilder<TapToPayAvailability>(
-            future: _tapAvailability,
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const SlateLoadingBlock(
-                  height: 64,
-                  radius: AppRadius.md,
-                );
-              }
-              final available = snapshot.data?.supported == true;
-              return _PaymentStatusRow(
-                icon: LucideIcons.smartphoneNfc,
-                iconColor: available ? AppColors.success : AppColors.t3,
-                title: 'Contactless payments',
-                detail: available
-                    ? 'Ready on this phone.'
-                    : contactlessUnavailableMessage(Theme.of(context).platform),
-                status: available ? 'Ready' : 'Pending',
-              );
-            },
-          ),
+          _buildContactlessStatus(),
         ],
       );
     }
-    if (payment.stripeAmountPaid > 0 && payment.outstandingAmount <= 0) {
+    if (_transactions != null) {
       return FutureBuilder<List<Map<String, dynamic>>>(
         future: _transactions,
         builder: (context, snapshot) {
@@ -628,20 +878,16 @@ class _PaymentCollectionSheetState
                     'https',
                 orElse: () => null,
               );
-          if (completed.isEmpty) {
-            return const _PaymentStatusRow(
-              icon: LucideIcons.clock3,
-              iconColor: AppColors.t3,
-              title: 'Stripe is confirming this payment',
-              detail: 'Pull to refresh Money in a moment.',
-              status: 'Processing',
-            );
-          }
+          if (completed.isEmpty) return _buildCollectionOptions();
           return Column(
             children: [
+              if (status.ready && payment.outstandingAmount > 0) ...[
+                _buildCollectionOptions(),
+                const SizedBox(height: AppSpacing.lg),
+              ],
               _PaymentStatusRow(
                 icon: LucideIcons.circleCheck,
-                iconColor: AppColors.success,
+                iconColor: AppColors.of(context).success,
                 title: refundable.isEmpty
                     ? 'Card payment refunded'
                     : 'Card payment received',
@@ -677,6 +923,10 @@ class _PaymentCollectionSheetState
         },
       );
     }
+    return _buildCollectionOptions();
+  }
+
+  Widget _buildCollectionOptions() {
     return FutureBuilder<TapToPayAvailability>(
       future: _tapAvailability,
       builder: (context, snapshot) {
@@ -685,12 +935,16 @@ class _PaymentCollectionSheetState
         }
         return _buildCollectionMethods(
           contactlessAvailable: snapshot.data?.supported == true,
+          unavailableReason: snapshot.data?.reason,
         );
       },
     );
   }
 
-  Widget _buildCollectionMethods({required bool contactlessAvailable}) {
+  Widget _buildCollectionMethods({
+    required bool contactlessAvailable,
+    String? unavailableReason,
+  }) {
     final sendLinkButton = SlateButton(
       label: 'Send payment link',
       icon: LucideIcons.send,
@@ -702,18 +956,22 @@ class _PaymentCollectionSheetState
         if (contactlessAvailable) ...[
           TextField(
             controller: _receiptEmailController,
+            enabled: !_working && _terminalPaymentIdempotencyKey == null,
             keyboardType: TextInputType.emailAddress,
             textInputAction: TextInputAction.done,
             autocorrect: false,
             autofillHints: const [AutofillHints.email],
             onChanged: (_) {
               setState(() {
-                _terminalPaymentIdempotencyKey = null;
                 _error = null;
               });
             },
             decoration: InputDecoration(
-              labelText: 'Email receipt',
+              label: const WorkloopFieldLabel(
+                'Email receipt',
+                isRequired: false,
+              ),
+              floatingLabelBehavior: FloatingLabelBehavior.always,
               hintText: 'customer@example.com',
               helperText:
                   'Optional. Leave blank if the customer declines a receipt.',
@@ -736,21 +994,32 @@ class _PaymentCollectionSheetState
         ] else ...[
           sendLinkButton,
           const SizedBox(height: AppSpacing.xs),
-          const Text(
+          Text(
             'Send the link by message or email. Stripe handles the card securely.',
             textAlign: TextAlign.center,
-            style: TextStyle(color: AppColors.t3, fontSize: 11, height: 1.4),
+            style: TextStyle(
+              color: AppColors.of(context).t3,
+              fontSize: 11,
+              height: 1.4,
+            ),
           ),
           const SizedBox(height: AppSpacing.lg),
           _PaymentStatusRow(
             icon: LucideIcons.smartphoneNfc,
-            iconColor: AppColors.t3,
+            iconColor: AppColors.of(context).t3,
             title: 'Contactless payments',
-            detail: contactlessUnavailableMessage(Theme.of(context).platform),
-            status: 'Pending',
+            detail: contactlessUnavailableMessage(
+              Theme.of(context).platform,
+              reason: unavailableReason,
+            ),
+            status: 'Unavailable',
           ),
         ],
         const SizedBox(height: AppSpacing.xs),
+        WorkloopTextButton(
+          label: 'Email payment request',
+          onPressed: _working ? null : _emailPaymentRequest,
+        ),
         WorkloopTextButton(
           label: _linkCopied ? 'Payment link copied' : 'Copy payment link',
           onPressed: _working ? null : _copyPaymentLink,
@@ -773,9 +1042,9 @@ class _PaymentSummary extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            formatPounds(payment.outstandingAmount),
-            style: const TextStyle(
-              color: AppColors.t1,
+            formatPounds(payment.collectionAmount),
+            style: TextStyle(
+              color: AppColors.of(context).t1,
               fontSize: 28,
               fontWeight: FontWeight.w600,
               letterSpacing: -0.5,
@@ -783,9 +1052,14 @@ class _PaymentSummary extends StatelessWidget {
           ),
           const SizedBox(height: 2),
           Text(
-            'Due from ${payment.clientName ?? 'your client'}',
-            style: const TextStyle(color: AppColors.t3, fontSize: 13),
+            '${payment.depositOutstandingAmount > 0 ? 'Deposit due' : 'Due'} from ${payment.clientName ?? 'your client'}',
+            style: TextStyle(color: AppColors.of(context).t3, fontSize: 13),
           ),
+          if (payment.depositOutstandingAmount > 0)
+            Text(
+              '${formatPounds(payment.outstandingAmount)} remains on the full invoice.',
+              style: TextStyle(color: AppColors.of(context).t3, fontSize: 12),
+            ),
         ],
       ),
     );
@@ -828,8 +1102,8 @@ class _PaymentStatusRow extends StatelessWidget {
               children: [
                 Text(
                   title,
-                  style: const TextStyle(
-                    color: AppColors.t1,
+                  style: TextStyle(
+                    color: AppColors.of(context).t1,
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
                   ),
@@ -837,8 +1111,8 @@ class _PaymentStatusRow extends StatelessWidget {
                 const SizedBox(height: 2),
                 Text(
                   detail,
-                  style: const TextStyle(
-                    color: AppColors.t3,
+                  style: TextStyle(
+                    color: AppColors.of(context).t3,
                     fontSize: 11,
                     height: 1.35,
                   ),
@@ -851,7 +1125,9 @@ class _PaymentStatusRow extends StatelessWidget {
             Text(
               status!,
               style: TextStyle(
-                color: status == 'Ready' ? AppColors.success : AppColors.t3,
+                color: status == 'Ready'
+                    ? AppColors.of(context).success
+                    : AppColors.of(context).t3,
                 fontSize: 11,
                 fontWeight: FontWeight.w600,
               ),
@@ -879,11 +1155,11 @@ class _TestModeNote extends StatelessWidget {
         color: tokens.surfaceSubtle,
         borderRadius: BorderRadius.circular(AppRadius.sm),
       ),
-      child: const Text(
+      child: Text(
         'Test mode — no real money will move.',
         textAlign: TextAlign.center,
         style: TextStyle(
-          color: AppColors.t2,
+          color: AppColors.of(context).t2,
           fontSize: 11,
           fontWeight: FontWeight.w500,
         ),
@@ -902,14 +1178,14 @@ class _ModeLabel extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
       decoration: BoxDecoration(
-        color: AppColors.bgCard,
+        color: AppColors.of(context).bgCard,
         borderRadius: BorderRadius.circular(AppRadius.md),
-        border: Border.all(color: AppColors.border),
+        border: Border.all(color: AppColors.of(context).border),
       ),
       child: Text(
         mode == 'live' ? 'Live' : 'Test mode',
-        style: const TextStyle(
-          color: AppColors.t3,
+        style: TextStyle(
+          color: AppColors.of(context).t3,
           fontSize: 11,
           fontWeight: FontWeight.w600,
         ),

@@ -26,7 +26,7 @@ void main() {
             contactId: 'client-1',
             onOpenClient: () => openCount += 1,
             clients: const AsyncData([]),
-            services: const [],
+            services: const AsyncData([]),
             priceController: priceController,
             serviceTitleController: serviceController,
             onClientChanged: (_) {},

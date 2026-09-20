@@ -9,6 +9,7 @@ import '../../shared/models/slate_models.dart';
 import '../../shared/providers/workspace_provider.dart';
 import '../../shared/repositories/slate_repositories.dart';
 import '../../shared/utils/public_booking_url.dart';
+import '../../shared/utils/working_hours.dart';
 import '../../shared/widgets/slate_ui.dart';
 import '../public_profile/booking_requests_screen.dart';
 import '../public_profile/public_profile_screen.dart';
@@ -61,10 +62,9 @@ class BookingPageScreen extends ConsumerWidget {
         )
         .map(Service.fromMap)
         .toList();
-    final hasHours = workingHours.values.any((value) {
-      if (value is! Map) return false;
-      return Map<String, dynamic>.from(value)['enabled'] == true;
-    });
+    final hasHours = workingHours.values.any(
+      (value) => workingHourBlocks(value).isNotEmpty,
+    );
     final acceptingRequests = profileData?.bookingMode == 'manual';
     final setupComplete =
         handle.isNotEmpty &&
@@ -80,18 +80,19 @@ class BookingPageScreen extends ConsumerWidget {
         : _BookingPageStatus.needsAttention;
 
     return Scaffold(
-      backgroundColor: AppColors.bg,
+      backgroundColor: Colors.transparent,
       body: Stack(
         children: [
           const Positioned.fill(child: WorkloopTexturedBackdrop()),
           SafeArea(
             child: RefreshIndicator(
-              color: AppColors.accentPrimary,
+              color: AppColors.of(context).accentPrimary,
               onRefresh: () => _refresh(ref),
               child: ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
                 padding: const EdgeInsets.fromLTRB(
                   AppSpacing.pageX,
-                  AppSpacing.lg,
+                  AppSpacing.screenTop,
                   AppSpacing.pageX,
                   AppSpacing.xxl,
                 ),
@@ -108,7 +109,7 @@ class BookingPageScreen extends ConsumerWidget {
                       ),
                     ),
                   ),
-                  const SizedBox(height: AppSpacing.xl),
+                  const SizedBox(height: AppSpacing.md),
                   _BookingPageHero(
                     status: status,
                     handle: handle,
@@ -123,6 +124,9 @@ class BookingPageScreen extends ConsumerWidget {
                             profile: profileData!,
                             workingHours: workingHours,
                             services: publicServices,
+                            timezone:
+                                settingsData?['timezone']?.toString() ??
+                                'Europe/London',
                           ),
                     onCopy: handle.isEmpty
                         ? null
@@ -131,7 +135,78 @@ class BookingPageScreen extends ConsumerWidget {
                         ? null
                         : () => _shareLink(context, businessName, handle),
                   ),
-                  const SizedBox(height: AppSpacing.xxl),
+                  const SizedBox(height: AppSpacing.lg),
+                  const WorkloopSectionHeader(label: 'Requests'),
+                  const SizedBox(height: AppSpacing.xs),
+                  requests.when(
+                    loading: () => const SlateLoadingBlock(
+                      height: 76,
+                      radius: AppRadius.lg,
+                    ),
+                    error: (_, _) => WorkloopListRow(
+                      flat: true,
+                      showDivider: false,
+                      onTap: () => ref.invalidate(bookingRequestsProvider),
+                      leading: const _RowIcon(icon: LucideIcons.refreshCw),
+                      title: const Text('Could not load requests'),
+                      subtitle: const Text('Tap to try again'),
+                      trailing: Icon(
+                        LucideIcons.chevronRight,
+                        color: AppColors.of(context).t3,
+                        size: 16,
+                      ),
+                    ),
+                    data: (items) {
+                      final waiting = items
+                          .where(
+                            (item) =>
+                                item.status == 'pending' ||
+                                item.status == 'contacted',
+                          )
+                          .length;
+                      return WorkloopListRow(
+                        flat: true,
+                        showDivider: false,
+                        onTap: () => Navigator.push<void>(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const BookingRequestsScreen(),
+                          ),
+                        ),
+                        leading: const _RowIcon(icon: LucideIcons.inbox),
+                        title: const Text(
+                          'Booking requests',
+                          style: TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                        subtitle: Text(
+                          waiting == 0
+                              ? 'No requests waiting'
+                              : '$waiting ${waiting == 1 ? 'request' : 'requests'} waiting for a response',
+                        ),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (waiting > 0) ...[
+                              Text(
+                                '$waiting',
+                                style: TextStyle(
+                                  color: AppColors.of(context).accentPrimary,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const SizedBox(width: AppSpacing.xs),
+                            ],
+                            Icon(
+                              LucideIcons.chevronRight,
+                              color: AppColors.of(context).t3,
+                              size: 16,
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                  const SizedBox(height: AppSpacing.lg),
                   const WorkloopSectionHeader(label: 'Page readiness'),
                   const SizedBox(height: AppSpacing.xs),
                   _ReadinessRow(
@@ -183,86 +258,6 @@ class BookingPageScreen extends ConsumerWidget {
                       SettingsBusinessSection.publicProfile,
                     ),
                   ),
-                  const SizedBox(height: AppSpacing.xxl),
-                  const WorkloopSectionHeader(label: 'Requests'),
-                  const SizedBox(height: AppSpacing.xs),
-                  requests.when(
-                    loading: () => const SlateLoadingBlock(
-                      height: 76,
-                      radius: AppRadius.lg,
-                    ),
-                    error: (_, _) => WorkloopListRow(
-                      flat: true,
-                      showDivider: false,
-                      onTap: () => ref.invalidate(bookingRequestsProvider),
-                      leading: const _RowIcon(icon: LucideIcons.refreshCw),
-                      title: const Text('Could not load requests'),
-                      subtitle: const Text('Tap to try again'),
-                      trailing: const Icon(
-                        LucideIcons.chevronRight,
-                        color: AppColors.t3,
-                        size: 16,
-                      ),
-                    ),
-                    data: (items) {
-                      final waiting = items
-                          .where(
-                            (item) =>
-                                item.status == 'pending' ||
-                                item.status == 'contacted',
-                          )
-                          .length;
-                      return WorkloopListRow(
-                        flat: true,
-                        showDivider: false,
-                        onTap: () => Navigator.push<void>(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => const BookingRequestsScreen(),
-                          ),
-                        ),
-                        leading: const _RowIcon(icon: LucideIcons.inbox),
-                        title: const Text(
-                          'Booking requests',
-                          style: TextStyle(fontWeight: FontWeight.w600),
-                        ),
-                        subtitle: Text(
-                          waiting == 0
-                              ? 'No requests waiting'
-                              : '$waiting ${waiting == 1 ? 'request' : 'requests'} waiting for a response',
-                        ),
-                        trailing: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            if (waiting > 0) ...[
-                              Text(
-                                '$waiting',
-                                style: const TextStyle(
-                                  color: AppColors.accentPrimary,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                              const SizedBox(width: AppSpacing.xs),
-                            ],
-                            const Icon(
-                              LucideIcons.chevronRight,
-                              color: AppColors.t3,
-                              size: 16,
-                            ),
-                          ],
-                        ),
-                      );
-                    },
-                  ),
-                  const SizedBox(height: AppSpacing.sm),
-                  Text(
-                    'New requests also appear in Today and Notifications, then stay in the request inbox until you respond.',
-                    style: TextStyle(
-                      color: SlateTheme.of(context).textTertiary,
-                      fontSize: 12,
-                      height: 1.4,
-                    ),
-                  ),
                 ],
               ),
             ),
@@ -278,12 +273,17 @@ class BookingPageScreen extends ConsumerWidget {
     ref.invalidate(settingsWorkspaceSettingsProvider);
     ref.invalidate(settingsServicesProvider);
     ref.invalidate(bookingRequestsProvider);
-    await Future.wait([
-      ref.read(workspaceProvider.future),
-      ref.read(settingsBusinessProfileProvider.future),
-      ref.read(settingsWorkspaceSettingsProvider.future),
-      ref.read(settingsServicesProvider.future),
-    ]);
+    try {
+      await Future.wait([
+        ref.read(workspaceProvider.future),
+        ref.read(settingsBusinessProfileProvider.future),
+        ref.read(settingsWorkspaceSettingsProvider.future),
+        ref.read(settingsServicesProvider.future),
+        ref.read(bookingRequestsProvider.future),
+      ]);
+    } catch (_) {
+      // Provider error states remain visible and can be retried.
+    }
   }
 
   Future<void> _openEditor(
@@ -295,6 +295,7 @@ class BookingPageScreen extends ConsumerWidget {
       context,
       MaterialPageRoute(builder: (_) => ProfileEditorScreen(section: section)),
     );
+    if (!context.mounted) return;
     ref.invalidate(workspaceProvider);
     ref.invalidate(settingsBusinessProfileProvider);
     ref.invalidate(settingsWorkspaceSettingsProvider);
@@ -336,6 +337,7 @@ class BookingPageScreen extends ConsumerWidget {
     required BusinessProfile profile,
     required Map<String, dynamic> workingHours,
     required List<Service> services,
+    required String timezone,
   }) {
     return Navigator.push<void>(
       context,
@@ -348,6 +350,7 @@ class BookingPageScreen extends ConsumerWidget {
             industry: industry,
             workingHours: workingHours,
             services: services,
+            timezone: timezone,
           ),
         ),
       ),
@@ -406,17 +409,16 @@ class _BookingPageHero extends StatelessWidget {
     final tokens = SlateTheme.of(context);
     final statusColor = status.color(tokens);
     return WorkloopSurface(
-      elevated: true,
-      radius: AppRadius.xl,
-      padding: const EdgeInsets.all(AppSpacing.lg),
+      radius: AppRadius.lg,
+      padding: const EdgeInsets.all(AppSpacing.md),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
               Container(
-                width: 48,
-                height: 48,
+                width: 40,
+                height: 40,
                 decoration: BoxDecoration(
                   color: tokens.accent.withValues(alpha: 0.12),
                   shape: BoxShape.circle,
@@ -462,8 +464,8 @@ class _BookingPageHero extends StatelessWidget {
                           : publicBookingPageDisplayUrl(handle),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: AppColors.t1,
+                      style: TextStyle(
+                        color: AppColors.of(context).t1,
                         fontSize: 17,
                         fontWeight: FontWeight.w700,
                       ),
@@ -611,9 +613,9 @@ class _ReadinessRow extends StatelessWidget {
       ),
       title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
       subtitle: Text(subtitle, maxLines: 2, overflow: TextOverflow.ellipsis),
-      trailing: const Icon(
+      trailing: Icon(
         LucideIcons.chevronRight,
-        color: AppColors.t3,
+        color: AppColors.of(context).t3,
         size: 16,
       ),
     );
@@ -629,11 +631,11 @@ class _RowIcon extends StatelessWidget {
     return Container(
       width: 40,
       height: 40,
-      decoration: const BoxDecoration(
-        color: AppColors.modBg,
+      decoration: BoxDecoration(
+        color: AppColors.of(context).modBg,
         shape: BoxShape.circle,
       ),
-      child: Icon(icon, color: AppColors.t2, size: 18),
+      child: Icon(icon, color: AppColors.of(context).t2, size: 18),
     );
   }
 }
@@ -647,7 +649,7 @@ class _BookingPageInitialState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.bg,
+      backgroundColor: Colors.transparent,
       body: Stack(
         children: [
           const Positioned.fill(child: WorkloopTexturedBackdrop()),
@@ -656,7 +658,7 @@ class _BookingPageInitialState extends StatelessWidget {
               physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.fromLTRB(
                 AppSpacing.pageX,
-                AppSpacing.lg,
+                AppSpacing.screenTop,
                 AppSpacing.pageX,
                 AppSpacing.xxl,
               ),
@@ -665,7 +667,7 @@ class _BookingPageInitialState extends StatelessWidget {
                   title: 'Booking page',
                   backSemanticLabel: 'Back to Business',
                 ),
-                const SizedBox(height: AppSpacing.xl),
+                const SizedBox(height: AppSpacing.md),
                 if (failed)
                   SlateErrorState(
                     message: 'Could not load your booking page.',
@@ -673,7 +675,7 @@ class _BookingPageInitialState extends StatelessWidget {
                   )
                 else ...[
                   const SlateLoadingBlock(height: 220, radius: AppRadius.xl),
-                  const SizedBox(height: AppSpacing.xl),
+                  const SizedBox(height: AppSpacing.md),
                   const SlateLoadingBlock(height: 260, radius: AppRadius.lg),
                 ],
               ],

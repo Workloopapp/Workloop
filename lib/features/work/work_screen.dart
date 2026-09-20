@@ -18,11 +18,13 @@ import 'work_workspace_switcher.dart';
 class WorkScreen extends ConsumerStatefulWidget {
   final ValueNotifier<WorkWorkspaceSection>? sectionController;
   final WorkWorkspaceSection initialSection;
+  final DateTime? referenceDate;
 
   const WorkScreen({
     super.key,
     this.sectionController,
     this.initialSection = WorkWorkspaceSection.schedule,
+    this.referenceDate,
   });
 
   @override
@@ -67,7 +69,11 @@ class _WorkScreenState extends ConsumerState<WorkScreen> {
       valueListenable: _sectionController,
       builder: (context, section, _) {
         return Scaffold(
-          backgroundColor: tokens.background,
+          // Workloop's shared observer targets the visible section. Flutter's
+          // default handler would scroll every position on the inherited
+          // controller, including the retained hidden Tasks/Notes lists.
+          primary: false,
+          backgroundColor: Colors.transparent,
           body: Stack(
             children: [
               const Positioned.fill(child: WorkloopTexturedBackdrop()),
@@ -86,7 +92,9 @@ class _WorkScreenState extends ConsumerState<WorkScreen> {
                       child: WorkloopPageHeader(
                         title: 'Work',
                         subtitle:
-                            'Plan the day, do the work, keep the context.',
+                            MediaQuery.textScalerOf(context).scale(1) >= 1.4
+                            ? ''
+                            : 'Your schedule, tasks and notes.',
                         color: tokens.accent,
                         trailing: Row(
                           mainAxisSize: MainAxisSize.min,
@@ -112,7 +120,7 @@ class _WorkScreenState extends ConsumerState<WorkScreen> {
                         ),
                       ),
                     ),
-                    const SizedBox(height: AppSpacing.lg),
+                    const SizedBox(height: AppSpacing.sm),
                     Padding(
                       padding: const EdgeInsets.symmetric(
                         horizontal: AppSpacing.pageX,
@@ -122,7 +130,7 @@ class _WorkScreenState extends ConsumerState<WorkScreen> {
                         onChanged: (value) => _sectionController.value = value,
                       ),
                     ),
-                    const SizedBox(height: AppSpacing.lg),
+                    const SizedBox(height: AppSpacing.sm),
                     Expanded(
                       child: IndexedStack(
                         index: section.index,
@@ -139,6 +147,7 @@ class _WorkScreenState extends ConsumerState<WorkScreen> {
                             embedded: true,
                             showBackButton: false,
                             createRequest: _noteCreateRequest,
+                            referenceDate: widget.referenceDate,
                           ),
                         ],
                       ),
@@ -177,6 +186,7 @@ class _WorkScreenState extends ConsumerState<WorkScreen> {
       context,
       MaterialPageRoute(builder: (_) => const BookingRequestsScreen()),
     );
+    if (!mounted) return;
     ref.invalidate(bookingRequestsProvider);
   }
 }

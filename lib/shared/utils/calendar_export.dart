@@ -26,6 +26,11 @@ String _event(Map<String, dynamic> row, String stamp) {
   final end =
       DateTime.tryParse(row['end_time']?.toString() ?? '')?.toUtc() ??
       start.add(const Duration(hours: 1));
+  final cancelled = row['status'] == 'cancelled';
+  final modified = DateTime.tryParse(
+    (row['updated_at'] ?? row['cancelled_at'] ?? row['created_at'] ?? '')
+        .toString(),
+  );
   final title = _clean(row['title']?.toString() ?? 'Workloop appointment');
   final contact = _nestedName(row['contacts']);
   final service = _nestedName(row['services']);
@@ -43,6 +48,10 @@ String _event(Map<String, dynamic> row, String stamp) {
     'BEGIN:VEVENT',
     'UID:$uid',
     'DTSTAMP:$stamp',
+    if (modified != null) 'LAST-MODIFIED:${_icsDate(modified)}',
+    // Preserve the UID so consumers can reconcile later snapshots.
+    'STATUS:${cancelled ? 'CANCELLED' : 'CONFIRMED'}',
+    'TRANSP:${cancelled ? 'TRANSPARENT' : 'OPAQUE'}',
     'DTSTART:${_icsDate(start)}',
     'DTEND:${_icsDate(end)}',
     'SUMMARY:$title',

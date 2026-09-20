@@ -15,7 +15,7 @@ class SupportScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.bg,
+      backgroundColor: Colors.transparent,
       body: Stack(
         children: [
           const Positioned.fill(child: WorkloopTexturedBackdrop()),
@@ -23,7 +23,7 @@ class SupportScreen extends StatelessWidget {
             child: ListView(
               padding: const EdgeInsets.fromLTRB(
                 AppSpacing.pageX,
-                AppSpacing.lg,
+                AppSpacing.screenTop,
                 AppSpacing.pageX,
                 AppSpacing.xxl,
               ),
@@ -32,24 +32,25 @@ class SupportScreen extends StatelessWidget {
                   title: 'Help & support',
                   backSemanticLabel: 'Back to settings',
                 ),
-                const SizedBox(height: AppSpacing.xxl),
+                const SizedBox(height: AppSpacing.md),
                 const WorkloopSectionHeader(label: 'Get help'),
                 const SizedBox(height: AppSpacing.xs),
                 _SupportRow(
                   icon: LucideIcons.mail,
                   title: 'Contact support',
-                  subtitle: 'Open a new email with basic app information.',
+                  subtitle: WorkloopAppInfo.supportEmail,
                   onTap: () => _contactSupport(context),
                 ),
                 _SupportRow(
                   icon: LucideIcons.copy,
-                  title: 'Copy diagnostic information',
-                  subtitle: 'Version and platform only—never client data.',
+                  title: 'Copy app information',
+                  subtitle:
+                      'Share your app version and phone type with support. No client data is included.',
                   onTap: () => _copyDiagnostics(context),
                   showDivider: false,
                 ),
                 const SizedBox(height: AppSpacing.xxl),
-                const WorkloopSectionHeader(label: 'Privacy'),
+                const WorkloopSectionHeader(label: 'About Workloop'),
                 const SizedBox(height: AppSpacing.xs),
                 _SupportRow(
                   icon: LucideIcons.shieldCheck,
@@ -81,11 +82,23 @@ class SupportScreen extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: AppSpacing.xxl),
+                const WorkloopSectionHeader(label: 'Service operator'),
+                const SizedBox(height: AppSpacing.sm),
+                SelectableText(
+                  WorkloopAppInfo.operatorDetails,
+                  key: ValueKey('workloop-operator-details'),
+                  style: TextStyle(
+                    color: AppColors.of(context).t3,
+                    fontSize: 13,
+                    height: 1.55,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.xxl),
                 Center(
                   child: Text(
                     'Workloop ${WorkloopAppInfo.versionLabel}',
                     style: TextStyle(
-                      color: AppColors.t4,
+                      color: AppColors.of(context).t4,
                       fontSize: 12,
                       fontWeight: FontWeight.w500,
                     ),
@@ -109,10 +122,23 @@ class SupportScreen extends StatelessWidget {
         'body': '${_diagnostics()}\n\nPlease describe what happened:\n',
       },
     );
-    if (await launchUrl(uri)) return;
-    await Clipboard.setData(
-      const ClipboardData(text: WorkloopAppInfo.supportEmail),
-    );
+    try {
+      if (await launchUrl(uri)) return;
+    } catch (_) {
+      // A missing mail app can throw instead of returning false.
+    }
+    try {
+      await Clipboard.setData(
+        const ClipboardData(text: WorkloopAppInfo.supportEmail),
+      );
+    } catch (_) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Email support@workloop.uk for help.')),
+        );
+      }
+      return;
+    }
     if (!context.mounted) return;
     ScaffoldMessenger.of(
       context,
@@ -121,11 +147,22 @@ class SupportScreen extends StatelessWidget {
 
   Future<void> _copyDiagnostics(BuildContext context) async {
     SlateHaptics.action();
-    await Clipboard.setData(ClipboardData(text: _diagnostics()));
+    try {
+      await Clipboard.setData(ClipboardData(text: _diagnostics()));
+    } catch (_) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not copy app information. Please try again.'),
+          ),
+        );
+      }
+      return;
+    }
     if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Diagnostic information copied')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('App information copied')));
   }
 
   String _diagnostics() {
@@ -156,10 +193,11 @@ class _SupportRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final tokens = SlateTheme.of(context);
     return WorkloopListRow(
+      flat: true,
       onTap: onTap,
       showDivider: showDivider,
       padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.md,
+        horizontal: 0,
         vertical: AppSpacing.md,
       ),
       leading: Container(

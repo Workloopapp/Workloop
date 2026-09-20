@@ -1,9 +1,58 @@
 part of 'tasks_screen.dart';
 
+class _TaskDetailStatus extends StatelessWidget {
+  final bool loading;
+  final VoidCallback onRetry;
+
+  const _TaskDetailStatus({required this.loading, required this.onRetry});
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    backgroundColor: Colors.transparent,
+    body: Stack(
+      children: [
+        const Positioned.fill(child: WorkloopTexturedBackdrop()),
+        SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.pageX,
+              AppSpacing.screenTop,
+              AppSpacing.pageX,
+              AppSpacing.lg,
+            ),
+            child: Column(
+              children: [
+                const WorkloopRouteHeader(title: 'Task'),
+                Expanded(
+                  child: Center(
+                    child: loading
+                        ? const CircularProgressIndicator()
+                        : SlateErrorState(
+                            message:
+                                'Could not refresh this task. Try again before making changes.',
+                            onRetry: onRetry,
+                          ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
 class _TaskContextPanel extends StatelessWidget {
   final SlateTask task;
+  final VoidCallback? onOpenClient;
+  final VoidCallback? onOpenBooking;
 
-  const _TaskContextPanel({required this.task});
+  const _TaskContextPanel({
+    required this.task,
+    this.onOpenClient,
+    this.onOpenBooking,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -20,8 +69,20 @@ class _TaskContextPanel extends StatelessWidget {
         _TaskContextRow(
           icon: LucideIcons.user,
           label: 'Client',
-          value: task.clientName ?? 'Not linked',
+          value:
+              task.clientName ??
+              (task.contactId == null ? 'Not linked' : 'View client'),
+          onTap: onOpenClient,
         ),
+        if (onOpenBooking != null) ...[
+          const SizedBox(height: 12),
+          _TaskContextRow(
+            icon: LucideIcons.calendar,
+            label: 'Booking',
+            value: 'View linked booking',
+            onTap: onOpenBooking,
+          ),
+        ],
         const SizedBox(height: 12),
         _TaskContextRow(
           icon: LucideIcons.bell,
@@ -45,42 +106,46 @@ class _TaskContextRow extends StatelessWidget {
   final IconData icon;
   final String label;
   final String value;
+  final VoidCallback? onTap;
 
   const _TaskContextRow({
     required this.icon,
     required this.label,
     required this.value,
+    this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Icon(icon, size: 15, color: AppColors.t3),
-        const SizedBox(width: 10),
-        Text(
-          label,
-          style: const TextStyle(
-            fontSize: 12,
-            color: AppColors.t3,
-            fontWeight: FontWeight.w600,
-          ),
+    return WorkloopListRow(
+      flat: true,
+      showDivider: false,
+      padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
+      onTap: onTap,
+      leading: Icon(icon, size: 18, color: AppColors.of(context).t3),
+      title: Text(
+        label,
+        style: TextStyle(
+          fontSize: 12,
+          color: AppColors.of(context).t3,
+          fontWeight: FontWeight.w600,
         ),
-        const Spacer(),
-        Flexible(
-          child: Text(
-            value,
-            textAlign: TextAlign.right,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              fontSize: 13,
-              color: AppColors.t2,
-              fontWeight: FontWeight.w600,
+      ),
+      subtitle: Text(
+        value,
+        style: TextStyle(
+          fontSize: 13,
+          color: AppColors.of(context).t2,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+      trailing: onTap == null
+          ? null
+          : Icon(
+              LucideIcons.chevronRight,
+              size: 18,
+              color: AppColors.of(context).t3,
             ),
-          ),
-        ),
-      ],
     );
   }
 }
@@ -109,14 +174,18 @@ class _TaskChecklistPanel extends StatelessWidget {
       children: [
         Row(
           children: [
-            const Icon(LucideIcons.listChecks, size: 16, color: AppColors.t3),
+            Icon(
+              LucideIcons.listChecks,
+              size: 16,
+              color: AppColors.of(context).t3,
+            ),
             const SizedBox(width: 8),
-            const Expanded(
+            Expanded(
               child: Text(
                 'Checklist',
                 style: TextStyle(
                   fontSize: 14,
-                  color: AppColors.t1,
+                  color: AppColors.of(context).t1,
                   fontWeight: FontWeight.w600,
                 ),
               ),
@@ -134,9 +203,9 @@ class _TaskChecklistPanel extends StatelessWidget {
           ),
           data: (data) {
             if (data.isEmpty) {
-              return const Text(
+              return Text(
                 'Break this task into smaller steps.',
-                style: TextStyle(color: AppColors.t3, fontSize: 13),
+                style: TextStyle(color: AppColors.of(context).t3, fontSize: 13),
               );
             }
             return Column(
@@ -204,19 +273,19 @@ class _ChecklistRow extends StatelessWidget {
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
                         color: item.completed
-                            ? AppColors.success
+                            ? AppColors.of(context).success
                             : Colors.transparent,
                         border: Border.all(
                           color: item.completed
-                              ? AppColors.success
-                              : AppColors.border,
+                              ? AppColors.of(context).success
+                              : AppColors.of(context).border,
                           width: 2,
                         ),
                       ),
                       child: item.completed
-                          ? const Icon(
+                          ? Icon(
                               Icons.check_rounded,
-                              color: AppColors.bg,
+                              color: AppColors.of(context).bg,
                               size: 13,
                             )
                           : null,
@@ -241,7 +310,9 @@ class _ChecklistRow extends StatelessWidget {
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                      color: item.completed ? AppColors.t3 : AppColors.t1,
+                      color: item.completed
+                          ? AppColors.of(context).t3
+                          : AppColors.of(context).t1,
                       fontSize: 13,
                       fontWeight: FontWeight.w600,
                       decoration: item.completed

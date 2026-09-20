@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../shared/providers/onboarding_provider.dart';
+import '../../../shared/utils/duration_format.dart';
 import '../../../shared/widgets/slate_ui.dart';
+import '../../../shared/widgets/workloop_form_field.dart';
 
 class ObFirstBooking extends ConsumerStatefulWidget {
   final VoidCallback onNext;
@@ -26,7 +28,14 @@ class _ObFirstBookingState extends ConsumerState<ObFirstBooking> {
     final booking = ref.read(onboardingProvider).firstBooking;
     if (booking == null) return;
     _clientNameController.text = booking['clientName'] as String? ?? '';
-    _selectedService = booking['serviceName'] as String?;
+    final savedService = booking['serviceName'] as String?;
+    _selectedService =
+        ref
+            .read(onboardingProvider)
+            .services
+            .any((service) => service['name'] == savedService)
+        ? savedService
+        : null;
     _selectedDate =
         DateTime.tryParse(booking['date'] as String? ?? '') ?? DateTime.now();
     _selectedHour = (booking['hour'] as num?)?.toInt() ?? 9;
@@ -43,6 +52,7 @@ class _ObFirstBookingState extends ConsumerState<ObFirstBooking> {
       _clientNameController.text.trim().isNotEmpty && _selectedService != null;
 
   void _saveAndContinue() {
+    if (!_canContinue) return;
     ref.read(onboardingProvider.notifier).setFirstBooking({
       'clientName': _clientNameController.text.trim(),
       'serviceName': _selectedService,
@@ -54,10 +64,11 @@ class _ObFirstBookingState extends ConsumerState<ObFirstBooking> {
   }
 
   Future<void> _pickDate() async {
+    final today = DateUtils.dateOnly(DateTime.now());
     final picked = await showWorkloopDatePicker(
       context: context,
-      initialDate: _selectedDate,
-      firstDate: DateTime.now(),
+      initialDate: _selectedDate.isBefore(today) ? today : _selectedDate,
+      firstDate: today,
       lastDate: DateTime.now().add(const Duration(days: 365)),
       title: 'Choose booking date',
     );
@@ -95,7 +106,8 @@ class _ObFirstBookingState extends ConsumerState<ObFirstBooking> {
     ];
     final isToday =
         _selectedDate.day == DateTime.now().day &&
-        _selectedDate.month == DateTime.now().month;
+        _selectedDate.month == DateTime.now().month &&
+        _selectedDate.year == DateTime.now().year;
     if (isToday) return 'Today';
     return '${days[_selectedDate.weekday - 1]} ${_selectedDate.day} ${months[_selectedDate.month - 1]}';
   }
@@ -118,7 +130,7 @@ class _ObFirstBookingState extends ConsumerState<ObFirstBooking> {
             style: TextStyle(
               fontSize: 28,
               fontWeight: FontWeight.w600,
-              color: AppColors.t1,
+              color: AppColors.of(context).t1,
               letterSpacing: 0,
               height: 1.1,
             ),
@@ -126,7 +138,18 @@ class _ObFirstBookingState extends ConsumerState<ObFirstBooking> {
           const SizedBox(height: 8),
           Text(
             'Add your first booking to get started.',
-            style: TextStyle(fontSize: 15, color: AppColors.t3),
+            style: TextStyle(fontSize: 15, color: AppColors.of(context).t3),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            services.isEmpty
+                ? 'You can skip this step. Add a service in Business when you are ready to book real work.'
+                : 'This step is optional. To add a booking, enter the required details and check the date and time. Nothing is added until you finish setup.',
+            style: TextStyle(
+              fontSize: 13,
+              color: AppColors.of(context).t3,
+              height: 1.4,
+            ),
           ),
           const SizedBox(height: 32),
 
@@ -136,23 +159,26 @@ class _ObFirstBookingState extends ConsumerState<ObFirstBooking> {
           TextField(
             controller: _clientNameController,
             onChanged: (_) => setState(() {}),
-            style: TextStyle(color: AppColors.t1, fontSize: 15),
+            style: TextStyle(color: AppColors.of(context).t1, fontSize: 15),
             decoration: InputDecoration(
               hintText: 'e.g. Sarah Johnson',
-              hintStyle: TextStyle(color: AppColors.t3),
+              hintStyle: TextStyle(color: AppColors.of(context).t3),
               filled: true,
-              fillColor: AppColors.bgCard,
+              fillColor: AppColors.of(context).bgCard,
               border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(14),
-                borderSide: BorderSide(color: AppColors.border),
+                borderRadius: BorderRadius.circular(AppRadius.md),
+                borderSide: BorderSide(color: AppColors.of(context).border),
               ),
               enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(14),
-                borderSide: BorderSide(color: AppColors.border),
+                borderRadius: BorderRadius.circular(AppRadius.md),
+                borderSide: BorderSide(color: AppColors.of(context).border),
               ),
               focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(14),
-                borderSide: BorderSide(color: AppColors.green, width: 1.5),
+                borderRadius: BorderRadius.circular(AppRadius.md),
+                borderSide: BorderSide(
+                  color: AppColors.of(context).green,
+                  width: 1.5,
+                ),
               ),
               contentPadding: const EdgeInsets.symmetric(
                 horizontal: 18,
@@ -175,9 +201,11 @@ class _ObFirstBookingState extends ConsumerState<ObFirstBooking> {
                   (service) => WorkloopPickerOption(
                     value: service['name'] as String,
                     label: service['name'] as String,
-                    subtitle: service['duration_mins'] == null
+                    subtitle: service['duration'] == null
                         ? null
-                        : '${service['duration_mins']} min',
+                        : formatFriendlyDuration(
+                            (service['duration'] as num).toInt(),
+                          ),
                   ),
                 )
                 .toList(),
@@ -192,7 +220,7 @@ class _ObFirstBookingState extends ConsumerState<ObFirstBooking> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _label('Date'),
+                    _label('Date', isRequired: null),
                     const SizedBox(height: 8),
                     Semantics(
                       button: true,
@@ -208,9 +236,11 @@ class _ObFirstBookingState extends ConsumerState<ObFirstBooking> {
                             alignment: Alignment.centerLeft,
                             padding: const EdgeInsets.symmetric(horizontal: 18),
                             decoration: BoxDecoration(
-                              color: AppColors.bgCard,
-                              borderRadius: BorderRadius.circular(14),
-                              border: Border.all(color: AppColors.border),
+                              color: AppColors.of(context).bgCard,
+                              borderRadius: BorderRadius.circular(AppRadius.md),
+                              border: Border.all(
+                                color: AppColors.of(context).border,
+                              ),
                             ),
                             child: Text(
                               _formattedDate,
@@ -219,7 +249,7 @@ class _ObFirstBookingState extends ConsumerState<ObFirstBooking> {
                               style: TextStyle(
                                 fontSize: 15,
                                 fontWeight: FontWeight.w500,
-                                color: AppColors.t1,
+                                color: AppColors.of(context).t1,
                               ),
                             ),
                           ),
@@ -234,7 +264,7 @@ class _ObFirstBookingState extends ConsumerState<ObFirstBooking> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _label('Time'),
+                    _label('Time', isRequired: null),
                     const SizedBox(height: 8),
                     Semantics(
                       button: true,
@@ -250,9 +280,11 @@ class _ObFirstBookingState extends ConsumerState<ObFirstBooking> {
                             alignment: Alignment.centerLeft,
                             padding: const EdgeInsets.symmetric(horizontal: 18),
                             decoration: BoxDecoration(
-                              color: AppColors.bgCard,
-                              borderRadius: BorderRadius.circular(14),
-                              border: Border.all(color: AppColors.border),
+                              color: AppColors.of(context).bgCard,
+                              borderRadius: BorderRadius.circular(AppRadius.md),
+                              border: Border.all(
+                                color: AppColors.of(context).border,
+                              ),
                             ),
                             child: Text(
                               _formattedTime,
@@ -261,7 +293,7 @@ class _ObFirstBookingState extends ConsumerState<ObFirstBooking> {
                               style: TextStyle(
                                 fontSize: 15,
                                 fontWeight: FontWeight.w500,
-                                color: AppColors.t1,
+                                color: AppColors.of(context).t1,
                               ),
                             ),
                           ),
@@ -290,7 +322,10 @@ class _ObFirstBookingState extends ConsumerState<ObFirstBooking> {
           Center(
             child: WorkloopTextButton(
               label: 'Skip — I’ll do this later',
-              onPressed: widget.onNext,
+              onPressed: () {
+                ref.read(onboardingProvider.notifier).clearFirstBooking();
+                widget.onNext();
+              },
             ),
           ),
           const SizedBox(height: 32),
@@ -299,13 +334,14 @@ class _ObFirstBookingState extends ConsumerState<ObFirstBooking> {
     );
   }
 
-  Widget _label(String text) {
-    return Text(
+  Widget _label(String text, {bool? isRequired = true}) {
+    return WorkloopFieldLabel(
       text,
+      isRequired: isRequired,
       style: TextStyle(
         fontSize: 13,
         fontWeight: FontWeight.w500,
-        color: AppColors.t2,
+        color: AppColors.of(context).t2,
         letterSpacing: 0,
       ),
     );

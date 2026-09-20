@@ -57,10 +57,8 @@ void main() {
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
-      addTearDown(() => WorkloopLegacyPalette.sync(Brightness.dark));
 
       for (final theme in appearances) {
-        WorkloopLegacyPalette.sync(theme.brightness);
         for (final surface in surfaces) {
           await tester.pumpWidget(
             ProviderScope(

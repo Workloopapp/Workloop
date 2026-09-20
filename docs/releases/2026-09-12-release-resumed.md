@@ -1,0 +1,80 @@
+# Release preparation resumed — 12 September 2026
+
+The owner resumed public-release work after approving the one-month Apple free trial and monthly subscription. The earlier release pause is historical. Public submission and billing activation have not yet occurred.
+
+## Completed in this follow-up
+
+- The owner accepted the Paid Apps Agreement. Live Apple status became **Pending User Info**, with a bank account and U.S. Tax Questionnaire still required. The owner is resolving a mismatch between Revolut's local and international banking details directly; no bank details were changed or submitted by the assistant, and none are recorded here.
+- Added and deployed a finite, private permission for dedicated Sandbox review/test accounts. A permitted account still needs its own verified Apple transaction; permission alone does not unlock the app. Production entitlement takes precedence. The deployed migration is **20260912155445**; exact SQL, ACL and constraint readback passed. All 17 existing lifetime accounts and all global rollout flags remain unchanged. No tester permission was granted. See the [deployment receipt](2026-09-12-scoped-sandbox-review-access.md).
+- Flutter consumes the additional server metadata and labels an actual verified Sandbox period as a test subscription. Normal checkout keeps its real pricing/renewal disclosure, even for a permitted test account. No client entitlement bypass or native bridge was added. Changed files are `subscription_access.dart`, `subscription_plan_widgets.dart`, their focused Sandbox tests, and a service test whose arbitrary event-loop wait was replaced with a bounded wait for observable completion.
+- Completed and saved all 20 selected App Privacy categories in App Store Connect. Readback shows no remaining **Set Up** items and an enabled **Publish** button. The declaration remains an unpublished draft. Purposes, linkage and no-tracking answers follow the source/SDK worksheet in `build/appstore-resumed-20260912/metadata-draft.md`, including app-account optional email, address queries processed by Google, and Crashlytics/Firebase manifests.
+- Prepared current monthly-trial description, promotional copy and private reviewer-note drafts in the same ignored artifact. They have not been entered as final listing copy or submitted, and the reviewer-access paragraph still requires verified account/device instructions.
+
+## Verification
+
+After sourcing `scripts/dev_env.sh`, analysis passed with no issues and the entire Flutter suite passed **1,427 tests, one existing skip**. The signed iOS profile build passed at **80.6 MB** with `--dart-define-from-file=.env --dart-define=WORKLOOP_SUBSCRIPTIONS_ENABLED=true`, explicitly enabling the subscription journey for the next device check. It remains local version **1.0.0 (19)**, not a new store upload. Existing plugin Swift Package Manager warnings remain nonfatal.
+
+The scoped Sandbox backend passed **197 SQL assertions** and **55 Deno regression tests**, plus independent policy review. The focused client batch passed **72 tests**. `git diff --check` passed. Evidence is in `build/appstore-resumed-20260912/` and the backend receipt's evidence directory.
+
+## Remaining release work
+
+1. Finish the owner's Apple banking/tax setup and check any market-specific compliance requirements. Do not infer successful payout setup from agreement acceptance alone.
+2. Inspect the existing dedicated reviewer account whose credentials were retained in App Store Connect and the owner's Keychain, as documented in `docs/StoreSubmission.md`. Reuse only if its account/data and entitlement state are compatible; do not remove real beta/lifetime access. A fresh confirmed account automatically queues a welcome email, so do not claim it is a zero-email action or fake a sent outbox row to suppress it.
+3. Grant finite test permission only to a verified dedicated synthetic account, then verify the real-device purchase, cancellation, restore, expiry/refund and reviewer login on a compatible build. A real signed Apple lifecycle and controlled reminder delivery remain unproved.
+4. Prepare a newly numbered immutable distribution candidate, upload and verify processing. Uploaded build 20 predates the subscription implementation. The new local profile build is not TestFlight or public distribution evidence.
+5. Complete age rating/content-rights and other remaining store metadata, verify there are no external promotional purchase flows that require unsupported account association, publish the checked privacy declaration and matching website copy, and submit the tested candidate and subscription together.
+6. Activate customer billing/reminders only after their corresponding checks pass and coordinate the beta/enforcement flags with the approved public rollout.
+
+Suggested commit: `feat: add scoped Apple Sandbox review access and test subscription status`
+
+## Revolut bank-entry validation attempt — unresolved
+
+The owner supplied Revolut Business support's written confirmation that the GBP local routing and separate international IBAN belong to the same beneficiary. No account identifiers are recorded here. This confirmed that the previously observed structural mismatch did not, by itself, mean the owner had copied the wrong account details.
+
+With **GBP** selected and the **IBAN left blank**, the assistant clicked **Next** and initially observed a **Certification** page. The assistant did not check its agreement box or click **Add**. Calling that a successful workaround was premature: the subsequent live bank form and the owner's screenshot explicitly showed **This field is required** beneath IBAN and a disabled **Next** button. No successful bank-account addition is established. The previous instruction to complete certification was withdrawn, and the bank-confirmed IBAN was restored to the unsaved form.
+
+Local-only entry is not a verified solution. No official Apple or Revolut workaround for this particular mismatch was found. Apple's finance support route is `https://developer.apple.com/contact/finance/`. A support case was drafted there with masked account identifiers; it was not submitted. The form's reply-email input was verified to be blank and read-only, so submission is not ready. The case is also saved under `build/appstore-resumed-20260912/apple-bank-support-draft.md`. No bank values should be fabricated or changed to pass validation. Apple's bank-reference documentation confirms that a bank-account holder's name may differ from the legal entity on the developer agreement; that name difference alone is not the reported validation fault.
+
+## Owner support submission and release-security audit
+
+The owner subsequently confirmed **“ive sent it”** for the Apple Finance support request. The support tab now also displays **“Thanks for contacting us”** and says Apple will review the message. Submission is confirmed; a support reply or banking resolution has not been verified. A fresh read-only Apple check still shows Paid Apps **Pending User Info** and the U.S. Tax Questionnaire **Missing Tax Info**.
+
+The owner then asked whether the app, keys, backend and Apple requirements were ready for public use. The resulting audit changes the release assessment: **do not release publicly until the security and deletion findings are resolved and verified**.
+
+- A live workspace-membership INSERT policy allows an authenticated user to claim a workspace with no members when they know its UUID. Its helper verifies absence of members, not the caller's ownership. Eight memberless workspaces contain stored records. This is a conditional authorization defect; no exploit was performed and no breach is established. Existing public-profile and booking endpoints reject memberless workspaces, but that does not close the direct membership policy gap.
+- In-app account deletion currently requires a workspace, so a new account stopped at the pre-workspace subscription screen cannot delete through that path. Sign in with Apple token revocation was also not found in the inspected deletion implementation. Both need correction or demonstrated compliant behavior before submission.
+- The credential scan found no privileged server-key signatures across 1,047 source/config files, 2,804 reachable Git text blobs over 152 commits, and the two inspected signed app bundles. Public Supabase/Firebase client keys are expected. Google Cloud readback showed API scopes configured, but iOS and Android Firebase keys have no application restriction; session persistence also uses UserDefaults rather than Keychain. These are separate hardening findings, not proof of an exposed server secret.
+- Apple now confirms build 20 upload **Complete**, but that build predates the new subscription implementation. Public version 1.0 still has no selected build/reviewer details. Primary category, age ratings, content rights, download price and market availability remain unset. App Privacy is an unpublished draft. Subscription review material and matching public terms/listing copy remain unfinished.
+- Existing local analysis, 1,427 passing Flutter tests with one skip, signed profile compilation and backend tests remain valid evidence of those checks; they did not detect the above cross-flow/policy gaps and do not prove real Apple billing or public readiness. No source fix, backend mutation, secret rotation, new build, live purchase or public submission occurred during the audit.
+
+Detailed, redacted audit artifacts are under `build/appstore-resumed-20260912/`: `release-security-audit.md`, `backend-security-audit.md`, `client-key-audit.md`, `apple-criteria-audit.md` and `apple-provider-audit.md`.
+
+## Security remediation and store configuration — continued 12 September
+
+- Applied `20260912191519_restrict_workspace_bootstrap_to_onboarding`: live readback shows direct workspace/membership INSERT revoked, old bootstrap policy removed, private helper inaccessible to clients. Existing eight memberless workspaces remain unchanged. Focused isolated SQL checks: 16/16.
+- Existing Apple Sign in key is configured as four server-only Edge secrets. Secret metadata SHA256 readback matches the local approved configuration; no private key added to client source or artifacts. Actual native revocation still needs device/provider evidence.
+- Website version42 published from isolated source commit `1e8dd99d28346831335793c56413ed044758dc51`. Build completed and 44 tests passed. Public workloop.uk pricing, terms and privacy returned HTTP200 via curl with expected updated copy. Native urllib request returned403; curl verification succeeded.
+- App Store Connect saved Business category, subtitle Clients, bookings & money, correct third-party content-rights declaration, user-generated-content Yes, adult age override18+, free app pricing with GBP base, UK-only availability, Mac and Vision Pro availability off. No app submitted or released.
+- Google iOS Firebase key now restricts applications to `com.ismaeel.workloop`;25 existing API restrictions preserved. Fresh Firebase Installations registration using actual native header succeeded, temporary installation deleted (HTTP200), deliberately wrong bundle deniedHTTP403. Saved settings readback confirms correct bundle. This is API compatibility evidence, not a physical push/Crashlytics delivery test. Android requires Play signing certificate before restricting its shared key.
+- Full Flutter analysis passed. Full tests are in progress; initial run exposed two expected integration mismatches (legal wording parity and obsolete public-owner contract assertion), being corrected before final validation.
+
+- Android Firebase application restrictions now include `com.ismaeel.workloop` and five verified certificate SHA1 values: Play legacy/classical `61:FC:BB:C2:5A:12:77:D8:E1:9B:F8:6E:83:57:EF:B9:C7:B9:79:1A`, Play hybrid classical `01:39:79:CE:01:44:01:AB:D5:A9:13:F1:E5:29:07:95:BA:68:ED:F0`, Play hybrid PQC `2B:30:7A:6C:DA:0A:2D:0A:9C:A8:77:EB:B8:8E:E4:98:5B:46:BC:73`, local upload `8E:4B:23:E9:76:E8:37:AA:56:55:24:15:F1:37:3D:43:3B:A3:E1:B6`, local debug `81:A4:21:59:A3:56:7D:23:48:AB:E2:04:70:A2:71:D6:27:DF:02:2F`. Play public certificates downloaded through Console and validated using OpenSSL; previous certificate matched legacy entry. FIS registration succeeded for all five and test installations were deleted; all-zero certificate rejected403. No Play signing key or app release was changed.
+- Required `flutter build ios --profile --dart-define-from-file=.env` passed. Effective signed profile entitlements include correct application/team, Apple sign-in, development APNs and Keychain access declaration; profile remains a development artifact, not App Store distribution.
+- Second backend migration deployed as `20260912193144`; five functions deployed with preserved JWT settings. An initial provider deploy rejected its inherited stale absolute import-map path before activation; explicitly supplied local import maps resolved it. Post-migration readback retained33 sessions and8 memberless workspaces, with deletion RPC restricted to service role.
+
+## Build21 verification and requested phone/upload retry
+
+- Final analysis passed and full suite passed **1,465 tests with one existing skip**. First two runs found legal/contract mismatches and a timing-only purchase-test wait; those were fixed while preserving safety assertions. `git diff --check` is clean.
+- Independent candidate21 has1,261 source inputs and clean local commit `25507dab38c7d461b1041f27bb8ffde8ebaf0fb2`. Runtime app/Apple/backend sources match the dirty root except the deliberate version fallback bump; root changes were preserved. Both hosted migration filenames and harness references are included.
+- Signed App Store export passed provenance/version and strict deep code-sign checks. Prepared IPA SHA256 `71462ba3c11802d664f56101947a0b782f92dc6700bff19a5067534d0ee4d23c`,37,819,348bytes. Exported IPA has production APNs, get-task-allow=false, expected team/bundle and Keychain declaration. The development-signed archive is re-signed during export; only the exported IPA is App Store distribution evidence.
+- Updated secret-safe scan found no privileged credential signature in current source/history or either196-file build21 bundle. Pattern scanning does not establish absence of every possible secret or vulnerability.
+- Phone installation succeeded; live device readback confirms Workloop1.0.0 build21 on the paired iPhone15ProMax. This is the profile build with subscriptions explicitly enabled. The App Store export has separate release configuration/signing. Initial launch was denied because the phone was locked; owner asked to unlock.
+- Xcode upload of a new export from the same immutable build21 archive started. Prepared IPA hash identifies the local export, not Xcode's separately signed upload package. Apple processing is still to be recorded.
+
+### Apple upload accepted
+
+At20:43:28BST, Xcode reported Upload succeeded and EXPORT SUCCEEDED for the fresh export of build21. Live App Store Connect shows Version1.0.0, Build21, Processing, created12September2026 at8:43PM. No public App Review submission or release occurred. Existing vendor StripeTerminal dSYM warning remains nonfatal; it affects symbolication for that framework, not successful upload.
+
+The installed phone version was independently read back as1.0.0(21). Launch retries were denied by iOS because the phone was locked, not because an app crash was observed. Owner was asked to unlock; native Keychain migration/restart and real Apple purchase/restore/revocation remain unverified. App Store processing completion and external tester assignment remain separate from upload acceptance.
+
+Public-release gates still include bank/tax completion, final privacy publication declaration, actual review/Sandbox lifecycle and a decision/implementation for reporting and moderation on public business pages. Prepared decision note: `build/appstore-resumed-20260912/public-page-moderation-decision.md`. Sales/enforcement/reminder flags remain off until verified; existing lifetime accounts remain intact.

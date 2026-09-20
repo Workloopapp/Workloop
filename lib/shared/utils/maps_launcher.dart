@@ -46,20 +46,19 @@ Future<MapLaunchChoice?> showMapLaunchSheet(
   String address,
 ) {
   var remember = false;
-  return showModalBottomSheet<MapLaunchChoice>(
+  return showWorkloopBottomSheet<MapLaunchChoice>(
     context: context,
-    backgroundColor: Colors.transparent,
-    barrierColor: Colors.black.withValues(alpha: 0.32),
     builder: (sheetContext) => StatefulBuilder(
       builder: (context, setModalState) => SlateSheetFrame(
+        scrollable: true,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
+            Text(
               'Open directions',
               style: TextStyle(
-                color: AppColors.t1,
+                color: AppColors.of(context).t1,
                 fontSize: 18,
                 fontWeight: FontWeight.w600,
               ),
@@ -69,8 +68,8 @@ Future<MapLaunchChoice?> showMapLaunchSheet(
               address,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: AppColors.t3,
+              style: TextStyle(
+                color: AppColors.of(context).t3,
                 fontSize: 12,
                 height: 1.35,
               ),
@@ -87,7 +86,7 @@ Future<MapLaunchChoice?> showMapLaunchSheet(
                 ),
               ),
             ),
-            const Divider(height: 1, color: AppColors.border),
+            Divider(height: 1, color: AppColors.of(context).border),
             _MapOptionRow(
               icon: LucideIcons.navigation,
               label: 'Google Maps',
@@ -109,14 +108,16 @@ Future<MapLaunchChoice?> showMapLaunchSheet(
                   children: [
                     Icon(
                       remember ? LucideIcons.checkCircle2 : LucideIcons.circle,
-                      color: remember ? AppColors.accentPrimary : AppColors.t3,
+                      color: remember
+                          ? AppColors.of(context).accentPrimary
+                          : AppColors.of(context).t3,
                       size: 18,
                     ),
                     const SizedBox(width: AppSpacing.sm),
-                    const Text(
+                    Text(
                       'Use my choice as the default',
                       style: TextStyle(
-                        color: AppColors.t2,
+                        color: AppColors.of(context).t2,
                         fontSize: 13,
                         fontWeight: FontWeight.w500,
                       ),
@@ -136,44 +137,49 @@ Future<MapsAppPreference?> showMapsPreferenceSheet(
   BuildContext context, {
   required MapsAppPreference selected,
 }) {
-  return showModalBottomSheet<MapsAppPreference>(
+  return showWorkloopBottomSheet<MapsAppPreference>(
     context: context,
-    backgroundColor: Colors.transparent,
-    barrierColor: Colors.black.withValues(alpha: 0.32),
+    isScrollControlled: true,
     builder: (sheetContext) => SlateSheetFrame(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Default maps app',
-            style: TextStyle(
-              color: AppColors.t1,
-              fontSize: 18,
-              fontWeight: FontWeight.w600,
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Default maps app',
+              style: TextStyle(
+                color: AppColors.of(sheetContext).t1,
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+              ),
             ),
-          ),
-          const SizedBox(height: AppSpacing.xs),
-          const Text(
-            'Used when opening directions from a saved address.',
-            style: TextStyle(color: AppColors.t3, fontSize: 12),
-          ),
-          const SizedBox(height: AppSpacing.lg),
-          for (final preference in MapsAppPreference.values) ...[
-            _MapOptionRow(
-              icon: switch (preference) {
-                MapsAppPreference.askEveryTime => LucideIcons.mousePointerClick,
-                MapsAppPreference.appleMaps => LucideIcons.map,
-                MapsAppPreference.googleMaps => LucideIcons.navigation,
-              },
-              label: preference.label,
-              selected: preference == selected,
-              onTap: () => Navigator.pop(sheetContext, preference),
+            const SizedBox(height: AppSpacing.xs),
+            Text(
+              'Used when opening directions from a saved address.',
+              style: TextStyle(
+                color: AppColors.of(sheetContext).t3,
+                fontSize: 12,
+              ),
             ),
-            if (preference != MapsAppPreference.values.last)
-              const Divider(height: 1, color: AppColors.border),
+            const SizedBox(height: AppSpacing.lg),
+            for (final preference in MapsAppPreference.values) ...[
+              _MapOptionRow(
+                icon: switch (preference) {
+                  MapsAppPreference.askEveryTime =>
+                    LucideIcons.mousePointerClick,
+                  MapsAppPreference.appleMaps => LucideIcons.map,
+                  MapsAppPreference.googleMaps => LucideIcons.navigation,
+                },
+                label: preference.label,
+                selected: preference == selected,
+                onTap: () => Navigator.pop(sheetContext, preference),
+              ),
+              if (preference != MapsAppPreference.values.last)
+                Divider(height: 1, color: AppColors.of(sheetContext).border),
+            ],
           ],
-        ],
+        ),
       ),
     ),
   );
@@ -205,33 +211,33 @@ class _MapOptionRow extends StatelessWidget {
               width: 38,
               height: 38,
               decoration: BoxDecoration(
-                color: AppColors.bgInteract,
+                color: AppColors.of(context).bgInteract,
                 borderRadius: BorderRadius.circular(AppRadius.md),
               ),
               alignment: Alignment.center,
-              child: Icon(icon, color: AppColors.t2, size: 18),
+              child: Icon(icon, color: AppColors.of(context).t2, size: 18),
             ),
             const SizedBox(width: AppSpacing.sm),
             Expanded(
               child: Text(
                 label,
-                style: const TextStyle(
-                  color: AppColors.t1,
+                style: TextStyle(
+                  color: AppColors.of(context).t1,
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
                 ),
               ),
             ),
             if (selected)
-              const Icon(
+              Icon(
                 LucideIcons.check,
-                color: AppColors.accentPrimary,
+                color: AppColors.of(context).accentPrimary,
                 size: 18,
               )
             else
-              const Icon(
+              Icon(
                 LucideIcons.chevronRight,
-                color: AppColors.t3,
+                color: AppColors.of(context).t3,
                 size: 16,
               ),
           ],

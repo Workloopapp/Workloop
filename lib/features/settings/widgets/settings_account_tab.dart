@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:file_picker/file_picker.dart';
@@ -8,13 +9,17 @@ import 'package:go_router/go_router.dart';
 import 'package:lucide_flutter/lucide_flutter.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../auth/auth_validation.dart';
+import '../../../shared/providers/onboarding_provider.dart';
 import '../../../shared/providers/workspace_provider.dart';
 import '../../../shared/repositories/slate_repositories.dart';
 import '../../../shared/widgets/slate_ui.dart';
-import 'settings_helpers.dart';
+import '../../../shared/widgets/workloop_form_field.dart';
+import 'settings_helpers.dart' show saveBtn;
 
 class SettingsAccountTab extends ConsumerStatefulWidget {
-  const SettingsAccountTab({super.key});
+  const SettingsAccountTab({super.key, this.showDataOnly = false});
+
+  final bool showDataOnly;
 
   @override
   ConsumerState<SettingsAccountTab> createState() => _SettingsAccountTabState();
@@ -24,6 +29,64 @@ class _SettingsAccountTabState extends ConsumerState<SettingsAccountTab> {
   bool _changingPassword = false;
   bool _savingPassword = false;
   bool _exporting = false;
+  bool _sheetOpen = false;
+  String? _passwordError;
+  late final String? _accountId;
+  StreamSubscription<Object?>? _authSubscription;
+  ModalRoute<dynamic>? _sheetRoute;
+
+  @override
+  void initState() {
+    super.initState();
+    final auth = ref.read(authRepositoryProvider);
+    _accountId = auth.currentUserId;
+    _authSubscription = auth.authChanges.listen((_) {
+      if (!mounted || _isCurrentAccount) return;
+      // A sheet is a separate route. Remove only the one this screen owns,
+      // rather than leaving the old owner's personal details above a new login.
+      final route = _sheetRoute;
+      if (route?.isActive == true) route!.navigator?.removeRoute(route);
+      _clearPasswords();
+      setState(() {});
+    });
+  }
+
+  bool get _isCurrentAccount =>
+      mounted &&
+      _accountId != null &&
+      ref.read(authRepositoryProvider).currentUserId == _accountId;
+
+  bool get _isCurrentPage =>
+      _isCurrentAccount && ModalRoute.of(context)?.isCurrent != false;
+
+  void _clearPasswords() {
+    _newPasswordCtrl.clear();
+    _confirmPasswordCtrl.clear();
+    _reauthCodeCtrl.clear();
+  }
+
+  Future<void> _showAccountSheet(WidgetBuilder builder) async {
+    if (!_isCurrentPage || _sheetOpen || _savingPassword || _exporting) return;
+    _sheetOpen = true;
+    try {
+      await showWorkloopBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        isDismissible: false,
+        enableDrag: false,
+        builder: (ctx) {
+          _sheetRoute = ModalRoute.of(ctx);
+          return builder(ctx);
+        },
+      );
+    } finally {
+      _sheetOpen = false;
+      _sheetRoute = null;
+    }
+  }
+
+  bool _sheetIsCurrent(BuildContext ctx) =>
+      _isCurrentAccount && ctx.mounted && ModalRoute.of(ctx)?.isCurrent == true;
   final _newPasswordCtrl = TextEditingController();
   final _confirmPasswordCtrl = TextEditingController();
   final _reauthCodeCtrl = TextEditingController();
@@ -34,6 +97,7 @@ class _SettingsAccountTabState extends ConsumerState<SettingsAccountTab> {
 
   @override
   void dispose() {
+    _authSubscription?.cancel();
     _newPasswordCtrl.dispose();
     _confirmPasswordCtrl.dispose();
     _reauthCodeCtrl.dispose();
@@ -43,7 +107,10 @@ class _SettingsAccountTabState extends ConsumerState<SettingsAccountTab> {
   }
 
   void _snack(String msg, Color color) {
-    ScaffoldMessenger.of(context).showSnackBar(
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.clearSnackBars();
+    messenger.removeCurrentSnackBar();
+    messenger.showSnackBar(
       SnackBar(
         content: Text(msg),
         backgroundColor: color,
@@ -54,208 +121,211 @@ class _SettingsAccountTabState extends ConsumerState<SettingsAccountTab> {
   }
 
   Future<void> _changePassword() async {
-    final newPass = _newPasswordCtrl.text;
-    final confirm = _confirmPasswordCtrl.text;
-    if (newPass.isEmpty) return;
-    final reauthCode = _reauthCodeCtrl.text.trim();
-    if (!RegExp(r'^\d{6}$').hasMatch(reauthCode)) {
-      _snack(
-        'Enter the 6-digit security code from your email.',
-        AppColors.error,
-      );
+    if (_savingPassword || !_isCurrentPage) return;
+    final password = _newPasswordCtrl.text;
+    final code = _reauthCodeCtrl.text.trim();
+    final error = !RegExp(r'^\d{6}$').hasMatch(code)
+        ? 'Enter the 6-digit security code from your email.'
+        : validateNewPasswordPair(password, _confirmPasswordCtrl.text);
+    if (error != null) {
+      setState(() => _passwordError = error);
       return;
     }
-    final validationError = validateNewPasswordPair(newPass, confirm);
-    if (validationError != null) {
-      _snack(validationError, AppColors.error);
-      return;
-    }
-    setState(() => _savingPassword = true);
+    setState(() {
+      _savingPassword = true;
+      _passwordError = null;
+    });
     try {
       await ref
           .read(authRepositoryProvider)
-          .updatePassword(newPass, nonce: reauthCode);
-      setState(() {
-        _changingPassword = false;
-        _savingPassword = false;
-        _newPasswordCtrl.clear();
-        _confirmPasswordCtrl.clear();
-        _reauthCodeCtrl.clear();
-      });
-      if (mounted) _snack('Password updated', AppColors.green);
+          .updatePassword(password, nonce: code);
+      if (!mounted || !_isCurrentAccount) return;
+      _clearPasswords();
+      setState(() => _changingPassword = false);
+      if (_isCurrentPage) {
+        _snack('Password updated', AppColors.of(context).green);
+      }
     } catch (_) {
-      setState(() => _savingPassword = false);
-      if (mounted) {
-        _snack(
-          'Password could not be updated. Please try again.',
-          AppColors.error,
+      if (_isCurrentAccount) {
+        setState(
+          () => _passwordError =
+              'Your password could not be updated. Check the code or request a new one.',
         );
       }
+    } finally {
+      if (mounted) setState(() => _savingPassword = false);
     }
   }
 
   Future<void> _startPasswordChange() async {
-    setState(() => _savingPassword = true);
+    if (_savingPassword || !_isCurrentPage) return;
+    setState(() {
+      _savingPassword = true;
+      _passwordError = null;
+    });
     try {
       await ref.read(authRepositoryProvider).requestPasswordReauthentication();
-      if (!mounted) return;
-      setState(() {
-        _changingPassword = true;
-        _savingPassword = false;
-      });
-      _snack('Security code sent to your email', AppColors.green);
+      if (!mounted || !_isCurrentPage) return;
+      _reauthCodeCtrl.clear();
+      setState(() => _changingPassword = true);
+      _snack('Security code sent to your email', AppColors.of(context).green);
     } catch (_) {
-      if (!mounted) return;
-      setState(() => _savingPassword = false);
-      _snack('A security code could not be sent. Try again.', AppColors.error);
+      if (_isCurrentAccount) {
+        setState(
+          () => _passwordError =
+              'A security code could not be sent. Check your connection and try again.',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _savingPassword = false);
     }
   }
 
-  void _showNameSheet() {
+  Future<void> _showNameSheet() async {
+    if (!_isCurrentPage || _sheetOpen) return;
     _firstNameCtrl.text =
         ref.read(authRepositoryProvider).currentFirstName ?? '';
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: AppColors.bgCard,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (ctx) => Padding(
-        padding: EdgeInsets.fromLTRB(
-          24,
-          12,
-          24,
-          24 + MediaQuery.viewInsetsOf(ctx).bottom,
-        ),
-        child: SafeArea(
-          top: false,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
+    var saving = false;
+    String? error;
+    await _showAccountSheet(
+      (ctx) => StatefulBuilder(
+        builder: (ctx, updateSheet) {
+          Future<void> save() async {
+            if (saving || !_sheetIsCurrent(ctx)) return;
+            final value = _firstNameCtrl.text.trim();
+            if (value.isEmpty) {
+              updateSheet(() => error = 'Enter your first name.');
+              return;
+            }
+            updateSheet(() {
+              saving = true;
+              error = null;
+            });
+            try {
+              await ref.read(authRepositoryProvider).updateFirstName(value);
+              if (!mounted || !ctx.mounted || !_sheetIsCurrent(ctx)) return;
+              Navigator.pop(ctx);
+              setState(() {});
+              _snack('Name updated', AppColors.of(context).green);
+            } catch (_) {
+              if (ctx.mounted && _sheetIsCurrent(ctx)) {
+                updateSheet(
+                  () => error =
+                      'Your name could not be saved. Check your connection and try again.',
+                );
+              }
+            } finally {
+              if (ctx.mounted) updateSheet(() => saving = false);
+            }
+          }
+
+          return _AccountSheet(
+            busy: saving,
+            title: 'Your name',
+            description: 'The first name Workloop uses when greeting you.',
             children: [
-              Center(child: settingsHandle()),
-              const SizedBox(height: 24),
-              const Text(
-                'Your name',
-                style: TextStyle(
-                  color: AppColors.t1,
-                  fontSize: 20,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 6),
-              const Text(
-                'Workloop uses your first name in personal greetings.',
-                style: TextStyle(color: AppColors.t3, height: 1.4),
-              ),
-              const SizedBox(height: 16),
               TextField(
                 controller: _firstNameCtrl,
+                enabled: !saving,
                 autofocus: true,
                 textCapitalization: TextCapitalization.words,
                 textInputAction: TextInputAction.done,
-                decoration: const InputDecoration(hintText: 'First name'),
-                onSubmitted: (_) => _saveFirstName(ctx),
+                autofillHints: const [AutofillHints.givenName],
+                maxLength: 80,
+                decoration: InputDecoration(
+                  floatingLabelBehavior: FloatingLabelBehavior.always,
+                  label: const WorkloopFieldLabel(
+                    'First name',
+                    isRequired: true,
+                  ),
+                  errorText: error,
+                  errorMaxLines: 3,
+                  counterText: '',
+                ),
+                onSubmitted: (_) => save(),
               ),
-              const SizedBox(height: 20),
-              saveBtn(label: 'Save name', onTap: () => _saveFirstName(ctx)),
-              const SizedBox(height: 10),
-              cancelBtn(ctx),
+              const SizedBox(height: AppSpacing.lg),
+              saveBtn(ctx, label: 'Save name', onTap: save, loading: saving),
+              _cancelButton(ctx, busy: saving),
             ],
-          ),
-        ),
+          );
+        },
       ),
     );
   }
 
-  Future<void> _saveFirstName(BuildContext sheetContext) async {
-    final value = _firstNameCtrl.text.trim();
-    if (value.isEmpty) {
-      _snack('Enter your first name', AppColors.error);
-      return;
-    }
-    try {
-      await ref.read(authRepositoryProvider).updateFirstName(value);
-      if (sheetContext.mounted) Navigator.pop(sheetContext);
-      if (mounted) {
-        setState(() {});
-        _snack('Name updated', AppColors.green);
-      }
-    } catch (_) {
-      if (mounted) {
-        _snack(
-          'Your name could not be updated. Please try again.',
-          AppColors.error,
-        );
-      }
-    }
-  }
-
-  void _showSignOutSheet() {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: AppColors.bgCard,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (ctx) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(
-            AppSpacing.pageX,
-            AppSpacing.sm,
-            AppSpacing.pageX,
-            AppSpacing.xl,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              settingsHandle(),
-              const SizedBox(height: 24),
-              const Text(
-                'Sign out?',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.t1,
-                ),
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'You can sign back in at any time.',
-                style: TextStyle(fontSize: 14, color: AppColors.t3),
-              ),
-              const SizedBox(height: 24),
-              saveBtn(
-                label: 'Sign out',
-                color: AppColors.error,
-                onTap: () async {
-                  Navigator.pop(ctx);
-                  await ref.read(authRepositoryProvider).signOut();
+  Future<void> _showSignOutSheet() async {
+    var signingOut = false;
+    String? error;
+    await _showAccountSheet(
+      (ctx) => StatefulBuilder(
+        builder: (ctx, updateSheet) => _AccountSheet(
+          busy: signingOut,
+          title: 'Sign out?',
+          description:
+              'Sign out of Workloop on this device. Your saved business data stays in your account.',
+          children: [
+            if (error != null) _AccountError(error!),
+            saveBtn(
+              ctx,
+              label: 'Sign out',
+              loading: signingOut,
+              onTap: () async {
+                if (signingOut || !_sheetIsCurrent(ctx)) return;
+                final auth = ref.read(authRepositoryProvider);
+                updateSheet(() {
+                  signingOut = true;
+                  error = null;
+                });
+                try {
+                  await auth.signOutLocal(expectedUserId: _accountId);
+                  // Auth may already have removed this route. Never redirect a
+                  // different account that signed in while cleanup was pending.
+                  if (!mounted || auth.currentUserId != null) return;
+                  if (ctx.mounted && ModalRoute.of(ctx)?.isCurrent == true) {
+                    Navigator.pop(ctx);
+                  }
+                  ref.invalidate(sessionIntegrityProvider);
                   ref.invalidate(workspaceProvider);
                   if (mounted) context.go('/auth');
-                },
-              ),
-              const SizedBox(height: 10),
-              cancelBtn(ctx),
-            ],
-          ),
+                } catch (_) {
+                  if (ctx.mounted && _sheetIsCurrent(ctx)) {
+                    updateSheet(
+                      () =>
+                          error = 'We couldn’t sign you out. Please try again.',
+                    );
+                  }
+                } finally {
+                  if (ctx.mounted) updateSheet(() => signingOut = false);
+                }
+              },
+            ),
+            _cancelButton(ctx, busy: signingOut),
+          ],
         ),
       ),
     );
   }
 
   Future<void> _exportData() async {
+    if (_exporting || !_isCurrentPage || _sheetOpen) return;
     setState(() => _exporting = true);
     try {
-      final workspaceId = await ref.read(workspaceIdProvider.future);
+      final workspaceId = await ref
+          .read(workspaceIdProvider.future)
+          .timeout(const Duration(seconds: 10));
+      if (!_isCurrentPage) return;
       if (workspaceId == null) {
         throw StateError('No active workspace');
       }
       final json = await ref
           .read(privacyRepositoryProvider)
           .exportWorkspaceData(workspaceId);
+      if (!_isCurrentPage ||
+          await ref.read(workspaceIdProvider.future) != workspaceId ||
+          !_isCurrentPage) {
+        return;
+      }
       final now = DateTime.now();
       final date =
           '${now.year.toString().padLeft(4, '0')}-'
@@ -268,151 +338,197 @@ class _SettingsAccountTabState extends ConsumerState<SettingsAccountTab> {
         allowedExtensions: const ['json'],
         bytes: Uint8List.fromList(utf8.encode(json)),
       );
-      if (mounted && savedPath != null) {
-        _snack('Data export saved', AppColors.green);
+      if (mounted && _isCurrentPage && savedPath != null) {
+        _snack('Data export saved', AppColors.of(context).green);
+      }
+    } on ReceiptExportTooLargeException {
+      if (mounted && _isCurrentPage) {
+        _snack(
+          'Receipt files exceed the 20 MB mobile export limit. Export originals from each expense, or contact support for a full archive. No partial file was saved.',
+          AppColors.of(context).error,
+        );
       }
     } on PrivacyExportIncompleteException {
-      if (mounted) {
+      if (mounted && _isCurrentPage) {
         _snack(
           'The export was incomplete, so no file was saved. Please try again.',
-          AppColors.error,
+          AppColors.of(context).error,
         );
       }
     } catch (_) {
       if (mounted) {
-        _snack('Your data export could not be prepared.', AppColors.error);
+        if (_isCurrentPage) {
+          _snack(
+            'Your data export could not be prepared. Please try again.',
+            AppColors.of(context).error,
+          );
+        }
       }
     } finally {
       if (mounted) setState(() => _exporting = false);
     }
   }
 
-  void _showDeleteAccountSheet() {
+  Future<void> _showDeleteAccountSheet() async {
+    if (!_isCurrentPage || _sheetOpen) return;
+    final router = GoRouter.of(context);
     _deleteConfirmCtrl.clear();
-    var requestingDeletion = false;
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: AppColors.bgCard,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setSheetState) => SafeArea(
-          child: SingleChildScrollView(
-            padding: EdgeInsets.fromLTRB(
-              24,
-              12,
-              24,
-              24 + MediaQuery.viewInsetsOf(ctx).bottom,
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                settingsHandle(),
-                const SizedBox(height: 22),
-                const Icon(
-                  LucideIcons.shieldAlert,
-                  color: AppColors.warning,
-                  size: 28,
-                ),
-                const SizedBox(height: 14),
-                const Text(
-                  'Request account deletion',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: AppColors.t1,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  'This creates an auditable deletion request. A trusted backend process can then remove auth, storage, and workspace rows together.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: AppColors.t3, height: 1.4),
-                ),
-                const SizedBox(height: 14),
-                TextField(
-                  controller: _deleteConfirmCtrl,
-                  onChanged: (_) => setSheetState(() {}),
-                  textCapitalization: TextCapitalization.characters,
-                  style: const TextStyle(color: AppColors.t1),
-                  decoration: InputDecoration(
-                    hintText: 'Type DELETE to confirm',
-                    hintStyle: const TextStyle(color: AppColors.t3),
-                    filled: true,
-                    fillColor: AppColors.bgInteract,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(14),
-                      borderSide: BorderSide(color: AppColors.border),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(14),
-                      borderSide: BorderSide(color: AppColors.border),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(14),
-                      borderSide: BorderSide(color: AppColors.warning),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 22),
-                saveBtn(
-                  label: 'Request deletion',
-                  color: AppColors.warning,
-                  loading: requestingDeletion,
-                  disabled:
-                      _deleteConfirmCtrl.text.trim().toUpperCase() != 'DELETE',
-                  onTap: () async {
-                    if (_deleteConfirmCtrl.text.trim().toUpperCase() !=
-                        'DELETE') {
-                      return;
+    var requesting = false;
+    var appleUnavailable = false;
+    AccountDeletionResult? acceptedResult;
+    String? error;
+    await _showAccountSheet(
+      (ctx) => StatefulBuilder(
+        builder: (ctx, updateSheet) {
+          Future<void> submit({bool withoutApple = false}) async {
+            if (requesting ||
+                !_sheetIsCurrent(ctx) ||
+                _deleteConfirmCtrl.text.trim().toUpperCase() != 'DELETE') {
+              return;
+            }
+            updateSheet(() {
+              requesting = true;
+              error = null;
+            });
+            final auth = ref.read(authRepositoryProvider);
+            try {
+              if (acceptedResult == null) {
+                String? appleCode;
+                if (auth.hasAppleIdentity && !withoutApple) {
+                  try {
+                    appleCode = await auth.requestAppleDeletionAuthorization();
+                  } on AppleDeletionAuthorizationException catch (failure) {
+                    if (ctx.mounted && _sheetIsCurrent(ctx)) {
+                      updateSheet(() {
+                        appleUnavailable = true;
+                        error = failure.cancelled
+                            ? 'Apple confirmation was cancelled. Your account has not been deleted. Try again, or continue deletion and disconnect Apple yourself.'
+                            : 'Apple confirmation is unavailable. Try again, or continue deletion and disconnect Apple yourself.';
+                      });
                     }
-                    setSheetState(() => requestingDeletion = true);
-                    try {
-                      final workspaceId = await ref.read(
-                        workspaceIdProvider.future,
-                      );
-                      if (workspaceId == null) {
-                        if (mounted) {
-                          _snack(
-                            'We couldn’t find your workspace. Reload Workloop and try again.',
-                            AppColors.error,
-                          );
-                        }
-                        return;
-                      }
-                      await ref
-                          .read(privacyRepositoryProvider)
-                          .requestAccountDeletion(workspaceId: workspaceId);
-                      if (ctx.mounted) Navigator.pop(ctx);
-                      if (mounted) {
-                        _snack('Deletion request created', AppColors.green);
-                      }
-                    } catch (_) {
-                      if (mounted) {
-                        _snack(
-                          'The deletion request could not be created.',
-                          AppColors.error,
-                        );
-                      }
-                    } finally {
-                      if (ctx.mounted) {
-                        setSheetState(() => requestingDeletion = false);
-                      }
-                    }
-                  },
+                    return;
+                  }
+                }
+                if (!ctx.mounted || !_sheetIsCurrent(ctx)) return;
+                // A pre-onboarding account has no workspace. The server resolves
+                // any existing membership and checks ownership itself.
+                String? workspaceId;
+                try {
+                  workspaceId = await ref
+                      .read(workspaceIdProvider.future)
+                      .timeout(const Duration(seconds: 10));
+                } catch (_) {
+                  // Account deletion also works when workspace lookup fails.
+                }
+                if (!ctx.mounted || !_sheetIsCurrent(ctx)) return;
+                acceptedResult = await ref
+                    .read(privacyRepositoryProvider)
+                    .requestAccountDeletion(
+                      workspaceId: workspaceId,
+                      appleAuthorizationCode: appleCode,
+                    );
+              }
+              if (!_isCurrentAccount) return;
+              try {
+                await ref.read(onboardingProvider.notifier).clearDraft();
+              } catch (_) {
+                /* Optional cleanup cannot undo accepted deletion. */
+              }
+              await auth.signOutLocal(expectedUserId: _accountId);
+              if (auth.currentUserId != null) return;
+              // Use the captured router: successful sign-out may already have
+              // disposed the account screen. Keep Apple unlink guidance visible.
+              router.go('/account-deletion-requested', extra: acceptedResult);
+            } catch (failure) {
+              if (ctx.mounted && _sheetIsCurrent(ctx)) {
+                updateSheet(() {
+                  final mismatch =
+                      failure is AccountDeletionException &&
+                      failure.appleIdentityMismatch;
+                  if (mismatch) appleUnavailable = true;
+                  error = acceptedResult != null
+                      ? 'Your deletion request was accepted. Try again to finish signing out.'
+                      : mismatch
+                      ? 'That Apple Account is not linked to this Workloop account. Try the linked Apple Account, or continue deletion and disconnect Apple yourself.'
+                      : 'Your deletion request could not be confirmed. Please try again or contact support.';
+                });
+              }
+              if (acceptedResult != null && _isCurrentAccount) {
+                ref.invalidate(sessionIntegrityProvider);
+                ref.invalidate(workspaceProvider);
+              }
+            } finally {
+              if (ctx.mounted) updateSheet(() => requesting = false);
+            }
+          }
+
+          return _AccountSheet(
+            busy: requesting,
+            title: 'Request account deletion',
+            description:
+                'When your request is accepted, you’ll be signed out and lose access to this account. Your workspace, clients, bookings and other business records will then be permanently deleted.',
+            children: [
+              Text(
+                'Export any records you need before continuing. Deleting your Workloop account does not cancel an Apple or Google subscription; cancel it in your store subscription settings first if you have one. Deletion is queued immediately and pending requests are checked every minute. Provider issues may delay completion. We’ll email you when deletion is complete. Some records may need to be kept for legal or security reasons.',
+                style: TextStyle(color: AppColors.of(ctx).t2, height: 1.5),
+              ),
+              if (ref.read(authRepositoryProvider).hasAppleIdentity) ...[
+                const SizedBox(height: AppSpacing.md),
+                const Text(
+                  'Apple will ask you to confirm your linked Apple Account so we can disconnect Sign in with Apple.',
                 ),
-                const SizedBox(height: 10),
-                cancelBtn(ctx),
               ],
-            ),
-          ),
-        ),
+              const SizedBox(height: AppSpacing.md),
+              TextField(
+                controller: _deleteConfirmCtrl,
+                enabled: !requesting,
+                onChanged: (_) => updateSheet(() {}),
+                textCapitalization: TextCapitalization.characters,
+                autocorrect: false,
+                decoration: const InputDecoration(
+                  floatingLabelBehavior: FloatingLabelBehavior.always,
+                  label: WorkloopFieldLabel(
+                    'Type DELETE to confirm',
+                    isRequired: true,
+                  ),
+                ),
+              ),
+              if (error != null) _AccountError(error!),
+              const SizedBox(height: AppSpacing.lg),
+              saveBtn(
+                ctx,
+                label: acceptedResult != null
+                    ? 'Finish signing out'
+                    : 'Request deletion',
+                color: AppColors.of(ctx).error,
+                loading: requesting,
+                disabled:
+                    _deleteConfirmCtrl.text.trim().toUpperCase() != 'DELETE',
+                onTap: submit,
+              ),
+              if (appleUnavailable && acceptedResult == null)
+                WorkloopTextButton(
+                  label: 'Continue deletion without Apple',
+                  onPressed:
+                      requesting ||
+                          _deleteConfirmCtrl.text.trim().toUpperCase() !=
+                              'DELETE'
+                      ? null
+                      : () => submit(withoutApple: true),
+                ),
+              _cancelButton(ctx, busy: requesting),
+            ],
+          );
+        },
       ),
     );
   }
+
+  Widget _cancelButton(BuildContext context, {required bool busy}) =>
+      WorkloopTextButton(
+        label: 'Cancel',
+        onPressed: busy ? null : () => Navigator.pop(context),
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -420,7 +536,15 @@ class _SettingsAccountTabState extends ConsumerState<SettingsAccountTab> {
     final email = authRepository.currentEmail;
     final firstName = authRepository.currentFirstName;
 
+    if (!_isCurrentAccount) {
+      return const Padding(
+        padding: EdgeInsets.all(AppSpacing.pageX),
+        child: Text('Your account has changed. Reopen Settings to continue.'),
+      );
+    }
+    final hasEmail = isValidAuthEmail(email);
     return ListView(
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.pageX,
         0,
@@ -428,134 +552,164 @@ class _SettingsAccountTabState extends ConsumerState<SettingsAccountTab> {
         AppSpacing.xxl,
       ),
       children: [
-        const WorkloopSectionHeader(label: 'Personal details'),
-        const SizedBox(height: AppSpacing.xs),
-        tappableRow(
-          label: 'Your name',
-          value: firstName ?? 'Add name',
-          onTap: _showNameSheet,
-          valueColor: firstName == null
-              ? AppColors.accentPrimary
-              : AppColors.t2,
-        ),
-        const WorkloopDivider(margin: EdgeInsets.zero),
-        infoRow('Email', email),
-        const SizedBox(height: AppSpacing.xxl),
-        const WorkloopSectionHeader(label: 'Security'),
-        const SizedBox(height: AppSpacing.xs),
-        if (_changingPassword)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
-            child: Column(
-              children: [
-                TextField(
-                  controller: _reauthCodeCtrl,
-                  keyboardType: TextInputType.number,
-                  textInputAction: TextInputAction.next,
-                  autofillHints: const [AutofillHints.oneTimeCode],
-                  inputFormatters: [
-                    FilteringTextInputFormatter.digitsOnly,
-                    LengthLimitingTextInputFormatter(6),
-                  ],
-                  decoration: const InputDecoration(
-                    labelText: 'Email security code',
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.sm),
-                _passwordField(
-                  label: 'NEW PASSWORD',
-                  controller: _newPasswordCtrl,
-                  obscure: _obscureNew,
-                  onToggle: () => setState(() => _obscureNew = !_obscureNew),
-                ),
-                const SizedBox(height: AppSpacing.sm),
-                _passwordField(
-                  label: 'CONFIRM PASSWORD',
-                  controller: _confirmPasswordCtrl,
-                  obscure: _obscureConfirm,
-                  onToggle: () =>
-                      setState(() => _obscureConfirm = !_obscureConfirm),
-                ),
-                const SizedBox(height: AppSpacing.md),
-                WorkloopPrimaryButton(
-                  label: _savingPassword ? 'Updating' : 'Update password',
-                  icon: LucideIcons.lock,
-                  onPressed: _savingPassword ? null : _changePassword,
-                ),
-                WorkloopTextButton(
-                  label: 'Cancel',
-                  onPressed: () => setState(() => _changingPassword = false),
-                ),
-              ],
-            ),
-          )
-        else
+        if (!widget.showDataOnly) ...[
+          const WorkloopSectionHeader(label: 'Personal details'),
           _AccountActionRow(
-            icon: LucideIcons.lock,
-            label: 'Change password',
-            value: _savingPassword ? 'Sending code' : 'Verify first',
-            onTap: _savingPassword ? () {} : _startPasswordChange,
-            valueColor: AppColors.t3,
+            icon: LucideIcons.user,
+            label: 'Your name',
+            subtitle: firstName ?? 'Add your first name',
+            onTap: _showNameSheet,
           ),
-        const WorkloopDivider(margin: EdgeInsets.zero),
-        _AccountActionRow(
-          icon: LucideIcons.shieldCheck,
-          label: 'Two-factor security',
-          value: 'Authenticator',
-          onTap: () => context.push('/security/2fa'),
-          valueColor: AppColors.accentPrimary,
-        ),
-        const SizedBox(height: AppSpacing.xxl),
-        const WorkloopSectionHeader(label: 'Your data'),
-        const SizedBox(height: AppSpacing.xs),
-        _AccountActionRow(
-          icon: LucideIcons.download,
-          label: 'Export workspace data',
-          value: _exporting ? 'Preparing...' : 'JSON',
-          onTap: _exporting ? () {} : _exportData,
-          valueColor: AppColors.accentPrimary,
-        ),
-        const WorkloopDivider(margin: EdgeInsets.zero),
-        _AccountActionRow(
-          icon: LucideIcons.trash2,
-          label: 'Delete account',
-          value: 'Request',
-          onTap: _showDeleteAccountSheet,
-          valueColor: AppColors.error,
-        ),
-        const SizedBox(height: AppSpacing.xxl),
-        const WorkloopSectionHeader(label: 'Session'),
-        const SizedBox(height: AppSpacing.xs),
-        WorkloopListRow(
-          onTap: _showSignOutSheet,
-          showDivider: false,
-          padding: const EdgeInsets.symmetric(
-            horizontal: AppSpacing.md,
-            vertical: AppSpacing.md,
+          const WorkloopDivider(margin: EdgeInsets.zero),
+          _AccountActionRow(
+            icon: LucideIcons.mail,
+            label: 'Email address',
+            subtitle: email,
+            selectable: true,
           ),
-          leading: const Icon(
-            LucideIcons.logOut,
-            color: AppColors.error,
-            size: 18,
-          ),
-          title: const Text(
-            'Sign out',
-            style: TextStyle(
-              color: AppColors.error,
-              fontSize: 15,
-              fontWeight: FontWeight.w600,
+          const SizedBox(height: AppSpacing.lg),
+          const WorkloopSectionHeader(label: 'Security'),
+          if (_changingPassword) ...[
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    'Enter the security code sent to $email, then choose your password.',
+                    style: TextStyle(
+                      color: AppColors.of(context).t2,
+                      height: 1.5,
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  TextField(
+                    controller: _reauthCodeCtrl,
+                    enabled: !_savingPassword,
+                    keyboardType: TextInputType.number,
+                    textInputAction: TextInputAction.next,
+                    autofillHints: const [AutofillHints.oneTimeCode],
+                    inputFormatters: [
+                      FilteringTextInputFormatter.digitsOnly,
+                      LengthLimitingTextInputFormatter(6),
+                    ],
+                    decoration: const InputDecoration(
+                      floatingLabelBehavior: FloatingLabelBehavior.always,
+                      label: WorkloopFieldLabel(
+                        'Email security code',
+                        isRequired: true,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  _passwordField(
+                    label: 'New password',
+                    controller: _newPasswordCtrl,
+                    obscure: _obscureNew,
+                    onToggle: () => setState(() => _obscureNew = !_obscureNew),
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  Text(
+                    'Use at least 12 characters, with uppercase and lowercase letters, a number and a symbol.',
+                    style: TextStyle(
+                      color: AppColors.of(context).t2,
+                      height: 1.5,
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  _passwordField(
+                    label: 'Confirm password',
+                    controller: _confirmPasswordCtrl,
+                    obscure: _obscureConfirm,
+                    onToggle: () =>
+                        setState(() => _obscureConfirm = !_obscureConfirm),
+                  ),
+                  if (_passwordError != null) _AccountError(_passwordError!),
+                  const SizedBox(height: AppSpacing.md),
+                  WorkloopPrimaryButton(
+                    label: _savingPassword ? 'Please wait…' : 'Save password',
+                    icon: LucideIcons.lock,
+                    onPressed: _savingPassword ? null : _changePassword,
+                  ),
+                  WorkloopTextButton(
+                    label: 'Send a new code',
+                    onPressed: _savingPassword ? null : _startPasswordChange,
+                  ),
+                  WorkloopTextButton(
+                    label: 'Cancel',
+                    onPressed: _savingPassword
+                        ? null
+                        : () {
+                            _clearPasswords();
+                            setState(() {
+                              _changingPassword = false;
+                              _passwordError = null;
+                            });
+                          },
+                  ),
+                ],
+              ),
             ),
+          ] else ...[
+            _AccountActionRow(
+              icon: LucideIcons.lock,
+              label: 'Set or change password',
+              subtitle: _savingPassword
+                  ? 'Sending your security code…'
+                  : hasEmail
+                  ? 'We’ll email you a code before you make changes.'
+                  : 'A verified email address is needed to set a password.',
+              loading: _savingPassword,
+              onTap: _savingPassword || !hasEmail ? null : _startPasswordChange,
+            ),
+            if (_passwordError != null) _AccountError(_passwordError!),
+          ],
+          const WorkloopDivider(margin: EdgeInsets.zero),
+          _AccountActionRow(
+            icon: LucideIcons.shieldCheck,
+            label: 'Two-step verification',
+            subtitle: 'Add extra protection with an authenticator app.',
+            onTap: _savingPassword ? null : () => context.push('/security/2fa'),
           ),
-          subtitle: const Text(
-            'You can sign back in at any time.',
-            style: TextStyle(color: AppColors.t3, fontSize: 13),
+          const SizedBox(height: AppSpacing.lg),
+        ],
+        if (widget.showDataOnly) ...[
+          Text(
+            'Your business records belong to you. Save a copy or manage the deletion of your account.',
+            style: TextStyle(color: AppColors.of(context).t2, height: 1.5),
           ),
-          trailing: const Icon(
-            LucideIcons.chevronRight,
-            color: AppColors.t3,
-            size: 16,
+          const SizedBox(height: AppSpacing.md),
+          const WorkloopSectionHeader(label: 'Your data'),
+          _AccountActionRow(
+            icon: LucideIcons.download,
+            label: 'Export your data',
+            subtitle: _exporting
+                ? 'Preparing your file…'
+                : 'Save your clients, bookings and business records as a JSON file.',
+            loading: _exporting,
+            onTap: _exporting || _savingPassword ? null : _exportData,
           ),
-        ),
+          const WorkloopDivider(margin: EdgeInsets.zero),
+          _AccountActionRow(
+            icon: LucideIcons.trash2,
+            label: 'Delete account',
+            subtitle:
+                'Request permanent deletion of your account and workspace.',
+            destructive: true,
+            onTap: _exporting || _savingPassword
+                ? null
+                : _showDeleteAccountSheet,
+          ),
+          const SizedBox(height: AppSpacing.lg),
+        ],
+        if (!widget.showDataOnly)
+          _AccountActionRow(
+            icon: LucideIcons.logOut,
+            label: 'Sign out',
+            subtitle:
+                'Sign out on this device. Your saved data stays in your account.',
+            onTap: _exporting || _savingPassword ? null : _showSignOutSheet,
+          ),
       ],
     );
   }
@@ -566,56 +720,28 @@ class _SettingsAccountTabState extends ConsumerState<SettingsAccountTab> {
     required bool obscure,
     required VoidCallback onToggle,
   }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: const TextStyle(
-            fontSize: 10,
-            fontWeight: FontWeight.w600,
-            letterSpacing: 0,
-            color: AppColors.t3,
-          ),
+    return TextField(
+      controller: controller,
+      enabled: !_savingPassword,
+      obscureText: obscure,
+      autocorrect: false,
+      enableSuggestions: false,
+      autofillHints: const [AutofillHints.newPassword],
+      textInputAction: controller == _confirmPasswordCtrl
+          ? TextInputAction.done
+          : TextInputAction.next,
+      onSubmitted: controller == _confirmPasswordCtrl
+          ? (_) => _changePassword()
+          : null,
+      decoration: InputDecoration(
+        floatingLabelBehavior: FloatingLabelBehavior.always,
+        label: WorkloopFieldLabel(label, isRequired: true),
+        suffixIcon: IconButton(
+          tooltip: obscure ? 'Show password' : 'Hide password',
+          onPressed: _savingPassword ? null : onToggle,
+          icon: Icon(obscure ? LucideIcons.eye : LucideIcons.eyeOff, size: 20),
         ),
-        const SizedBox(height: 8),
-        TextField(
-          controller: controller,
-          obscureText: obscure,
-          style: const TextStyle(color: AppColors.t1, fontSize: 14),
-          decoration: InputDecoration(
-            hintText: '••••••••',
-            hintStyle: const TextStyle(color: AppColors.t3),
-            filled: true,
-            fillColor: AppColors.bgInteract,
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10),
-              borderSide: const BorderSide(color: AppColors.border),
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10),
-              borderSide: const BorderSide(color: AppColors.border),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10),
-              borderSide: const BorderSide(color: AppColors.green, width: 1.5),
-            ),
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 14,
-              vertical: 12,
-            ),
-            suffixIcon: IconButton(
-              tooltip: obscure ? 'Show password' : 'Hide password',
-              onPressed: onToggle,
-              icon: Icon(
-                obscure ? LucideIcons.eye : LucideIcons.eyeOff,
-                color: AppColors.t3,
-                size: 16,
-              ),
-            ),
-          ),
-        ),
-      ],
+      ),
     );
   }
 }
@@ -623,59 +749,126 @@ class _SettingsAccountTabState extends ConsumerState<SettingsAccountTab> {
 class _AccountActionRow extends StatelessWidget {
   final IconData icon;
   final String label;
-  final String value;
-  final VoidCallback onTap;
-  final Color valueColor;
+  final String subtitle;
+  final VoidCallback? onTap;
+  final bool loading;
+  final bool destructive;
+  final bool selectable;
 
   const _AccountActionRow({
     required this.icon,
     required this.label,
-    required this.value,
-    required this.onTap,
-    required this.valueColor,
+    required this.subtitle,
+    this.onTap,
+    this.loading = false,
+    this.destructive = false,
+    this.selectable = false,
   });
 
   @override
   Widget build(BuildContext context) {
+    final color = destructive
+        ? AppColors.of(context).error
+        : AppColors.of(context).t1;
+    final subtitleStyle = TextStyle(
+      color: AppColors.of(context).t2,
+      fontSize: 13,
+      height: 1.5,
+    );
     return WorkloopListRow(
+      flat: true,
       onTap: onTap,
       showDivider: false,
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.md,
-        vertical: AppSpacing.md,
-      ),
-      leading: Container(
-        width: 40,
-        height: 40,
-        decoration: const BoxDecoration(
-          color: AppColors.modBg,
-          shape: BoxShape.circle,
-        ),
-        child: Icon(icon, color: AppColors.t2, size: 18),
-      ),
+      padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
+      leading: Icon(icon, color: color, size: 20),
       title: Text(
         label,
-        style: const TextStyle(
-          color: AppColors.t1,
-          fontSize: 14,
+        style: TextStyle(
+          color: color,
+          fontSize: 15,
           fontWeight: FontWeight.w600,
         ),
       ),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            value,
-            style: TextStyle(
-              color: valueColor,
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
+      subtitle: selectable
+          ? SelectableText(subtitle, style: subtitleStyle)
+          : Text(subtitle, style: subtitleStyle),
+      trailing: loading
+          ? const SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : onTap == null
+          ? null
+          : Icon(
+              LucideIcons.chevronRight,
+              color: AppColors.of(context).t3,
+              size: 18,
             ),
-          ),
-          const SizedBox(width: AppSpacing.xs),
-          const Icon(LucideIcons.chevronRight, color: AppColors.t3, size: 16),
-        ],
-      ),
     );
   }
+}
+
+class _AccountSheet extends StatelessWidget {
+  final bool busy;
+  final String title;
+  final String description;
+  final List<Widget> children;
+
+  const _AccountSheet({
+    required this.busy,
+    required this.title,
+    required this.description,
+    required this.children,
+  });
+
+  @override
+  Widget build(BuildContext context) => PopScope(
+    canPop: !busy,
+    child: AnimatedPadding(
+      duration: AppMotion.responsive(context, AppMotion.fast),
+      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+      child: SlateSheetFrame(
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                title,
+                style: TextStyle(
+                  color: AppColors.of(context).t1,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              Text(
+                description,
+                style: TextStyle(color: AppColors.of(context).t2, height: 1.5),
+              ),
+              const SizedBox(height: AppSpacing.lg),
+              ...children,
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+class _AccountError extends StatelessWidget {
+  final String message;
+  const _AccountError(this.message);
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+    child: Semantics(
+      liveRegion: true,
+      child: Text(
+        message,
+        style: TextStyle(color: AppColors.of(context).error, height: 1.5),
+      ),
+    ),
+  );
 }

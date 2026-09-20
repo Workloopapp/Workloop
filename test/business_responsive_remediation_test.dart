@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:workloop/core/theme/app_theme.dart';
 import 'package:workloop/features/business/business_screen.dart';
+import 'package:workloop/features/profile/booking_page_screen.dart';
 import 'package:workloop/features/public_profile/booking_requests_screen.dart';
 import 'package:workloop/features/settings/providers/settings_providers.dart';
 import 'package:workloop/shared/models/slate_models.dart';
@@ -74,6 +75,32 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Business'), findsOneWidget);
-    expect(find.text('Manage booking page'), findsOneWidget);
+    expect(find.text('Your booking page'), findsOneWidget);
+    for (final key in [
+      'business-booking-requests',
+      'business-booking-page',
+      'business-services',
+      'business-hours',
+      'business-profile',
+      'business-customer-reminders',
+    ]) {
+      final control = find.byKey(ValueKey(key));
+      await tester.scrollUntilVisible(control, 140);
+      await tester.pumpAndSettle();
+      expect(control.hitTestable(), findsOneWidget, reason: key);
+      expect(
+        tester.getSize(control).height,
+        greaterThanOrEqualTo(44),
+        reason: key,
+      );
+    }
+    final page = find.byKey(const ValueKey('business-booking-page'));
+    await tester.scrollUntilVisible(page, -140);
+    await tester.pumpAndSettle();
+    expect(page.hitTestable(), findsOneWidget);
+    await tester.tap(page);
+    await tester.pumpAndSettle();
+    expect(find.byType(BookingPageScreen), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 }

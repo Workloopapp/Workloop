@@ -1,5 +1,21 @@
 part of 'add_appointment_screen.dart';
 
+({int durationMins, double price}) appointmentComposition({
+  required int baseDurationMins,
+  required double basePrice,
+  required Iterable<ServiceAddOn> addOns,
+  required Set<String> selectedAddOnIds,
+}) {
+  var durationMins = baseDurationMins;
+  var price = basePrice;
+  for (final addOn in addOns) {
+    if (!selectedAddOnIds.contains(addOn.id)) continue;
+    durationMins += addOn.durationMins;
+    price += addOn.price;
+  }
+  return (durationMins: durationMins, price: price);
+}
+
 class _LocationChoice {
   final String value;
   final String label;

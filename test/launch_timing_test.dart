@@ -2,10 +2,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:workloop/main.dart';
 
 void main() {
-  test('launch timing fills only the remaining minimum duration', () {
+  test('launch timing adds no artificial wait', () {
     expect(
       remainingLaunchDuration(const Duration(milliseconds: 250)),
-      const Duration(milliseconds: 450),
+      Duration.zero,
     );
     expect(
       remainingLaunchDuration(const Duration(milliseconds: 700)),

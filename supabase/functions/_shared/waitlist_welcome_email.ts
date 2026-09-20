@@ -1,3 +1,4 @@
+import { withWorkloopOperator } from "./workloop_operator_email.ts";
 import type {
   BookingConfirmationEmailConfig,
   BookingConfirmationRpcClient,
@@ -32,7 +33,7 @@ What happens next
 
 • We will email you when a beta place or public access is ready.
 • Private beta access is free and does not require payment details.
-• Public access is planned with 30 days free, then £9.99 monthly or £99 annually.
+• Public access is planned with 30 days free, then £14.99 monthly or £149.99 annually.
 
 What you will be able to do
 
@@ -40,17 +41,17 @@ What you will be able to do
 • Keep client details, booking history, notes and tasks connected.
 • Track money made, spent and owed without a complicated finance system.
 
-See how Workloop fits into a working day: https://workloop.uk/how-it-works
+Read your practical welcome pack: https://workloop.uk/help/welcome
 
-Questions? Reply to this email or contact support@workloop.uk.
+Questions? Contact support@workloop.uk.
 
 You can leave the launch list at any time by emailing support@workloop.uk.
 
 Workloop
 The business operating system for one.`;
   const html =
-    `<!doctype html><html><body style="margin:0;background:#f7f5ef;color:#121728;font-family:Arial,sans-serif"><div style="display:none;max-height:0;overflow:hidden">You are on the Workloop launch list.</div><table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f7f5ef"><tr><td align="center" style="padding:32px 16px"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:600px;background:#ffffff;border:1px solid #e5e2db;border-radius:24px;overflow:hidden"><tr><td style="padding:34px 34px 20px"><div style="font-size:24px;font-weight:800;color:#121728">Workloop</div></td></tr><tr><td style="padding:0 34px 34px"><p style="margin:0 0 12px;color:#5a54ec;font-size:13px;font-weight:800;letter-spacing:.08em">YOU ARE ON THE LIST</p><h1 style="margin:0 0 18px;font-size:34px;line-height:1.08;letter-spacing:-.03em">Thanks. You are all set.</h1><p style="margin:0 0 24px;color:#616778;font-size:17px;line-height:1.6">Workloop brings clients, bookings, tasks, notes and money into one calm mobile workspace, so you can spend less time on admin and more time doing the work.</p><div style="padding:22px;background:#eeecff;border-radius:16px"><h2 style="margin:0 0 12px;font-size:19px">What happens next</h2><p style="margin:0 0 10px;line-height:1.55">✓ We will email you when a beta place or public access is ready.</p><p style="margin:0 0 10px;line-height:1.55">✓ Private beta access is free and needs no payment details.</p><p style="margin:0;line-height:1.55">✓ Public access is planned with 30 days free, then £9.99 monthly or £99 annually.</p></div><h2 style="margin:28px 0 10px;font-size:19px">One place for the working day</h2><p style="margin:0 0 22px;color:#616778;line-height:1.6">See the day ahead, call a client, tick off tasks, complete bookings and keep an eye on money made, spent and owed.</p><a href="https://workloop.uk/how-it-works" style="display:inline-block;padding:15px 22px;background:#554eef;color:#ffffff;text-decoration:none;border-radius:14px;font-weight:700">See how Workloop works</a><p style="margin:30px 0 0;color:#616778;font-size:14px;line-height:1.6">Questions? Reply to this email or contact <a href="mailto:support@workloop.uk" style="color:#554eef">support@workloop.uk</a>.<br>You can leave the launch list at any time by emailing us.</p></td></tr></table></td></tr></table></body></html>`;
-  return { subject, plainText, html };
+    `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><style>@font-face{font-family:Manrope;src:url('https://workloop.uk/Manrope-Variable.ttf') format('truetype');font-weight:100 900}</style></head><body style="margin:0;background:#f5edd9;color:#443c32;font-family:'Manrope',Arial,sans-serif"><div style="display:none;max-height:0;overflow:hidden">You are on the Workloop launch list.</div><table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f5edd9"><tr><td align="center" style="padding:32px 16px"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:600px;background:#fbf7ed;border:1px solid #8d8070;border-radius:8px;overflow:hidden"><tr><td style="padding:34px 34px 20px"><div style="font-size:26px;font-weight:650;letter-spacing:-.04em;color:#443c32">workloop</div></td></tr><tr><td style="padding:0 34px 34px"><p style="margin:0 0 12px;color:#286280;font-size:12px;font-weight:600;letter-spacing:.08em;padding:10px 12px;background:#c3d7e4;border:1px solid #8d8070;border-radius:5px;color:#443c32">YOU ARE ON THE LIST</p><h1 style="margin:0 0 18px;font-size:34px;line-height:1.08;letter-spacing:-.03em">Thanks. You are all set.</h1><p style="margin:0 0 24px;color:#665c50;font-size:17px;line-height:1.6">Workloop brings clients, bookings, tasks, notes and money into one calm mobile workspace, so you can spend less time on admin and more time doing the work.</p><div style="padding:22px;background:#f0d18b;border-radius:6px;border:1px solid #8d8070"><h2 style="margin:0 0 12px;font-size:19px">What happens next</h2><p style="margin:0 0 10px;line-height:1.55">✓ We will email you when a beta place or public access is ready.</p><p style="margin:0 0 10px;line-height:1.55">✓ Existing beta testers keep free lifetime access. Joining this launch list does not activate a trial or a subscription.</p><p style="margin:0;line-height:1.55">✓ Public access is planned with 30 days free, then £14.99 monthly or £149.99 annually.</p></div><h2 style="margin:28px 0 10px;font-size:19px">One place for the working day</h2><p style="margin:0 0 22px;color:#665c50;line-height:1.6">See the day ahead, call a client, tick off tasks, complete bookings and keep an eye on money made, spent and owed.</p><a href="https://workloop.uk/help/welcome" style="display:inline-block;padding:15px 22px;background:#91b4c8;color:#443c32;text-decoration:none;border-radius:6px;border:1px solid #443c32;font-weight:700">Open your welcome pack</a><p style="margin:30px 0 0;color:#665c50;font-size:14px;line-height:1.6">Questions? Contact <a href="mailto:support@workloop.uk" style="color:#286280">support@workloop.uk</a>.<br>You can leave the launch list at any time by emailing us.</p></td></tr></table></td></tr></table></body></html>`;
+  return withWorkloopOperator({ subject, plainText, html });
 }
 
 export async function drainWaitlistWelcomeEmails(input: {
@@ -87,6 +88,7 @@ export async function drainWaitlistWelcomeEmails(input: {
           },
           body: JSON.stringify({
             from: input.config.from,
+            reply_to: "support@workloop.uk",
             to: [claim.recipient_email],
             subject: content.subject,
             text: content.plainText,

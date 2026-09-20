@@ -58,7 +58,7 @@ class BusinessFeedList extends StatelessWidget {
               icon: const Icon(LucideIcons.arrowRight, size: 16),
               label: const Text('View all'),
               style: TextButton.styleFrom(
-                foregroundColor: AppColors.modHome,
+                foregroundColor: AppColors.of(context).modHome,
                 textStyle: const TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
@@ -112,7 +112,7 @@ class _BusinessFeedRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = _moduleColor(item.moduleKey);
+    final color = _moduleColor(context, item.moduleKey);
     final icon = _iconFor(item.icon);
     final priorityLabel = _priorityLabel(item.priority);
 
@@ -126,7 +126,7 @@ class _BusinessFeedRow extends StatelessWidget {
         height: compact ? 32 : 38,
         decoration: BoxDecoration(
           color: item.priority == BusinessFeedPriority.attention
-              ? AppColors.warning.withValues(alpha: 0.09)
+              ? AppColors.of(context).warning.withValues(alpha: 0.09)
               : color.withValues(alpha: 0.08),
           shape: BoxShape.circle,
         ),
@@ -141,7 +141,7 @@ class _BusinessFeedRow extends StatelessWidget {
               maxLines: compact ? 1 : 2,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
-                color: AppColors.t1,
+                color: AppColors.of(context).t1,
                 fontSize: compact ? 13 : 14,
                 fontWeight: FontWeight.w600,
               ),
@@ -161,7 +161,7 @@ class _BusinessFeedRow extends StatelessWidget {
             maxLines: compact ? 1 : 2,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
-              color: AppColors.t3,
+              color: AppColors.of(context).t3,
               fontSize: compact ? 12 : 13,
               fontWeight: FontWeight.w500,
             ),
@@ -172,8 +172,8 @@ class _BusinessFeedRow extends StatelessWidget {
               children: [
                 Text(
                   _timeAgo(item.timestamp),
-                  style: const TextStyle(
-                    color: AppColors.t4,
+                  style: TextStyle(
+                    color: AppColors.of(context).t4,
                     fontSize: 11,
                     fontWeight: FontWeight.w600,
                   ),
@@ -196,7 +196,11 @@ class _BusinessFeedRow extends StatelessWidget {
       ),
       trailing: onTap == null
           ? null
-          : const Icon(LucideIcons.chevronRight, color: AppColors.t3, size: 16),
+          : Icon(
+              LucideIcons.chevronRight,
+              color: AppColors.of(context).t3,
+              size: 16,
+            ),
     );
   }
 }
@@ -210,8 +214,8 @@ class _FeedPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = priority == BusinessFeedPriority.attention
-        ? AppColors.warning
-        : AppColors.statusSuccess;
+        ? AppColors.of(context).warning
+        : AppColors.of(context).statusSuccess;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
@@ -239,8 +243,8 @@ class _FeedSectionLabel extends StatelessWidget {
   Widget build(BuildContext context) {
     return Text(
       label.toUpperCase(),
-      style: const TextStyle(
-        color: AppColors.t3,
+      style: TextStyle(
+        color: AppColors.of(context).t3,
         fontSize: 10,
         fontWeight: FontWeight.w600,
       ),
@@ -259,21 +263,27 @@ class _BusinessFeedEmptyState extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(AppSpacing.md),
       decoration: BoxDecoration(
-        color: AppColors.bgCard.withValues(alpha: 0.70),
+        color: AppColors.of(context).bgCard.withValues(alpha: 0.70),
         borderRadius: BorderRadius.circular(AppRadius.lg),
-        border: Border.all(color: AppColors.border.withValues(alpha: 0.54)),
+        border: Border.all(
+          color: AppColors.of(context).border.withValues(alpha: 0.54),
+        ),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(LucideIcons.activity, color: AppColors.modHome, size: 18),
+          Icon(
+            LucideIcons.activity,
+            color: AppColors.of(context).modHome,
+            size: 18,
+          ),
           const SizedBox(width: AppSpacing.sm),
           Expanded(
             child: Text(
               message ??
                   'Your business feed will appear here as bookings, payments, tasks and notes happen.',
-              style: const TextStyle(
-                color: AppColors.t3,
+              style: TextStyle(
+                color: AppColors.of(context).t3,
                 fontSize: 13,
                 fontWeight: FontWeight.w600,
                 height: 1.3,
@@ -344,14 +354,14 @@ IconData _iconFor(String key) {
   };
 }
 
-Color _moduleColor(String key) {
+Color _moduleColor(BuildContext context, String key) {
   return switch (key) {
-    'bookings' => AppColors.modCalendar,
-    'clients' => AppColors.modClients,
-    'money' => AppColors.modFinance,
-    'notes' => AppColors.modNotes,
-    'tasks' => AppColors.modTasks,
-    _ => AppColors.modHome,
+    'bookings' => AppColors.of(context).modCalendar,
+    'clients' => AppColors.of(context).modClients,
+    'money' => AppColors.of(context).modFinance,
+    'notes' => AppColors.of(context).modNotes,
+    'tasks' => AppColors.of(context).modTasks,
+    _ => AppColors.of(context).modHome,
   };
 }
 

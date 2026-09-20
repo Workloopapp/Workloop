@@ -44,7 +44,6 @@ void main() {
         (ref) async => const {'id': 'workspace-1', 'name': 'Workloop Studio'},
       ),
       settingsBusinessProfileProvider.overrideWith((ref) async => null),
-      settingsWorkspaceSettingsProvider.overrideWith((ref) async => const {}),
       settingsServicesProvider.overrideWith((ref) async => const []),
     ];
     final screens = <String, Widget>{

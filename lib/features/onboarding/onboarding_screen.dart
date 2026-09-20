@@ -31,16 +31,21 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   }
 
   Future<void> _restoreDraft() async {
-    await ref.read(onboardingProvider.notifier).restore();
-    if (!mounted) return;
-    final restoredStep = ref.read(onboardingProvider).currentStep;
-    setState(() {
-      _currentPage = restoredStep.clamp(0, 8);
-      _restoring = false;
-    });
+    try {
+      await ref.read(onboardingProvider.notifier).restore();
+    } finally {
+      if (mounted) {
+        final restoredStep = ref.read(onboardingProvider).currentStep;
+        setState(() {
+          _currentPage = restoredStep.clamp(0, 8);
+          _restoring = false;
+        });
+      }
+    }
   }
 
   void nextPage() {
+    FocusScope.of(context).unfocus();
     final next = (_currentPage + 1).clamp(0, 8);
     ref.read(onboardingProvider.notifier).setStep(next);
     setState(() => _currentPage = next);
@@ -48,6 +53,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
 
   void prevPage() {
     if (_currentPage <= 0) return;
+    FocusScope.of(context).unfocus();
     final previous = _currentPage - 1;
     ref.read(onboardingProvider.notifier).setStep(previous);
     setState(() => _currentPage = previous);
@@ -64,19 +70,21 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
       ObPreferences(onNext: nextPage, onBack: prevPage),
       ObRevenueTarget(onNext: nextPage, onBack: prevPage),
       ObFirstBooking(onNext: nextPage, onBack: prevPage),
-      const ObComplete(),
+      ObComplete(onReviewSetup: prevPage),
     ];
 
     if (_restoring) {
-      return const WorkloopPage(
+      return WorkloopPage(
         child: Center(
-          child: CircularProgressIndicator(color: AppColors.accentPrimary),
+          child: CircularProgressIndicator(
+            color: AppColors.of(context).accentPrimary,
+          ),
         ),
       );
     }
 
     return Scaffold(
-      backgroundColor: AppColors.bg,
+      backgroundColor: Colors.transparent,
       body: Stack(
         children: [
           const Positioned.fill(child: WorkloopTexturedBackdrop()),
@@ -101,33 +109,44 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                         ),
                         const SizedBox(width: AppSpacing.md),
                         Expanded(
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(
-                              AppRadius.capsule,
-                            ),
-                            child: TweenAnimationBuilder<double>(
-                              tween: Tween(
-                                end: _currentPage / (screens.length - 1),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '${const ['Welcome', 'Your business', 'Booking link', 'Services', 'Working hours', 'Preferences', 'Your target', 'First booking'][_currentPage]} · $_currentPage of 7',
+                                style: Theme.of(context).textTheme.labelMedium,
                               ),
-                              duration: AppMotion.responsive(
-                                context,
-                                AppMotion.deliberate,
-                              ),
-                              curve: AppMotion.curve,
-                              builder: (context, value, _) {
-                                return LinearProgressIndicator(
-                                  value: value,
-                                  backgroundColor: AppColors.t1.withValues(
-                                    alpha: 0.06,
+                              const SizedBox(height: AppSpacing.xs),
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(
+                                  AppRadius.sm,
+                                ),
+                                child: TweenAnimationBuilder<double>(
+                                  tween: Tween(
+                                    end: _currentPage / (screens.length - 2),
                                   ),
-                                  valueColor:
-                                      const AlwaysStoppedAnimation<Color>(
-                                        AppColors.accentPrimaryStrong,
+                                  duration: AppMotion.responsive(
+                                    context,
+                                    AppMotion.deliberate,
+                                  ),
+                                  curve: AppMotion.curve,
+                                  builder: (context, value, _) {
+                                    return LinearProgressIndicator(
+                                      value: value,
+                                      backgroundColor: AppColors.of(
+                                        context,
+                                      ).t1.withValues(alpha: 0.06),
+                                      valueColor: AlwaysStoppedAnimation<Color>(
+                                        AppColors.of(
+                                          context,
+                                        ).accentPrimaryStrong,
                                       ),
-                                  minHeight: 5,
-                                );
-                              },
-                            ),
+                                      minHeight: 8,
+                                    );
+                                  },
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ],

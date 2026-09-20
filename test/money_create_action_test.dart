@@ -31,6 +31,7 @@ void main() {
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
+            paymentCollectionEnabledProvider.overrideWithValue(false),
             invoicesProvider.overrideWith((ref) async => const []),
             expensesProvider.overrideWith((ref) async => const []),
             financeSummaryProvider.overrideWith((ref) async => summary),
@@ -53,8 +54,7 @@ void main() {
       );
 
       expect(addMoneyAction, findsOneWidget);
-      expect(WorkloopCapabilities.paymentCollectionEnabled, isFalse);
-      expect(find.text('Get paid with Workloop'), findsNothing);
+      expect(find.text('Card & contactless payments'), findsOneWidget);
       expect(find.byIcon(LucideIcons.minus), findsNothing);
       final addRect = tester.getRect(addMoneyAction);
       expect(addRect.height, greaterThanOrEqualTo(AppSpacing.minTouch));

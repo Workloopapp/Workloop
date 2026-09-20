@@ -4,10 +4,15 @@ import 'package:lucide_flutter/lucide_flutter.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../shared/models/slate_models.dart';
+import '../../shared/attachments/record_attachment.dart';
+import '../../shared/attachments/record_attachments_screen.dart';
+import '../../shared/utils/workflow_idempotency.dart';
 import '../../shared/providers/notes_provider.dart';
 import '../../shared/providers/workspace_provider.dart';
 import '../../shared/repositories/notes_repository.dart';
 import '../../shared/widgets/slate_ui.dart';
+import '../../shared/widgets/workloop_form_field.dart';
+import '../../shared/widgets/record_link_unavailable.dart';
 import 'note_logic.dart';
 import '../imports/text_import_screen.dart';
 import '../work/work_workspace_switcher.dart';
@@ -44,6 +49,7 @@ class NotesScreen extends ConsumerStatefulWidget {
   final VoidCallback? onOpenSchedule;
   final VoidCallback? onOpenTasks;
   final bool embedded;
+  final String? initialNoteId;
 
   const NotesScreen({
     super.key,
@@ -53,6 +59,7 @@ class NotesScreen extends ConsumerStatefulWidget {
     this.onOpenSchedule,
     this.onOpenTasks,
     this.embedded = false,
+    this.initialNoteId,
   });
 
   @override
@@ -62,6 +69,9 @@ class NotesScreen extends ConsumerStatefulWidget {
 class _NotesScreenState extends ConsumerState<NotesScreen> {
   String _query = '';
   _NoteFilter _filter = _NoteFilter.all;
+  bool _didHandleInitialNote = false;
+  String? _scheduledInitialId;
+  bool _initialRecordMissing = false;
 
   @override
   void initState() {
@@ -76,6 +86,11 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
   @override
   void didUpdateWidget(covariant NotesScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (widget.initialNoteId != oldWidget.initialNoteId) {
+      _didHandleInitialNote = false;
+      _scheduledInitialId = null;
+      _initialRecordMissing = false;
+    }
     if (widget.createRequest == oldWidget.createRequest ||
         widget.createRequest == 0) {
       return;
@@ -86,9 +101,31 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
     });
   }
 
+  Future<void> _refreshNotes() async {
+    ref.invalidate(allNotesProvider);
+    try {
+      await ref.read(allNotesProvider.future);
+    } catch (_) {
+      // The provider's visible error state offers retry.
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    if (widget.initialNoteId != null) ref.watch(workspaceIdProvider);
     final notes = ref.watch(allNotesProvider);
+    if (_initialRecordMissing) {
+      return WorkloopRecordLinkUnavailable(
+        recordName: 'Note',
+        onRetry: () {
+          setState(() {
+            _didHandleInitialNote = false;
+            _initialRecordMissing = false;
+          });
+          ref.invalidate(allNotesProvider);
+        },
+      );
+    }
 
     final content = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -112,10 +149,14 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
                   )
                 : WorkloopPageHeader(
                     title: widget.onOpenSchedule == null ? 'Notes' : 'Work',
-                    subtitle: widget.onOpenSchedule == null
-                        ? 'Keep the context you will need later.'
-                        : 'Plan the day, do the work, keep the context.',
-                    color: AppColors.accentPrimary,
+                    subtitle: MediaQuery.textScalerOf(context).scale(1) >= 1.4
+                        ? ''
+                        : widget.onOpenSchedule == null
+                        ? 'Keep useful details close.'
+                        : 'Your schedule, tasks and notes.',
+                    color: widget.onOpenSchedule == null
+                        ? AppColors.of(context).modNotes
+                        : AppColors.of(context).modCalendar,
                     trailing: WorkloopTopAction(
                       label: 'New note',
                       semanticLabel: 'New note',
@@ -126,7 +167,7 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
           if (!widget.showBackButton &&
               widget.onOpenSchedule != null &&
               widget.onOpenTasks != null) ...[
-            const SizedBox(height: AppSpacing.lg),
+            const SizedBox(height: AppSpacing.sm),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: AppSpacing.pageX),
               child: WorkWorkspaceSwitcher(
@@ -144,7 +185,7 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
               ),
             ),
           ],
-          const SizedBox(height: AppSpacing.lg),
+          const SizedBox(height: AppSpacing.sm),
         ],
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: AppSpacing.pageX),
@@ -154,7 +195,7 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
             semanticLabel: 'Search notes',
           ),
         ),
-        const SizedBox(height: AppSpacing.md),
+        const SizedBox(height: AppSpacing.sm),
         notes.maybeWhen(
           data: (_) => _NoteFilterRail(
             selected: _filter,
@@ -173,24 +214,28 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
                 onRetry: () => ref.invalidate(allNotesProvider),
               ),
             ),
-            data: (data) => _NotesList(
-              notes: _filteredNotes(data),
-              referenceDate: widget.referenceDate,
-              hasSearch: _query.trim().isNotEmpty,
-              onRefresh: () async => ref.invalidate(allNotesProvider),
-              onOpen: (note) => _openEditor(note: note),
-              onCreate: _openEditor,
-              onImport: () async {
-                await Navigator.push<void>(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) =>
-                        const TextImportScreen(type: TextImportType.notes),
-                  ),
-                );
-                ref.invalidate(allNotesProvider);
-              },
-            ),
+            data: (data) {
+              _openInitialNote(data);
+              return _NotesList(
+                notes: _filteredNotes(data),
+                referenceDate: widget.referenceDate,
+                hasSearch: _query.trim().isNotEmpty,
+                onRefresh: _refreshNotes,
+                onOpen: (note) => _openEditor(note: note),
+                onCreate: _openEditor,
+                onImport: () async {
+                  await Navigator.push<void>(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          const TextImportScreen(type: TextImportType.notes),
+                    ),
+                  );
+                  if (!mounted) return;
+                  ref.invalidate(allNotesProvider);
+                },
+              );
+            },
           ),
         ),
       ],
@@ -198,7 +243,7 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
     if (widget.embedded) return content;
 
     return Scaffold(
-      backgroundColor: AppColors.bg,
+      backgroundColor: Colors.transparent,
       body: Stack(
         children: [
           const Positioned.fill(child: WorkloopTexturedBackdrop()),
@@ -242,9 +287,66 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
 
   Future<void> _openEditor({SlateNote? note}) async {
     await Navigator.of(context).push<void>(
-      MaterialPageRoute(builder: (_) => _NoteEditorScreen(note: note)),
+      MaterialPageRoute(
+        settings: RouteSettings(
+          name: note == null ? null : '/notes/${note.id}',
+        ),
+        builder: (_) => _NoteEditorScreen(note: note),
+      ),
     );
     if (mounted) ref.invalidate(allNotesProvider);
+  }
+
+  void _openInitialNote(List<SlateNote> records) {
+    final id = widget.initialNoteId?.trim();
+    final snapshot = ref.read(allNotesProvider);
+    final workspace = ref.read(workspaceIdProvider);
+    if (_didHandleInitialNote ||
+        id == null ||
+        id.isEmpty ||
+        _scheduledInitialId == id ||
+        snapshot.isLoading ||
+        snapshot.hasError ||
+        !snapshot.hasValue ||
+        workspace.isLoading ||
+        workspace.hasError ||
+        workspace.value == null) {
+      return;
+    }
+    final workspaceId = workspace.value;
+    _scheduledInitialId = id;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted ||
+          _scheduledInitialId != id ||
+          widget.initialNoteId?.trim() != id) {
+        return;
+      }
+      _scheduledInitialId = null;
+      final current = ref.read(allNotesProvider);
+      final currentWorkspace = ref.read(workspaceIdProvider);
+      if (current.isLoading ||
+          current.hasError ||
+          !current.hasValue ||
+          currentWorkspace.isLoading ||
+          currentWorkspace.hasError ||
+          currentWorkspace.value != workspaceId) {
+        return;
+      }
+      SlateNote? match;
+      for (final record in current.value ?? <SlateNote>[]) {
+        if (record.id == id) {
+          match = record;
+          break;
+        }
+      }
+      _didHandleInitialNote = true;
+      if (match == null) {
+        setState(() => _initialRecordMissing = true);
+      } else {
+        _openEditor(note: match);
+      }
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
   }
 }
 
@@ -301,9 +403,10 @@ class _NotesList extends StatelessWidget {
     );
 
     return RefreshIndicator(
-      color: AppColors.accentPrimary,
+      color: AppColors.of(context).accentPrimary,
       onRefresh: onRefresh,
       child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
         padding: EdgeInsets.fromLTRB(
           AppSpacing.pageX,
           0,
@@ -313,7 +416,7 @@ class _NotesList extends StatelessWidget {
         children: [
           if (notes.isEmpty)
             Padding(
-              padding: const EdgeInsets.only(top: 42),
+              padding: const EdgeInsets.only(top: AppSpacing.lg),
               child: Column(
                 children: [
                   WorkloopEmptyState(
@@ -422,15 +525,17 @@ class _NoteListRow extends StatelessWidget {
         child: Icon(
           note.pinned ? LucideIcons.pin : LucideIcons.fileText,
           size: 16,
-          color: note.pinned ? AppColors.accentPrimary : AppColors.t3,
+          color: note.pinned
+              ? AppColors.of(context).accentPrimary
+              : AppColors.of(context).t3,
         ),
       ),
       title: Text(
         title,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
-        style: const TextStyle(
-          color: AppColors.t1,
+        style: TextStyle(
+          color: AppColors.of(context).t1,
           fontSize: 15,
           fontWeight: FontWeight.w600,
         ),
@@ -451,8 +556,8 @@ class _NoteListRow extends StatelessWidget {
             ),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: AppColors.t3,
+            style: TextStyle(
+              color: AppColors.of(context).t3,
               fontSize: 13,
               height: 1.3,
             ),
@@ -462,17 +567,17 @@ class _NoteListRow extends StatelessWidget {
               note.clientName!,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: AppColors.t3,
+              style: TextStyle(
+                color: AppColors.of(context).t3,
                 fontSize: 12,
                 fontWeight: FontWeight.w500,
               ),
             ),
         ],
       ),
-      trailing: const Icon(
+      trailing: Icon(
         LucideIcons.chevronRight,
-        color: AppColors.t3,
+        color: AppColors.of(context).t3,
         size: 18,
       ),
     );
@@ -492,9 +597,12 @@ class _NoteEditorScreenState extends ConsumerState<_NoteEditorScreen> {
   late final _NoteTextController _controller;
   late final FocusNode _focusNode;
   late String _lastEditorText;
-  late final String _originalText;
+  late String _originalText;
   late bool _pinned;
-  late final bool _originalPinned;
+  late bool _originalPinned;
+  late final String _creationId;
+  String? _savedNoteId;
+  String? _savedWorkspaceId;
   bool _applyingListContinuation = false;
   bool _repairingListMarker = false;
   bool _saving = false;
@@ -514,6 +622,9 @@ class _NoteEditorScreenState extends ConsumerState<_NoteEditorScreen> {
     _focusNode.addListener(_handleEditorChanged);
     _pinned = widget.note?.pinned ?? false;
     _originalPinned = _pinned;
+    _creationId = createPublicRequestToken();
+    _savedNoteId = widget.note?.id;
+    _savedWorkspaceId = widget.note?.workspaceId;
   }
 
   @override
@@ -527,17 +638,17 @@ class _NoteEditorScreenState extends ConsumerState<_NoteEditorScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final isEditing = widget.note != null;
+    final isEditing = _savedNoteId != null;
     final keyboardInset = MediaQuery.viewInsetsOf(context).bottom;
     final lineFormat = _selectedLineFormat();
 
     return PopScope(
-      canPop: _allowPop || !_hasChanges,
+      canPop: _allowPop || (!_saving && !_hasChanges),
       onPopInvokedWithResult: (didPop, _) {
         if (!didPop && !_saving) _saveAndClose();
       },
       child: Scaffold(
-        backgroundColor: AppColors.bg,
+        backgroundColor: Colors.transparent,
         extendBody: true,
         body: Stack(
           children: [
@@ -548,7 +659,7 @@ class _NoteEditorScreenState extends ConsumerState<_NoteEditorScreen> {
                   Padding(
                     padding: const EdgeInsets.fromLTRB(
                       AppSpacing.pageX,
-                      AppSpacing.lg,
+                      AppSpacing.screenTop,
                       AppSpacing.pageX,
                       0,
                     ),
@@ -564,19 +675,25 @@ class _NoteEditorScreenState extends ConsumerState<_NoteEditorScreen> {
                                 ? LucideIcons.pinOff
                                 : LucideIcons.pin,
                             semanticLabel: _pinned ? 'Unpin note' : 'Pin note',
-                            color: _pinned ? AppColors.modNotes : AppColors.t2,
+                            color: _pinned
+                                ? AppColors.of(context).modNotes
+                                : AppColors.of(context).t2,
                             backgroundColor: _pinned
-                                ? AppColors.modNotes.withValues(alpha: 0.12)
+                                ? AppColors.of(
+                                    context,
+                                  ).modNotes.withValues(alpha: 0.12)
                                 : null,
                             size: 42,
-                            onTap: () => setState(() => _pinned = !_pinned),
+                            onTap: () {
+                              if (!_saving) setState(() => _pinned = !_pinned);
+                            },
                           ),
                           if (isEditing) ...[
                             const SizedBox(width: AppSpacing.xs),
                             WorkloopIconButton(
                               icon: LucideIcons.moreHorizontal,
                               semanticLabel: 'Note actions',
-                              color: AppColors.t2,
+                              color: AppColors.of(context).t2,
                               size: 42,
                               onTap: _showNoteActions,
                             ),
@@ -600,6 +717,11 @@ class _NoteEditorScreenState extends ConsumerState<_NoteEditorScreen> {
                     ),
                   ],
                   const SizedBox(height: AppSpacing.xl),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: AppSpacing.pageX),
+                    child: WorkloopFieldLabel('Note text', isRequired: false),
+                  ),
+                  const SizedBox(height: AppSpacing.xs),
                   Expanded(
                     child: Padding(
                       padding: const EdgeInsets.fromLTRB(
@@ -612,6 +734,7 @@ class _NoteEditorScreenState extends ConsumerState<_NoteEditorScreen> {
                         clipBehavior: Clip.none,
                         children: [
                           TextField(
+                            readOnly: _saving,
                             controller: _controller,
                             focusNode: _focusNode,
                             autofocus: !isEditing,
@@ -621,13 +744,13 @@ class _NoteEditorScreenState extends ConsumerState<_NoteEditorScreen> {
                             keyboardType: TextInputType.multiline,
                             textCapitalization: TextCapitalization.sentences,
                             textInputAction: TextInputAction.newline,
-                            style: const TextStyle(
-                              color: AppColors.t1,
+                            style: TextStyle(
+                              color: AppColors.of(context).t1,
                               fontSize: 17,
                               height: 1.45,
                               fontWeight: FontWeight.w400,
                             ),
-                            decoration: const InputDecoration(
+                            decoration: InputDecoration(
                               filled: false,
                               border: InputBorder.none,
                               enabledBorder: InputBorder.none,
@@ -635,7 +758,7 @@ class _NoteEditorScreenState extends ConsumerState<_NoteEditorScreen> {
                               contentPadding: EdgeInsets.zero,
                               hintText: 'Note title\nStart writing...',
                               hintStyle: TextStyle(
-                                color: AppColors.t3,
+                                color: AppColors.of(context).t3,
                                 fontSize: 17,
                                 height: 1.55,
                                 fontWeight: FontWeight.w400,
@@ -666,6 +789,7 @@ class _NoteEditorScreenState extends ConsumerState<_NoteEditorScreen> {
             bulletActive: lineFormat == _LineFormat.bullet,
             onChecklist: _toggleChecklistLines,
             onBullet: _toggleBulletLines,
+            onAttachments: _openAttachments,
           ),
         ),
       ),
@@ -675,12 +799,32 @@ class _NoteEditorScreenState extends ConsumerState<_NoteEditorScreen> {
   bool get _hasChanges =>
       _controller.text != _originalText || _pinned != _originalPinned;
 
+  Future<void> _openAttachments() async {
+    if (_saving) return;
+    _focusNode.unfocus();
+    final saved = await _save(forAttachment: true);
+    if (!saved ||
+        !mounted ||
+        _savedNoteId == null ||
+        _savedWorkspaceId == null) {
+      return;
+    }
+    await Navigator.push<void>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => RecordAttachmentsScreen(
+          workspaceId: _savedWorkspaceId!,
+          target: AttachmentTarget.note(_savedNoteId!),
+          recordTitle: parseNoteDraft(_controller.text).title,
+        ),
+      ),
+    );
+  }
+
   Future<void> _showNoteActions() async {
     if (_saving) return;
-    await showModalBottomSheet<void>(
+    await showWorkloopBottomSheet<void>(
       context: context,
-      backgroundColor: Colors.transparent,
-      barrierColor: AppColors.t1.withValues(alpha: 0.20),
       builder: (sheetContext) => SlateSheetFrame(
         padding: const EdgeInsets.fromLTRB(
           AppSpacing.lg,
@@ -692,10 +836,10 @@ class _NoteEditorScreenState extends ConsumerState<_NoteEditorScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
+            Text(
               'Note actions',
               style: TextStyle(
-                color: AppColors.t1,
+                color: AppColors.of(sheetContext).t1,
                 fontSize: 20,
                 fontWeight: FontWeight.w600,
               ),
@@ -703,15 +847,15 @@ class _NoteEditorScreenState extends ConsumerState<_NoteEditorScreen> {
             const SizedBox(height: AppSpacing.md),
             WorkloopListRow(
               showDivider: false,
-              leading: const Icon(
+              leading: Icon(
                 LucideIcons.trash2,
                 size: 18,
-                color: AppColors.error,
+                color: AppColors.of(sheetContext).error,
               ),
-              title: const Text(
+              title: Text(
                 'Delete note',
                 style: TextStyle(
-                  color: AppColors.error,
+                  color: AppColors.of(sheetContext).error,
                   fontSize: 15,
                   fontWeight: FontWeight.w600,
                 ),
@@ -796,10 +940,15 @@ class _NoteEditorScreenState extends ConsumerState<_NoteEditorScreen> {
     }
   }
 
-  Future<bool> _save() async {
+  Future<bool> _save({bool forAttachment = false}) async {
     if (_saving) return false;
-    final draft = parseNoteDraft(_controller.text);
-    if (draft.isEmpty && widget.note == null) return true;
+    var draft = parseNoteDraft(_controller.text);
+    if (draft.isEmpty && _savedNoteId == null && !forAttachment) return true;
+    if (draft.isEmpty && forAttachment) {
+      _controller.text = 'Photo note';
+      draft = parseNoteDraft(_controller.text);
+    }
+    if (_savedNoteId != null && !_hasChanges) return true;
 
     setState(() {
       _saving = true;
@@ -809,29 +958,42 @@ class _NoteEditorScreenState extends ConsumerState<_NoteEditorScreen> {
     try {
       final repository = ref.read(notesRepositoryProvider);
       final workspaceId = await ref.read(workspaceIdProvider.future);
+      if (!mounted) return false;
       if (workspaceId == null) {
         setState(() => _error = 'Workspace is not ready yet.');
         return false;
       }
+      if (_savedWorkspaceId != null && _savedWorkspaceId != workspaceId) {
+        setState(
+          () => _error =
+              'Your business changed. Reopen this note from the correct business.',
+        );
+        return false;
+      }
+      _savedWorkspaceId = workspaceId;
 
       final note = widget.note;
-      if (note == null) {
-        await repository.create(
+      if (_savedNoteId == null) {
+        _savedNoteId = await repository.create(
           workspaceId: workspaceId,
+          noteId: _creationId,
           title: draft.title,
           body: draft.body,
           pinned: _pinned,
         );
       } else {
         await repository.update(
-          noteId: note.id,
+          noteId: _savedNoteId!,
           title: draft.title,
           body: draft.body,
-          contactId: note.contactId,
-          appointmentId: note.appointmentId,
+          contactId: note?.contactId,
+          appointmentId: note?.appointmentId,
           pinned: _pinned,
         );
       }
+      if (!mounted) return false;
+      _originalText = _controller.text;
+      _originalPinned = _pinned;
       ref.invalidate(allNotesProvider);
       return true;
     } catch (_) {
@@ -844,7 +1006,8 @@ class _NoteEditorScreenState extends ConsumerState<_NoteEditorScreen> {
 
   Future<void> _confirmDelete() async {
     final note = widget.note;
-    if (note == null || _saving) return;
+    final noteId = _savedNoteId;
+    if (noteId == null || _saving) return;
 
     var deleting = false;
     String? deleteError;
@@ -856,16 +1019,16 @@ class _NoteEditorScreenState extends ConsumerState<_NoteEditorScreen> {
         builder: (dialogContext, setDialog) => PopScope(
           canPop: !deleting,
           child: AlertDialog(
-            backgroundColor: AppColors.bgCard,
+            backgroundColor: AppColors.of(dialogContext).bgCard,
             title: const Text('Delete note?'),
             content: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  note.title.trim().isEmpty
-                      ? 'This note will be permanently deleted.'
-                      : note.title,
+                  (note?.title ?? '').trim().isEmpty
+                      ? 'This note and its attached photos and files will be permanently deleted.'
+                      : '${note!.title}\nIts attached photos and files will also be removed.',
                 ),
                 if (deleteError != null) ...[
                   const SizedBox(height: AppSpacing.md),
@@ -873,8 +1036,8 @@ class _NoteEditorScreenState extends ConsumerState<_NoteEditorScreen> {
                     liveRegion: true,
                     child: Text(
                       deleteError!,
-                      style: const TextStyle(
-                        color: AppColors.error,
+                      style: TextStyle(
+                        color: AppColors.of(dialogContext).error,
                         fontSize: 13,
                         fontWeight: FontWeight.w500,
                       ),
@@ -901,13 +1064,13 @@ class _NoteEditorScreenState extends ConsumerState<_NoteEditorScreen> {
                         try {
                           await ref
                               .read(notesRepositoryProvider)
-                              .delete(note.id);
+                              .delete(noteId);
                         } catch (_) {
                           if (!dialogContext.mounted) return;
                           setDialog(() {
                             deleting = false;
                             deleteError =
-                                'Couldn’t delete this note. Nothing was removed. Please try again.';
+                                'Couldn’t finish deleting this note and its files. Please try again.';
                           });
                           return;
                         }
@@ -917,17 +1080,19 @@ class _NoteEditorScreenState extends ConsumerState<_NoteEditorScreen> {
                         }
                       },
                 child: deleting
-                    ? const SizedBox(
+                    ? SizedBox(
                         width: 18,
                         height: 18,
                         child: CircularProgressIndicator(
-                          color: AppColors.error,
+                          color: AppColors.of(dialogContext).error,
                           strokeWidth: 2,
                         ),
                       )
-                    : const Text(
+                    : Text(
                         'Delete',
-                        style: TextStyle(color: AppColors.error),
+                        style: TextStyle(
+                          color: AppColors.of(dialogContext).error,
+                        ),
                       ),
               ),
             ],
@@ -1222,19 +1387,21 @@ class _NoteFormatToolbar extends StatelessWidget {
   final bool bulletActive;
   final VoidCallback onChecklist;
   final VoidCallback onBullet;
+  final VoidCallback onAttachments;
 
   const _NoteFormatToolbar({
     required this.checklistActive,
     required this.bulletActive,
     required this.onChecklist,
     required this.onBullet,
+    required this.onAttachments,
   });
 
   @override
   Widget build(BuildContext context) {
     return SlateSurface(
-      color: AppColors.bgCard.withValues(alpha: 0.92),
-      borderColor: AppColors.t1.withValues(alpha: 0.08),
+      color: AppColors.of(context).bgCard.withValues(alpha: 0.92),
+      borderColor: AppColors.of(context).t1.withValues(alpha: 0.08),
       radius: AppRadius.lg,
       elevated: true,
       padding: const EdgeInsets.all(AppSpacing.xs),
@@ -1257,6 +1424,15 @@ class _NoteFormatToolbar extends StatelessWidget {
               onTap: onBullet,
             ),
           ),
+          const SizedBox(width: AppSpacing.xs),
+          Expanded(
+            child: _FormatButton(
+              icon: LucideIcons.paperclip,
+              label: 'Files',
+              active: false,
+              onTap: onAttachments,
+            ),
+          ),
         ],
       ),
     );
@@ -1272,7 +1448,7 @@ class _NoteDoneAction extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: AppColors.modNotes.withValues(alpha: 0.14),
+      color: AppColors.of(context).modNotes.withValues(alpha: 0.14),
       borderRadius: BorderRadius.circular(AppRadius.md),
       child: InkWell(
         onTap: loading ? null : onTap,
@@ -1284,18 +1460,18 @@ class _NoteDoneAction extends StatelessWidget {
           ),
           child: Center(
             child: loading
-                ? const SizedBox(
+                ? SizedBox(
                     width: 16,
                     height: 16,
                     child: CircularProgressIndicator(
-                      color: AppColors.modNotes,
+                      color: AppColors.of(context).modNotes,
                       strokeWidth: 2,
                     ),
                   )
-                : const Text(
+                : Text(
                     'Done',
                     style: TextStyle(
-                      color: AppColors.modNotes,
+                      color: AppColors.of(context).modNotes,
                       fontSize: 14,
                       fontWeight: FontWeight.w600,
                     ),
@@ -1339,7 +1515,7 @@ class _FormatButton extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xs),
             decoration: BoxDecoration(
               color: active
-                  ? AppColors.modNotes.withValues(alpha: 0.12)
+                  ? AppColors.of(context).modNotes.withValues(alpha: 0.12)
                   : Colors.transparent,
               borderRadius: BorderRadius.circular(AppRadius.md),
             ),
@@ -1349,7 +1525,9 @@ class _FormatButton extends StatelessWidget {
                 Icon(
                   icon,
                   size: 17,
-                  color: active ? AppColors.modNotes : AppColors.t2,
+                  color: active
+                      ? AppColors.of(context).modNotes
+                      : AppColors.of(context).t2,
                 ),
                 const SizedBox(width: AppSpacing.xxs),
                 Flexible(
@@ -1358,7 +1536,9 @@ class _FormatButton extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                      color: active ? AppColors.modNotes : AppColors.t2,
+                      color: active
+                          ? AppColors.of(context).modNotes
+                          : AppColors.of(context).t2,
                       fontSize: 11,
                       fontWeight: FontWeight.w600,
                     ),
@@ -1387,38 +1567,50 @@ class _NoteTextController extends TextEditingController {
       fontSize: 22,
       height: 1.24,
       fontWeight: FontWeight.w600,
-      color: AppColors.t1,
+      color: AppColors.of(context).t1,
     );
     final bodyStyle = baseStyle.copyWith(
       fontSize: 17,
       height: 1.45,
       fontWeight: FontWeight.w400,
-      color: AppColors.t1,
+      color: AppColors.of(context).t1,
     );
 
     final newlineIndex = text.indexOf('\n');
     if (newlineIndex == -1) {
-      return TextSpan(children: _styledTextSpans(text, headingStyle));
+      return TextSpan(children: _styledTextSpans(context, text, headingStyle));
     }
 
     return TextSpan(
       children: [
-        ..._styledTextSpans(text.substring(0, newlineIndex), headingStyle),
+        ..._styledTextSpans(
+          context,
+          text.substring(0, newlineIndex),
+          headingStyle,
+        ),
         TextSpan(
           text: text.substring(newlineIndex, newlineIndex + 1),
           style: bodyStyle,
         ),
-        ..._styledTextSpans(text.substring(newlineIndex + 1), bodyStyle),
+        ..._styledTextSpans(
+          context,
+          text.substring(newlineIndex + 1),
+          bodyStyle,
+        ),
       ],
     );
   }
 
-  List<TextSpan> _styledTextSpans(String value, TextStyle style) {
+  List<TextSpan> _styledTextSpans(
+    BuildContext context,
+    String value,
+    TextStyle style,
+  ) {
     final spans = <TextSpan>[];
     final lines = value.split('\n');
 
     for (var index = 0; index < lines.length; index++) {
-      spans.addAll(_styledLineSpans(lines[index], style));
+      spans.addAll(_styledLineSpans(context, lines[index], style));
       if (index != lines.length - 1) {
         spans.add(TextSpan(text: '\n', style: style));
       }
@@ -1428,9 +1620,13 @@ class _NoteTextController extends TextEditingController {
     return spans;
   }
 
-  List<TextSpan> _styledLineSpans(String value, TextStyle style) {
+  List<TextSpan> _styledLineSpans(
+    BuildContext context,
+    String value,
+    TextStyle style,
+  ) {
     final spans = <TextSpan>[];
-    final cursor = _addListMarkerSpan(value, style, spans);
+    final cursor = _addListMarkerSpan(context, value, style, spans);
 
     if (cursor < value.length) {
       spans.add(TextSpan(text: value.substring(cursor), style: style));
@@ -1439,7 +1635,12 @@ class _NoteTextController extends TextEditingController {
     return spans;
   }
 
-  int _addListMarkerSpan(String value, TextStyle style, List<TextSpan> spans) {
+  int _addListMarkerSpan(
+    BuildContext context,
+    String value,
+    TextStyle style,
+    List<TextSpan> spans,
+  ) {
     final checklistMatch = _checklistPattern.firstMatch(value);
     if (checklistMatch != null && checklistMatch.start == 0) {
       final rawMarker = value.substring(0, checklistMatch.end);
@@ -1448,7 +1649,9 @@ class _NoteTextController extends TextEditingController {
         TextSpan(
           text: checked ? _checkedChecklistMarker : _uncheckedChecklistMarker,
           style: style.copyWith(
-            color: checked ? AppColors.accentPrimary : AppColors.t3,
+            color: checked
+                ? AppColors.of(context).accentPrimary
+                : AppColors.of(context).t3,
             fontSize: 15,
             fontWeight: FontWeight.w600,
           ),
@@ -1463,7 +1666,7 @@ class _NoteTextController extends TextEditingController {
         TextSpan(
           text: _bulletMarker,
           style: style.copyWith(
-            color: AppColors.t3,
+            color: AppColors.of(context).t3,
             fontSize: 15,
             fontWeight: FontWeight.w600,
           ),

@@ -2,14 +2,56 @@ import {
   bestEffortPlatformIp,
   bookingRequestOutcomeResponse,
   bookingRequestValidationError,
+  cleanAddOnIds,
+  cleanServiceIds,
   isUuid,
   isValidEmail,
   normalizeEmail,
   normalizePhoneDigits,
   nullableStringValue,
+  parseRequestedInstant,
   resolveRequestToken,
   stringValue,
 } from "./request_validation.ts";
+
+Deno.test("requested instants preserve explicit offsets and autumn repeated times", () => {
+  assertEquals(
+    parseRequestedInstant("2026-10-25T01:30:00+01:00")?.toISOString(),
+    "2026-10-25T00:30:00.000Z",
+  );
+  assertEquals(
+    parseRequestedInstant("2026-10-25T01:30:00+00:00")?.toISOString(),
+    "2026-10-25T01:30:00.000Z",
+  );
+  assertEquals(
+    parseRequestedInstant("2026-09-06T10:30:12.345678Z")?.toISOString(),
+    "2026-09-06T10:30:12.345Z",
+  );
+  assertEquals(
+    parseRequestedInstant("2028-02-29T09:00:00Z")?.toISOString(),
+    "2028-02-29T09:00:00.000Z",
+  );
+});
+
+Deno.test("requested instants reject calendar rollover, missing zones and invalid offsets", () => {
+  for (
+    const value of [
+      "2026-02-30T09:00:00Z",
+      "2026-02-29T09:00:00Z",
+      "2026-04-31T09:00:00Z",
+      "2026-09-06",
+      "2026-09-06T09:00:00",
+      "2026-09-06T24:00:00Z",
+      "2026-09-06T09:60:00Z",
+      "2026-09-06T09:00:60Z",
+      "2026-09-06T09:00:00+14:30",
+      "2026-09-06T09:00:00+25:00",
+      "September 6, 2026 09:00 UTC",
+      null,
+      123,
+    ]
+  ) assertEquals(parseRequestedInstant(value), null);
+});
 
 function assertEquals(actual: unknown, expected: unknown) {
   if (JSON.stringify(actual) !== JSON.stringify(expected)) {
@@ -48,6 +90,15 @@ Deno.test("preserves a supplied retry token across duplicate submissions", () =>
   assertEquals(resolveRequestToken(token, () => "unused"), token);
   assertEquals(resolveRequestToken(token, () => "different"), token);
   assertEquals(resolveRequestToken("", () => token), token);
+});
+
+Deno.test("accepts at most eight unique add-on IDs", () => {
+  const id = "c2499f36-c3f4-4f80-80dd-31ba2b581f78";
+  assertEquals(cleanAddOnIds(undefined), []);
+  assertEquals(cleanAddOnIds([id]), [id]);
+  assertEquals(cleanAddOnIds([id, id]), null);
+  assertEquals(cleanAddOnIds(["not-an-id"]), null);
+  assertEquals(cleanAddOnIds(Array(9).fill(id)), null);
 });
 
 Deno.test("rejects invalid booking fields before any database call", () => {
@@ -91,6 +142,10 @@ Deno.test("maps duplicate and guarded database outcomes safely", () => {
     status: 400,
     body: { error: "Invalid service" },
   });
+  assertEquals(bookingRequestOutcomeResponse("invalid_add_on"), {
+    status: 400,
+    body: { error: "Invalid optional extra" },
+  });
   assertEquals(
     bookingRequestOutcomeResponse("profile_unavailable").status,
     409,
@@ -112,4 +167,27 @@ Deno.test("uses the right-most valid forwarded address as a fallback", () => {
     "x-forwarded-for": "not-an-ip, 198.51.100.10, 203.0.113.8",
   });
   assertEquals(bestEffortPlatformIp(headers), "203.0.113.8");
+});
+
+Deno.test("service selection keeps legacy intake and repeated ordered services", () => {
+  const first = "c768f9f5-5551-4c8f-8986-5a8754f25b29";
+  const second = "c2499f36-c3f4-4f80-80dd-31ba2b581f78";
+  assertEquals(cleanServiceIds(undefined, first), [first]);
+  assertEquals(cleanServiceIds(undefined, ""), []);
+  assertEquals(cleanServiceIds([first, second], first), [first, second]);
+  assertEquals(cleanServiceIds([first, first], first), [first, first]);
+  assertEquals(cleanServiceIds([second], first), null);
+  assertEquals(cleanServiceIds([], first), null);
+  assertEquals(cleanServiceIds([first, "bad-id"], first), null);
+  assertEquals(
+    cleanServiceIds(
+      Array.from({ length: 9 }, () => crypto.randomUUID()),
+      first,
+    ),
+    null,
+  );
+  assertEquals(
+    bookingRequestOutcomeResponse("invalid_bundle_total").status,
+    400,
+  );
 });

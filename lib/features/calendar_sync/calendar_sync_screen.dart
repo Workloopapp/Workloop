@@ -18,7 +18,7 @@ class CalendarSyncScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return Scaffold(
-      backgroundColor: AppColors.bg,
+      backgroundColor: Colors.transparent,
       body: Stack(
         children: [
           const Positioned.fill(child: WorkloopTexturedBackdrop()),
@@ -38,10 +38,10 @@ class CalendarSyncScreen extends ConsumerWidget {
                 const SizedBox(height: AppSpacing.xxl),
                 const WorkloopSectionHeader(label: 'Import events'),
                 const SizedBox(height: AppSpacing.xs),
-                const Text(
+                Text(
                   'Choose calendar events, review them, then create them once as Workloop bookings.',
                   style: TextStyle(
-                    color: AppColors.t2,
+                    color: AppColors.of(context).t2,
                     fontSize: 14,
                     height: 1.45,
                   ),
@@ -60,10 +60,10 @@ class CalendarSyncScreen extends ConsumerWidget {
                 const SizedBox(height: AppSpacing.xxl),
                 const WorkloopSectionHeader(label: 'Export bookings'),
                 const SizedBox(height: AppSpacing.xs),
-                const Text(
+                Text(
                   'Save a point-in-time .ics file of your current bookings. This is not a live two-way connection.',
                   style: TextStyle(
-                    color: AppColors.t2,
+                    color: AppColors.of(context).t2,
                     fontSize: 14,
                     height: 1.45,
                   ),
@@ -116,9 +116,9 @@ class CalendarSyncScreen extends ConsumerWidget {
     } catch (_) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+        SnackBar(
           content: Text('Calendar file could not be saved'),
-          backgroundColor: AppColors.error,
+          backgroundColor: AppColors.of(context).error,
         ),
       );
     }
@@ -130,18 +130,18 @@ class CalendarSyncScreen extends ConsumerWidget {
       await Clipboard.setData(ClipboardData(text: ics));
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+        SnackBar(
           content: Text('Calendar export data copied'),
-          backgroundColor: AppColors.success,
+          backgroundColor: AppColors.of(context).success,
           behavior: SnackBarBehavior.floating,
         ),
       );
     } catch (_) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+        SnackBar(
           content: Text('Calendar export data could not be copied'),
-          backgroundColor: AppColors.error,
+          backgroundColor: AppColors.of(context).error,
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -199,16 +199,16 @@ class _SyncRow extends StatelessWidget {
           margin: const EdgeInsets.only(bottom: 8),
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
           decoration: BoxDecoration(
-            color: AppColors.bgCard,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: AppColors.border),
+            color: AppColors.of(context).bgCard,
+            borderRadius: BorderRadius.circular(AppRadius.md),
+            border: Border.all(color: AppColors.of(context).border),
           ),
           child: Row(
             crossAxisAlignment: useStackedLayout
                 ? CrossAxisAlignment.start
                 : CrossAxisAlignment.center,
             children: [
-              Icon(icon, color: AppColors.t3, size: 17),
+              Icon(icon, color: AppColors.of(context).t3, size: 17),
               const SizedBox(width: 12),
               Expanded(
                 child: useStackedLayout
@@ -245,7 +245,10 @@ class _SyncRowLabel extends StatelessWidget {
   Widget build(BuildContext context) {
     return Text(
       label,
-      style: const TextStyle(color: AppColors.t1, fontWeight: FontWeight.w600),
+      style: TextStyle(
+        color: AppColors.of(context).t1,
+        fontWeight: FontWeight.w600,
+      ),
     );
   }
 }
@@ -261,8 +264,8 @@ class _SyncRowValue extends StatelessWidget {
     return Text(
       value,
       textAlign: alignEnd ? TextAlign.end : TextAlign.start,
-      style: const TextStyle(
-        color: AppColors.t3,
+      style: TextStyle(
+        color: AppColors.of(context).t3,
         fontSize: 12,
         fontWeight: FontWeight.w600,
       ),

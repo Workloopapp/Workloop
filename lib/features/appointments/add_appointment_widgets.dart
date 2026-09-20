@@ -15,133 +15,123 @@ Future<_PickedAppointmentTime?> _showAppointmentTimePicker({
   int tempHour = initialHour;
   int tempMinute = initialMinute;
 
-  return showModalBottomSheet<_PickedAppointmentTime>(
+  return showWorkloopBottomSheet<_PickedAppointmentTime>(
     context: context,
-    backgroundColor: AppColors.bgCard,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-    ),
     builder: (context) => StatefulBuilder(
-      builder: (context, setModal) => SizedBox(
-        height: 280,
-        child: Column(
-          children: [
-            Container(
-              margin: const EdgeInsets.only(top: 12),
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: AppColors.border,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: AppSpacing.pageX,
-                vertical: AppSpacing.md,
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text(
-                    'Select time',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.t1,
-                    ),
-                  ),
-                  WorkloopTextButton(
-                    label: 'Done',
-                    onPressed: () => Navigator.pop(
-                      context,
-                      _PickedAppointmentTime(
-                        hour: tempHour,
-                        minute: tempMinute,
+      builder: (context, setModal) => SlateSheetFrame(
+        child: SizedBox(
+          height: 240,
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Select time',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.of(context).t1,
                       ),
                     ),
-                  ),
-                ],
-              ),
-            ),
-            Expanded(
-              child: Row(
-                children: [
-                  Expanded(
-                    child: ListWheelScrollView.useDelegate(
-                      itemExtent: 48,
-                      perspective: 0.003,
-                      diameterRatio: 1.8,
-                      physics: const FixedExtentScrollPhysics(),
-                      controller: FixedExtentScrollController(
-                        initialItem: tempHour,
+                    WorkloopTextButton(
+                      label: 'Done',
+                      onPressed: () => Navigator.pop(
+                        context,
+                        _PickedAppointmentTime(
+                          hour: tempHour,
+                          minute: tempMinute,
+                        ),
                       ),
-                      onSelectedItemChanged: (i) =>
-                          setModal(() => tempHour = i),
-                      childDelegate: ListWheelChildBuilderDelegate(
-                        childCount: 24,
-                        builder: (context, i) {
-                          final selected = i == tempHour;
-                          return Center(
-                            child: Text(
-                              i.toString().padLeft(2, '0'),
-                              style: TextStyle(
-                                fontSize: selected ? 24 : 18,
-                                fontWeight: selected
-                                    ? FontWeight.w600
-                                    : FontWeight.w400,
-                                color: selected ? AppColors.t1 : AppColors.t3,
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: ListWheelScrollView.useDelegate(
+                        itemExtent: 48,
+                        perspective: 0.003,
+                        diameterRatio: 1.8,
+                        physics: const FixedExtentScrollPhysics(),
+                        controller: FixedExtentScrollController(
+                          initialItem: tempHour,
+                        ),
+                        onSelectedItemChanged: (i) =>
+                            setModal(() => tempHour = i),
+                        childDelegate: ListWheelChildBuilderDelegate(
+                          childCount: 24,
+                          builder: (context, i) {
+                            final selected = i == tempHour;
+                            return Center(
+                              child: Text(
+                                i.toString().padLeft(2, '0'),
+                                style: TextStyle(
+                                  fontSize: selected ? 24 : 18,
+                                  fontWeight: selected
+                                      ? FontWeight.w600
+                                      : FontWeight.w400,
+                                  color: selected
+                                      ? AppColors.of(context).t1
+                                      : AppColors.of(context).t3,
+                                ),
                               ),
-                            ),
-                          );
-                        },
+                            );
+                          },
+                        ),
                       ),
                     ),
-                  ),
-                  const Text(
-                    ':',
-                    style: TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.t1,
-                    ),
-                  ),
-                  Expanded(
-                    child: ListWheelScrollView.useDelegate(
-                      itemExtent: 48,
-                      perspective: 0.003,
-                      diameterRatio: 1.8,
-                      physics: const FixedExtentScrollPhysics(),
-                      controller: FixedExtentScrollController(
-                        initialItem: tempMinute ~/ 15,
+                    Text(
+                      ':',
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.of(context).t1,
                       ),
-                      onSelectedItemChanged: (i) =>
-                          setModal(() => tempMinute = i * 15),
-                      childDelegate: ListWheelChildBuilderDelegate(
-                        childCount: 4,
-                        builder: (context, i) {
-                          final min = i * 15;
-                          final selected = min == tempMinute;
-                          return Center(
-                            child: Text(
-                              min.toString().padLeft(2, '0'),
-                              style: TextStyle(
-                                fontSize: selected ? 24 : 18,
-                                fontWeight: selected
-                                    ? FontWeight.w600
-                                    : FontWeight.w400,
-                                color: selected ? AppColors.t1 : AppColors.t3,
+                    ),
+                    Expanded(
+                      child: ListWheelScrollView.useDelegate(
+                        itemExtent: 48,
+                        perspective: 0.003,
+                        diameterRatio: 1.8,
+                        physics: const FixedExtentScrollPhysics(),
+                        controller: FixedExtentScrollController(
+                          initialItem: tempMinute ~/ 15,
+                        ),
+                        onSelectedItemChanged: (i) =>
+                            setModal(() => tempMinute = i * 15),
+                        childDelegate: ListWheelChildBuilderDelegate(
+                          childCount: 4,
+                          builder: (context, i) {
+                            final min = i * 15;
+                            final selected = min == tempMinute;
+                            return Center(
+                              child: Text(
+                                min.toString().padLeft(2, '0'),
+                                style: TextStyle(
+                                  fontSize: selected ? 24 : 18,
+                                  fontWeight: selected
+                                      ? FontWeight.w600
+                                      : FontWeight.w400,
+                                  color: selected
+                                      ? AppColors.of(context).t1
+                                      : AppColors.of(context).t3,
+                                ),
                               ),
-                            ),
-                          );
-                        },
+                            );
+                          },
+                        ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     ),
@@ -151,8 +141,13 @@ Future<_PickedAppointmentTime?> _showAppointmentTimePicker({
 class _AppointmentSectionLabel extends StatelessWidget {
   final String text;
   final String? subtitle;
+  final bool isRequired;
 
-  const _AppointmentSectionLabel(this.text, {this.subtitle});
+  const _AppointmentSectionLabel(
+    this.text, {
+    this.subtitle,
+    this.isRequired = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -168,21 +163,22 @@ class _AppointmentSectionLabel extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
+        WorkloopFieldLabel(
           label,
-          style: const TextStyle(
+          isRequired: isRequired,
+          style: TextStyle(
             fontSize: 20,
             fontWeight: FontWeight.w600,
             height: 1.12,
-            color: AppColors.t1,
+            color: AppColors.of(context).t1,
           ),
         ),
         if (subtitle != null) ...[
           const SizedBox(height: AppSpacing.sm),
           Text(
             subtitle!,
-            style: const TextStyle(
-              color: AppColors.t3,
+            style: TextStyle(
+              color: AppColors.of(context).t3,
               fontSize: 14,
               fontWeight: FontWeight.w400,
               height: 1.35,
@@ -211,7 +207,7 @@ class _BookingSaveAction extends StatelessWidget {
   Widget build(BuildContext context) {
     return Material(
       color: enabled
-          ? AppColors.modCalendar.withValues(alpha: 0.12)
+          ? AppColors.of(context).modCalendar.withValues(alpha: 0.12)
           : Colors.transparent,
       borderRadius: BorderRadius.circular(AppRadius.md),
       child: InkWell(
@@ -224,11 +220,11 @@ class _BookingSaveAction extends StatelessWidget {
           ),
           child: Center(
             child: loading
-                ? const SizedBox(
+                ? SizedBox(
                     width: 16,
                     height: 16,
                     child: CircularProgressIndicator(
-                      color: AppColors.modCalendar,
+                      color: AppColors.of(context).modCalendar,
                       strokeWidth: 2,
                     ),
                   )
@@ -237,7 +233,9 @@ class _BookingSaveAction extends StatelessWidget {
                     child: Text(
                       label,
                       style: TextStyle(
-                        color: enabled ? AppColors.modCalendar : AppColors.t4,
+                        color: enabled
+                            ? AppColors.of(context).modCalendar
+                            : AppColors.of(context).t4,
                         fontSize: 13,
                         fontWeight: FontWeight.w600,
                       ),
@@ -260,8 +258,8 @@ class _AppointmentSkeleton extends StatelessWidget {
     return Container(
       height: height,
       decoration: BoxDecoration(
-        color: AppColors.bgCard,
-        borderRadius: BorderRadius.circular(14),
+        color: AppColors.of(context).bgCard,
+        borderRadius: BorderRadius.circular(AppRadius.md),
       ),
     );
   }
@@ -278,18 +276,25 @@ class _AppointmentErrorBox extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: AppColors.bgCard,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.border),
+        color: AppColors.of(context).bgCard,
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        border: Border.all(color: AppColors.of(context).border),
       ),
       child: Row(
         children: [
-          const Icon(LucideIcons.circleAlert, color: AppColors.error, size: 18),
+          Icon(
+            LucideIcons.circleAlert,
+            color: AppColors.of(context).error,
+            size: 18,
+          ),
           const SizedBox(width: AppSpacing.xs),
           Expanded(
             child: Text(
               message,
-              style: const TextStyle(color: AppColors.error, fontSize: 13),
+              style: TextStyle(
+                color: AppColors.of(context).error,
+                fontSize: 13,
+              ),
             ),
           ),
           const SizedBox(width: AppSpacing.xs),
@@ -336,6 +341,7 @@ class _AppointmentTextInput extends StatelessWidget {
   final String? prefix;
   final String? suffix;
   final String? label;
+  final bool isRequired;
   final IconData? icon;
   final TextInputType? keyboardType;
   final ValueChanged<String>? onChanged;
@@ -346,6 +352,7 @@ class _AppointmentTextInput extends StatelessWidget {
     this.prefix,
     this.suffix,
     this.label,
+    this.isRequired = false,
     this.icon,
     this.keyboardType,
     this.onChanged,
@@ -357,10 +364,11 @@ class _AppointmentTextInput extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (label != null) ...[
-          Text(
+          WorkloopFieldLabel(
             label!,
-            style: const TextStyle(
-              color: AppColors.t2,
+            isRequired: isRequired,
+            style: TextStyle(
+              color: AppColors.of(context).t2,
               fontSize: 14,
               fontWeight: FontWeight.w600,
             ),
@@ -371,34 +379,34 @@ class _AppointmentTextInput extends StatelessWidget {
           controller: controller,
           keyboardType: keyboardType,
           onChanged: onChanged,
-          style: const TextStyle(color: AppColors.t1, fontSize: 15),
+          style: TextStyle(color: AppColors.of(context).t1, fontSize: 15),
           decoration: InputDecoration(
             hintText: hint,
             prefixText: prefix,
             prefixIcon: icon == null
                 ? null
-                : Icon(icon, color: AppColors.t3, size: 18),
+                : Icon(icon, color: AppColors.of(context).t3, size: 18),
             suffixText: suffix,
-            prefixStyle: const TextStyle(color: AppColors.t2),
-            suffixStyle: const TextStyle(color: AppColors.t3),
-            hintStyle: const TextStyle(
-              color: AppColors.t3,
+            prefixStyle: TextStyle(color: AppColors.of(context).t2),
+            suffixStyle: TextStyle(color: AppColors.of(context).t3),
+            hintStyle: TextStyle(
+              color: AppColors.of(context).t3,
               fontWeight: FontWeight.w400,
             ),
             filled: true,
-            fillColor: AppColors.bgCard.withValues(alpha: 0.72),
+            fillColor: AppColors.of(context).bgCard.withValues(alpha: 0.72),
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(AppRadius.md),
-              borderSide: const BorderSide(color: AppColors.border),
+              borderSide: BorderSide(color: AppColors.of(context).border),
             ),
             enabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(AppRadius.md),
-              borderSide: const BorderSide(color: AppColors.border),
+              borderSide: BorderSide(color: AppColors.of(context).border),
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(AppRadius.md),
-              borderSide: const BorderSide(
-                color: AppColors.accentPrimary,
+              borderSide: BorderSide(
+                color: AppColors.of(context).accentPrimary,
                 width: 1.5,
               ),
             ),
@@ -424,9 +432,9 @@ class _PaymentDueToggle extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: AppColors.bgCard,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.border),
+        color: AppColors.of(context).bgCard,
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        border: Border.all(color: AppColors.of(context).border),
       ),
       child: Row(
         children: [
@@ -434,17 +442,17 @@ class _PaymentDueToggle extends StatelessWidget {
             width: 34,
             height: 34,
             decoration: BoxDecoration(
-              color: AppColors.t1.withValues(alpha: 0.07),
+              color: AppColors.of(context).t1.withValues(alpha: 0.07),
               shape: BoxShape.circle,
             ),
-            child: const Icon(
+            child: Icon(
               Icons.receipt_long_rounded,
-              color: AppColors.t2,
+              color: AppColors.of(context).t2,
               size: 17,
             ),
           ),
           const SizedBox(width: 12),
-          const Expanded(
+          Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -453,18 +461,94 @@ class _PaymentDueToggle extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
-                    color: AppColors.t1,
+                    color: AppColors.of(context).t1,
                   ),
                 ),
                 SizedBox(height: 2),
                 Text(
                   'Adds an unpaid Money item linked to this booking.',
-                  style: TextStyle(fontSize: 12, color: AppColors.t3),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: AppColors.of(context).t3,
+                  ),
                 ),
               ],
             ),
           ),
           Switch(value: value, onChanged: onChanged),
+        ],
+      ),
+    );
+  }
+}
+
+class _AppointmentAddOnSelector extends StatelessWidget {
+  final List<ServiceAddOn> addOns;
+  final Set<String> selectedIds;
+  final void Function(String id, bool selected) onChanged;
+
+  const _AppointmentAddOnSelector({
+    required this.addOns,
+    required this.selectedIds,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 8),
+      decoration: BoxDecoration(
+        color: AppColors.of(context).bgCard,
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        border: Border.all(color: AppColors.of(context).border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Optional add-ons',
+            style: TextStyle(
+              color: AppColors.of(context).t1,
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            'Add any extras included in this booking.',
+            style: TextStyle(color: AppColors.of(context).t3, fontSize: 12),
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          for (final addOn in addOns)
+            Semantics(
+              checked: selectedIds.contains(addOn.id),
+              child: CheckboxListTile(
+                value: selectedIds.contains(addOn.id),
+                onChanged: (value) => onChanged(addOn.id, value ?? false),
+                contentPadding: EdgeInsets.zero,
+                controlAffinity: ListTileControlAffinity.leading,
+                dense: true,
+                title: Text(
+                  addOn.name,
+                  style: TextStyle(
+                    color: AppColors.of(context).t1,
+                    fontSize: 14,
+                  ),
+                ),
+                subtitle: Text(
+                  [
+                    if (addOn.durationMins > 0)
+                      '+${formatFriendlyDuration(addOn.durationMins)}',
+                    if (addOn.price > 0) '+${formatPounds(addOn.price)}',
+                  ].join(' · '),
+                  style: TextStyle(
+                    color: AppColors.of(context).t3,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );

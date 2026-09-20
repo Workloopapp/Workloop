@@ -4,6 +4,7 @@ import 'package:lucide_flutter/lucide_flutter.dart';
 
 import '../../../core/theme/app_theme.dart';
 import '../../../shared/utils/currency_format.dart';
+import '../../../shared/utils/duration_format.dart';
 import '../../../shared/widgets/slate_ui.dart';
 import 'settings_helpers.dart';
 
@@ -12,6 +13,7 @@ class SettingsServicesSection extends StatelessWidget {
   final VoidCallback onAdd;
   final ValueChanged<Map<String, dynamic>> onEdit;
   final VoidCallback onRetry;
+  final bool showAddAction;
 
   const SettingsServicesSection({
     super.key,
@@ -19,6 +21,7 @@ class SettingsServicesSection extends StatelessWidget {
     required this.onAdd,
     required this.onEdit,
     required this.onRetry,
+    this.showAddAction = true,
   });
 
   @override
@@ -29,18 +32,19 @@ class SettingsServicesSection extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             sectionLabel('Services'),
-            WorkloopTextButton(label: 'Add', onPressed: onAdd),
+            if (showAddAction)
+              WorkloopTextButton(label: 'Add', onPressed: onAdd),
           ],
         ),
         const SizedBox(height: 10),
         services.when(
-          loading: () => skeletonBox(60),
+          loading: () => skeletonBox(context, 60),
           error: (_, _) => SlateErrorState(
             message: 'Services could not be loaded.',
             onRetry: onRetry,
           ),
           data: (data) => data.isEmpty
-              ? _EmptyServices(onAdd: onAdd)
+              ? _EmptyServices(onAdd: onAdd, showAddAction: showAddAction)
               : _ServicesList(services: data, onEdit: onEdit),
         ),
       ],
@@ -50,8 +54,9 @@ class SettingsServicesSection extends StatelessWidget {
 
 class _EmptyServices extends StatelessWidget {
   final VoidCallback onAdd;
+  final bool showAddAction;
 
-  const _EmptyServices({required this.onAdd});
+  const _EmptyServices({required this.onAdd, required this.showAddAction});
 
   @override
   Widget build(BuildContext context) {
@@ -59,14 +64,17 @@ class _EmptyServices extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: AppSpacing.lg),
       child: Column(
         children: [
-          const Icon(LucideIcons.scissors, color: AppColors.t3, size: 24),
-          const SizedBox(height: 8),
-          const Text(
+          Text(
             'No services yet',
-            style: TextStyle(fontSize: 14, color: AppColors.t3),
+            style: TextStyle(fontSize: 14, color: AppColors.of(context).t3),
           ),
-          const SizedBox(height: 12),
-          WorkloopTextButton(label: 'Add your first service', onPressed: onAdd),
+          if (showAddAction) ...[
+            const SizedBox(height: 12),
+            WorkloopTextButton(
+              label: 'Add your first service',
+              onPressed: onAdd,
+            ),
+          ],
         ],
       ),
     );
@@ -92,36 +100,37 @@ class _ServicesList extends StatelessWidget {
         return SlateListRow(
           onTap: () => onEdit(service),
           showDivider: !isLast,
-          leading: const Icon(
-            LucideIcons.scissors,
-            size: 17,
-            color: AppColors.t3,
-          ),
           title: Text(
             service['name'] as String? ?? 'Service',
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w600,
-              color: AppColors.t1,
+              color: AppColors.of(context).t1,
             ),
           ),
           subtitle: Text(
-            '${service['duration_mins'] ?? 60} min',
-            style: const TextStyle(fontSize: 12, color: AppColors.t3),
+            formatFriendlyDuration(
+              (service['duration_mins'] as num?)?.toInt() ?? 60,
+            ),
+            style: TextStyle(fontSize: 12, color: AppColors.of(context).t3),
           ),
           trailing: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
                 price,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 15,
                   fontWeight: FontWeight.w600,
-                  color: AppColors.t1,
+                  color: AppColors.of(context).t1,
                 ),
               ),
               const SizedBox(width: 10),
-              const Icon(LucideIcons.pencil, size: 14, color: AppColors.t3),
+              Icon(
+                LucideIcons.pencil,
+                size: 14,
+                color: AppColors.of(context).t3,
+              ),
             ],
           ),
         );

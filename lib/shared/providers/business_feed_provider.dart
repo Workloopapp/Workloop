@@ -264,7 +264,31 @@ void _addPaymentItems(
 ) {
   for (final payment in payments) {
     final due = _startOfDay(payment.dueDate ?? payment.issueDate);
-    if (payment.status == 'paid') {
+    if (payment.sourceDocumentId != null) {
+      for (final receipt in payment.cashReceipts) {
+        if (receipt.receivedAt.isBefore(weekAgo) || receipt.amount == 0) {
+          continue;
+        }
+        items.add(
+          BusinessFeedItem(
+            id: 'payment-receipt-${receipt.id}',
+            type: BusinessFeedItemType.paymentReceived,
+            title: receipt.amount < 0 ? 'Refund recorded' : 'Payment received',
+            subtitle:
+                '${formatPounds(receipt.amount.abs())}${payment.clientName == null ? '' : ' · ${payment.clientName}'} · ${payment.number}',
+            timestamp: receipt.receivedAt,
+            priority: BusinessFeedPriority.normal,
+            sourceType: BusinessFeedSourceType.payment,
+            sourceId: payment.id,
+            actionLabel: 'View payment',
+            routeTarget: '/payments/${payment.id}',
+            icon: 'banknote',
+            moduleKey: 'money',
+          ),
+        );
+      }
+      if (payment.status == 'paid') continue;
+    } else if (payment.status == 'paid') {
       final received = receivedAmountFor(payment);
       if (received <= 0) continue;
       final paidDay = _startOfDay(payment.receivedDate);

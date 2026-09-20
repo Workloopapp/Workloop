@@ -6,20 +6,20 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../core/theme/app_theme.dart';
 import '../../shared/models/slate_models.dart';
 import '../../shared/providers/appointments_provider.dart';
+import '../../shared/providers/booking_requests_provider.dart';
 import '../../shared/providers/dashboard_provider.dart';
 import '../../shared/providers/finance_provider.dart';
 import '../../shared/providers/notifications_provider.dart';
-import '../../shared/providers/workspace_provider.dart';
 import '../../shared/repositories/slate_repositories.dart';
+import '../../shared/providers/workspace_provider.dart';
 import '../../shared/widgets/slate_ui.dart';
+import '../../shared/widgets/workloop_form_field.dart';
+import '../../shared/widgets/record_link_unavailable.dart';
+import '../appointments/booking_schedule_warning_sheet.dart';
+import 'booking_request_time.dart';
 
-final bookingRequestsProvider = FutureProvider<List<BookingRequest>>((
-  ref,
-) async {
-  final workspaceId = await ref.watch(workspaceIdProvider.future);
-  if (workspaceId == null) return [];
-  return ref.watch(profileRepositoryProvider).bookingRequests(workspaceId);
-});
+export '../../shared/providers/booking_requests_provider.dart'
+    show bookingRequestsProvider;
 
 enum _RequestView { active, pending, closed }
 
@@ -29,7 +29,9 @@ String bookingRequestEditablePrice(num price) {
 }
 
 class BookingRequestsScreen extends ConsumerStatefulWidget {
-  const BookingRequestsScreen({super.key});
+  final String? initialRequestId;
+
+  const BookingRequestsScreen({super.key, this.initialRequestId});
 
   @override
   ConsumerState<BookingRequestsScreen> createState() =>
@@ -38,12 +40,53 @@ class BookingRequestsScreen extends ConsumerStatefulWidget {
 
 class _BookingRequestsScreenState extends ConsumerState<BookingRequestsScreen> {
   _RequestView _view = _RequestView.active;
+  bool _didHandleInitialRequest = false;
+  String? _scheduledInitialId;
+  bool _initialRecordMissing = false;
+
+  Future<void> _refreshRequests() async {
+    ref.invalidate(bookingRequestsProvider);
+    try {
+      await ref.read(bookingRequestsProvider.future);
+    } catch (_) {
+      // The request list displays a visible error and retry action.
+    }
+  }
+
+  Widget _refreshableEmpty(Widget child) => RefreshIndicator(
+    color: AppColors.of(context).green,
+    onRefresh: _refreshRequests,
+    child: child,
+  );
+
+  @override
+  void didUpdateWidget(covariant BookingRequestsScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.initialRequestId != oldWidget.initialRequestId) {
+      _didHandleInitialRequest = false;
+      _scheduledInitialId = null;
+      _initialRecordMissing = false;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    if (widget.initialRequestId != null) ref.watch(workspaceIdProvider);
     final requests = ref.watch(bookingRequestsProvider);
+    if (_initialRecordMissing) {
+      return WorkloopRecordLinkUnavailable(
+        recordName: 'Booking request',
+        onRetry: () {
+          setState(() {
+            _didHandleInitialRequest = false;
+            _initialRecordMissing = false;
+          });
+          ref.invalidate(bookingRequestsProvider);
+        },
+      );
+    }
     return Scaffold(
-      backgroundColor: AppColors.bg,
+      backgroundColor: Colors.transparent,
       body: Stack(
         children: [
           const Positioned.fill(child: WorkloopTexturedBackdrop()),
@@ -54,7 +97,7 @@ class _BookingRequestsScreenState extends ConsumerState<BookingRequestsScreen> {
                 Padding(
                   padding: const EdgeInsets.fromLTRB(
                     AppSpacing.pageX,
-                    AppSpacing.lg,
+                    AppSpacing.screenTop,
                     AppSpacing.pageX,
                     AppSpacing.md,
                   ),
@@ -70,11 +113,7 @@ class _BookingRequestsScreenState extends ConsumerState<BookingRequestsScreen> {
                         .where((item) => item.status == 'pending')
                         .length;
                     final active = items
-                        .where(
-                          (item) =>
-                              item.status == 'pending' ||
-                              item.status == 'contacted',
-                        )
+                        .where((item) => item.needsDecision)
                         .length;
                     final closed = items
                         .where(
@@ -118,38 +157,48 @@ class _BookingRequestsScreenState extends ConsumerState<BookingRequestsScreen> {
                 ),
                 Expanded(
                   child: requests.when(
-                    loading: () => const Center(
-                      child: CircularProgressIndicator(color: AppColors.green),
+                    loading: () => Center(
+                      child: CircularProgressIndicator(
+                        color: AppColors.of(context).green,
+                      ),
                     ),
-                    error: (_, _) => _EmptyRequests(
-                      title: 'Could not load requests',
-                      subtitle: 'Check your connection, then try again.',
-                      onRetry: () => ref.invalidate(bookingRequestsProvider),
+                    error: (_, _) => _refreshableEmpty(
+                      _EmptyRequests(
+                        title: 'Could not load requests',
+                        subtitle: 'Check your connection, then try again.',
+                        onRetry: _refreshRequests,
+                      ),
                     ),
                     data: (items) {
+                      _openInitialRequest(items);
                       if (items.isEmpty) {
-                        return const _EmptyRequests(
-                          title: 'No booking requests',
-                          subtitle:
-                              'Requests from your public profile will appear here.',
+                        return _refreshableEmpty(
+                          const _EmptyRequests(
+                            title: 'No booking requests',
+                            subtitle:
+                                'Requests from your public profile will appear here.',
+                          ),
                         );
                       }
                       final filtered = _filterRequests(items);
                       if (filtered.isEmpty) {
-                        return _EmptyRequests(
-                          title: switch (_view) {
-                            _RequestView.pending => 'No new requests',
-                            _RequestView.closed => 'No closed requests',
-                            _RequestView.active => 'No active requests',
-                          },
-                          subtitle: 'Switch filters to review other requests.',
+                        return _refreshableEmpty(
+                          _EmptyRequests(
+                            title: switch (_view) {
+                              _RequestView.pending => 'No new requests',
+                              _RequestView.closed => 'No closed requests',
+                              _RequestView.active => 'No active requests',
+                            },
+                            subtitle:
+                                'Switch filters to review other requests.',
+                          ),
                         );
                       }
                       return RefreshIndicator(
-                        color: AppColors.green,
-                        onRefresh: () async =>
-                            ref.invalidate(bookingRequestsProvider),
+                        color: AppColors.of(context).green,
+                        onRefresh: _refreshRequests,
                         child: ListView.separated(
+                          physics: const AlwaysScrollableScrollPhysics(),
                           padding: const EdgeInsets.fromLTRB(
                             AppSpacing.pageX,
                             0,
@@ -161,6 +210,10 @@ class _BookingRequestsScreenState extends ConsumerState<BookingRequestsScreen> {
                             onTap: () => Navigator.push<void>(
                               context,
                               MaterialPageRoute(
+                                settings: RouteSettings(
+                                  name:
+                                      '/booking-requests/${filtered[index].id}',
+                                ),
                                 builder: (_) => BookingRequestDetailScreen(
                                   request: filtered[index],
                                 ),
@@ -186,8 +239,7 @@ class _BookingRequestsScreenState extends ConsumerState<BookingRequestsScreen> {
   List<BookingRequest> _filterRequests(List<BookingRequest> items) {
     final filtered = items.where((item) {
       return switch (_view) {
-        _RequestView.active =>
-          item.status == 'pending' || item.status == 'contacted',
+        _RequestView.active => item.needsDecision,
         _RequestView.pending => item.status == 'pending',
         _RequestView.closed =>
           item.status == 'confirmed' || item.status == 'declined',
@@ -211,6 +263,64 @@ class _BookingRequestsScreenState extends ConsumerState<BookingRequestsScreen> {
     });
     return filtered;
   }
+
+  void _openInitialRequest(List<BookingRequest> records) {
+    final id = widget.initialRequestId?.trim();
+    final snapshot = ref.read(bookingRequestsProvider);
+    final workspace = ref.read(workspaceIdProvider);
+    if (_didHandleInitialRequest ||
+        id == null ||
+        id.isEmpty ||
+        _scheduledInitialId == id ||
+        snapshot.isLoading ||
+        snapshot.hasError ||
+        !snapshot.hasValue ||
+        workspace.isLoading ||
+        workspace.hasError ||
+        workspace.value == null) {
+      return;
+    }
+    final workspaceId = workspace.value;
+    _scheduledInitialId = id;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted ||
+          _scheduledInitialId != id ||
+          widget.initialRequestId?.trim() != id) {
+        return;
+      }
+      _scheduledInitialId = null;
+      final current = ref.read(bookingRequestsProvider);
+      final currentWorkspace = ref.read(workspaceIdProvider);
+      if (current.isLoading ||
+          current.hasError ||
+          !current.hasValue ||
+          currentWorkspace.isLoading ||
+          currentWorkspace.hasError ||
+          currentWorkspace.value != workspaceId) {
+        return;
+      }
+      BookingRequest? match;
+      for (final record in current.value ?? <BookingRequest>[]) {
+        if (record.id == id) {
+          match = record;
+          break;
+        }
+      }
+      _didHandleInitialRequest = true;
+      if (match == null) {
+        setState(() => _initialRecordMissing = true);
+      } else {
+        Navigator.push<void>(
+          context,
+          MaterialPageRoute(
+            settings: RouteSettings(name: '/booking-requests/${match.id}'),
+            builder: (_) => BookingRequestDetailScreen(request: match!),
+          ),
+        );
+      }
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
+  }
 }
 
 class _RequestRow extends StatelessWidget {
@@ -221,11 +331,14 @@ class _RequestRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final requestedTimeLabel = bookingRequestRequestedTimeLabel(
+      context,
+      request,
+    );
     final contextLine = [
       if (request.serviceName?.trim().isNotEmpty == true)
         request.serviceName!.trim(),
-      if (request.preferredTimeText?.trim().isNotEmpty == true)
-        request.preferredTimeText!.trim(),
+      ?requestedTimeLabel,
     ].join(' · ');
     final initial = request.name.trim().isEmpty
         ? '?'
@@ -241,14 +354,14 @@ class _RequestRow extends StatelessWidget {
         width: 44,
         height: 44,
         alignment: Alignment.center,
-        decoration: const BoxDecoration(
-          color: AppColors.modBg,
+        decoration: BoxDecoration(
+          color: AppColors.of(context).modBg,
           shape: BoxShape.circle,
         ),
         child: Text(
           initial,
-          style: const TextStyle(
-            color: AppColors.t1,
+          style: TextStyle(
+            color: AppColors.of(context).t1,
             fontSize: 16,
             fontWeight: FontWeight.w600,
           ),
@@ -258,8 +371,8 @@ class _RequestRow extends StatelessWidget {
         request.name,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
-        style: const TextStyle(
-          color: AppColors.t1,
+        style: TextStyle(
+          color: AppColors.of(context).t1,
           fontSize: 15,
           fontWeight: FontWeight.w600,
         ),
@@ -268,8 +381,8 @@ class _RequestRow extends StatelessWidget {
         contextLine.isEmpty ? request.phone : contextLine,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
-        style: const TextStyle(
-          color: AppColors.t3,
+        style: TextStyle(
+          color: AppColors.of(context).t3,
           fontSize: 13,
           fontWeight: FontWeight.w400,
         ),
@@ -279,7 +392,11 @@ class _RequestRow extends StatelessWidget {
         children: [
           _StatusBadge(status: request.status),
           const SizedBox(width: AppSpacing.xs),
-          const Icon(LucideIcons.chevronRight, color: AppColors.t3, size: 16),
+          Icon(
+            LucideIcons.chevronRight,
+            color: AppColors.of(context).t3,
+            size: 16,
+          ),
         ],
       ),
     );
@@ -294,7 +411,7 @@ class BookingRequestDetailScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.bg,
+      backgroundColor: Colors.transparent,
       body: Stack(
         children: [
           const Positioned.fill(child: WorkloopTexturedBackdrop()),
@@ -304,9 +421,9 @@ class BookingRequestDetailScreen extends StatelessWidget {
                 Padding(
                   padding: const EdgeInsets.fromLTRB(
                     AppSpacing.pageX,
-                    AppSpacing.lg,
+                    AppSpacing.screenTop,
                     AppSpacing.pageX,
-                    AppSpacing.xl,
+                    AppSpacing.md,
                   ),
                   child: const WorkloopRouteHeader(
                     title: 'Booking request',
@@ -354,8 +471,10 @@ class _RequestCard extends ConsumerStatefulWidget {
 
 class _RequestCardState extends ConsumerState<_RequestCard> {
   bool _saving = false;
+  bool _openingBooking = false;
 
   Future<void> _setStatus(String status) async {
+    if (_saving || !mounted) return;
     setState(() => _saving = true);
     try {
       await ref
@@ -365,15 +484,17 @@ class _RequestCardState extends ConsumerState<_RequestCard> {
             workspaceId: widget.request.workspaceId,
             status: status,
           );
+      if (!mounted) return;
+      SlateHaptics.success();
       ref.invalidate(bookingRequestsProvider);
-      if (widget.closeAfterAction && mounted) Navigator.pop(context);
+      if (widget.closeAfterAction) Navigator.pop(context);
     } on BookingRequestStateException catch (error) {
-      ref.invalidate(bookingRequestsProvider);
       if (mounted) {
+        ref.invalidate(bookingRequestsProvider);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(error.message),
-            backgroundColor: AppColors.error,
+            backgroundColor: AppColors.of(context).error,
             behavior: SnackBarBehavior.floating,
           ),
         );
@@ -381,11 +502,11 @@ class _RequestCardState extends ConsumerState<_RequestCard> {
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
+          SnackBar(
             content: Text(
               'The request could not be updated. Check your connection and try again.',
             ),
-            backgroundColor: AppColors.error,
+            backgroundColor: AppColors.of(context).error,
             behavior: SnackBarBehavior.floating,
           ),
         );
@@ -396,19 +517,18 @@ class _RequestCardState extends ConsumerState<_RequestCard> {
   }
 
   Future<void> _declineRequest() async {
-    final confirmed = await showModalBottomSheet<bool>(
+    final confirmed = await showWorkloopBottomSheet<bool>(
       context: context,
-      backgroundColor: Colors.transparent,
-      barrierColor: Colors.black.withValues(alpha: 0.45),
       builder: (context) => SlateSheetFrame(
+        scrollable: true,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
+            Text(
               'Decline request?',
               style: TextStyle(
-                color: AppColors.t1,
+                color: AppColors.of(context).t1,
                 fontSize: 20,
                 fontWeight: FontWeight.w600,
                 letterSpacing: 0,
@@ -417,7 +537,7 @@ class _RequestCardState extends ConsumerState<_RequestCard> {
             const SizedBox(height: 8),
             Text(
               '${widget.request.name} will move to closed requests. You can still find it later.',
-              style: const TextStyle(color: AppColors.t3, height: 1.35),
+              style: TextStyle(color: AppColors.of(context).t3, height: 1.35),
             ),
             const SizedBox(height: 18),
             SlateButton(
@@ -437,59 +557,181 @@ class _RequestCardState extends ConsumerState<_RequestCard> {
       ),
     );
 
-    if (confirmed == true) {
+    if (confirmed == true && mounted) {
       await _setStatus('declined');
     }
   }
 
   Future<void> _confirmAsBooking() async {
-    final now = DateTime.now();
-    var selectedDate = DateTime(now.year, now.month, now.day + 1);
-    var selectedTime = const TimeOfDay(hour: 9, minute: 0);
-    final clientNameController = TextEditingController(
-      text: widget.request.name,
+    if (_saving || _openingBooking) return;
+    final request = widget.request;
+    setState(() => _openingBooking = true);
+    final isServiceBundle = request.serviceItems.any(
+      (item) => item.itemKind == 'service',
     );
-    final phoneController = TextEditingController(text: widget.request.phone);
-    final emailController = TextEditingController(text: widget.request.email);
+    final now = DateTime.now();
+    late final String bookingTimezone;
+    try {
+      bookingTimezone = request.requestedTimezone?.trim().isNotEmpty == true
+          ? request.requestedTimezone!.trim()
+          : await ref
+                .read(profileRepositoryProvider)
+                .bookingRequestTimezone(request)
+                .timeout(const Duration(seconds: 15));
+      if (!mounted) return;
+      if (!identical(widget.request, request) ||
+          ModalRoute.of(context)?.isCurrent == false) {
+        setState(() => _openingBooking = false);
+        return;
+      }
+      bookingRequestLocation(bookingTimezone);
+    } on ArgumentError {
+      if (!mounted) return;
+      setState(() => _openingBooking = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'This request’s time zone could not be read. Refresh the request before confirming it.',
+          ),
+        ),
+      );
+      return;
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _openingBooking = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Could not load the business time zone. Check your connection and try again.',
+          ),
+        ),
+      );
+      return;
+    }
+    final businessNow = bookingRequestWallClock(
+      requestedForUtc: now.toUtc(),
+      timezone: bookingTimezone,
+    );
+    final requestedTime = resolveBookingRequestTime(
+      timezone: bookingTimezone,
+      requestedFor: request.requestedFor,
+      preferredTimeText: request.preferredTimeText,
+    );
+    DateTime? selectedDate = requestedTime.date;
+    TimeOfDay? selectedTime = requestedTime.hour == null
+        ? null
+        : TimeOfDay(hour: requestedTime.hour!, minute: requestedTime.minute!);
+    final initialDate = selectedDate;
+    final initialTime = selectedTime;
+    DateTime? selectedInstant = requestedTime.instantUtc;
+    List<DateTime> possibleInstants() =>
+        selectedDate == null || selectedTime == null
+        ? const []
+        : bookingRequestPossibleInstants(
+            date: selectedDate!,
+            hour: selectedTime!.hour,
+            minute: selectedTime!.minute,
+            timezone: bookingTimezone,
+          );
+    void updateSelectedInstant() {
+      final possibilities = possibleInstants();
+      final original = requestedTime.instantUtc;
+      final sameAsRequested =
+          selectedDate == initialDate && selectedTime == initialTime;
+      selectedInstant = sameAsRequested && original != null
+          ? original
+          : possibilities.length == 1
+          ? possibilities.single
+          : null;
+    }
+
+    final clientNameController = TextEditingController(text: request.name);
+    final phoneController = TextEditingController(text: request.phone);
+    final emailController = TextEditingController(text: request.email);
+    final canEditEmail = !isValidBookingRequestEmail(request.email);
     final serviceController = TextEditingController(
-      text: widget.request.serviceName?.trim().isNotEmpty == true
-          ? widget.request.serviceName!.trim()
+      text: request.serviceName?.trim().isNotEmpty == true
+          ? request.serviceName!.trim()
           : 'Booking request',
     );
     final durationController = TextEditingController(
-      text: (widget.request.serviceDurationMins ?? 60).toString(),
+      text: (request.serviceDurationMins ?? 60).toString(),
     );
     final priceController = TextEditingController(
-      text: bookingRequestEditablePrice(widget.request.servicePrice ?? 0),
+      text: bookingRequestEditablePrice(request.servicePrice ?? 0),
     );
     final locationController = TextEditingController();
     final notesController = TextEditingController();
-    var createPaymentDue = (widget.request.servicePrice ?? 0) > 0;
+    var createPaymentDue = (request.servicePrice ?? 0) > 0;
+    final requestedAddOns = request.serviceItems
+        .where((item) => item.isAddOn)
+        .toList(growable: false);
     var submitting = false;
+    var askingToClose = false;
     String? submissionError;
+    final initialValues = [
+      clientNameController.text,
+      phoneController.text,
+      emailController.text,
+      serviceController.text,
+      durationController.text,
+      priceController.text,
+      locationController.text,
+      notesController.text,
+    ];
+    bool hasChanges() {
+      final values = [
+        clientNameController.text,
+        phoneController.text,
+        emailController.text,
+        serviceController.text,
+        durationController.text,
+        priceController.text,
+        locationController.text,
+        notesController.text,
+      ];
+      return values.indexed.any(
+            (entry) => entry.$2 != initialValues[entry.$1],
+          ) ||
+          selectedDate != initialDate ||
+          selectedTime != initialTime ||
+          selectedInstant != requestedTime.instantUtc ||
+          createPaymentDue != ((request.servicePrice ?? 0) > 0);
+    }
+
     final sheetCloseDuration = AppMotion.responsive(
       context,
       AppMotion.deliberate,
     );
 
-    final confirmation = await showModalBottomSheet<BookingRequestConfirmationOutcome>(
+    setState(() => _openingBooking = true);
+    final confirmation = await showWorkloopBottomSheet<BookingRequestConfirmationOutcome>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      barrierColor: Colors.black.withValues(alpha: 0.45),
+      isDismissible: false,
+      enableDrag: false,
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setSheetState) {
+            final requestedTimeLabel = bookingRequestRequestedTimeLabel(
+              context,
+              request,
+              timezone: bookingTimezone,
+            );
             bool canSubmit() {
               final duration =
                   int.tryParse(durationController.text.trim()) ?? 0;
               final price = double.tryParse(priceController.text.trim()) ?? -1;
-              return clientNameController.text.trim().isNotEmpty &&
+              return selectedInstant != null &&
+                  clientNameController.text.trim().isNotEmpty &&
                   phoneController.text.trim().isNotEmpty &&
                   serviceController.text.trim().isNotEmpty &&
-                  duration >= 15 &&
-                  duration <= 720 &&
-                  price >= 0;
+                  duration >= 5 &&
+                  duration <= 1440 &&
+                  price.isFinite &&
+                  price >= 0 &&
+                  (emailController.text.trim().isEmpty ||
+                      isValidBookingRequestEmail(emailController.text));
             }
 
             void refreshForm() => setSheetState(() {});
@@ -497,22 +739,47 @@ class _RequestCardState extends ConsumerState<_RequestCard> {
             Future<void> pickDate() async {
               final picked = await showWorkloopDatePicker(
                 context: context,
-                initialDate: selectedDate,
-                firstDate: DateTime(now.year, now.month, now.day),
-                lastDate: DateTime(now.year + 1),
+                initialDate:
+                    selectedDate ??
+                    DateTime(
+                      businessNow.year,
+                      businessNow.month,
+                      businessNow.day,
+                    ),
+                firstDate: DateTime(
+                  businessNow.year,
+                  businessNow.month,
+                  businessNow.day,
+                ),
+                lastDate: DateTime(
+                  businessNow.year,
+                  businessNow.month,
+                  businessNow.day + 366,
+                ),
               );
               if (picked != null) {
-                setSheetState(() => selectedDate = picked);
+                setSheetState(() {
+                  selectedDate = DateTime.utc(
+                    picked.year,
+                    picked.month,
+                    picked.day,
+                  );
+                  updateSelectedInstant();
+                });
               }
             }
 
             Future<void> pickTime() async {
               final picked = await showWorkloopTimePicker(
                 context: context,
-                initialTime: selectedTime,
+                initialTime:
+                    selectedTime ?? TimeOfDay.fromDateTime(businessNow),
               );
               if (picked != null) {
-                setSheetState(() => selectedTime = picked);
+                setSheetState(() {
+                  selectedTime = picked;
+                  updateSelectedInstant();
+                });
               }
             }
 
@@ -522,62 +789,88 @@ class _RequestCardState extends ConsumerState<_RequestCard> {
                 submitting = true;
                 submissionError = null;
               });
+              FocusScope.of(context).unfocus();
+              final draft = (
+                name: clientNameController.text.trim(),
+                phone: phoneController.text.trim(),
+                email: emailController.text.trim(),
+                service: serviceController.text.trim(),
+                location: locationController.text.trim(),
+                notes: notesController.text.trim(),
+                createPaymentDue: createPaymentDue,
+              );
               final duration =
                   int.tryParse(durationController.text.trim()) ?? 60;
               final price = double.tryParse(priceController.text.trim()) ?? 0;
-              final startTime = DateTime(
-                selectedDate.year,
-                selectedDate.month,
-                selectedDate.day,
-                selectedTime.hour,
-                selectedTime.minute,
-              );
+              late final DateTime startTime;
+              try {
+                startTime = bookingRequestUtcFromWallClock(
+                  date: selectedDate!,
+                  hour: selectedTime!.hour,
+                  minute: selectedTime!.minute,
+                  timezone: bookingTimezone,
+                  preferredInstantUtc: selectedInstant,
+                );
+              } on ArgumentError {
+                setSheetState(() {
+                  submitting = false;
+                  submissionError =
+                      'This date, time or time zone could not be used. Choose another time.';
+                });
+                return;
+              }
 
               Future<BookingRequestConfirmationOutcome> confirm({
-                bool enforceWorkingHours = true,
+                required bool allowOverlap,
               }) {
                 return ref
                     .read(profileRepositoryProvider)
                     .confirmBookingRequest(
-                      request: widget.request,
+                      request: request,
                       startTime: startTime,
-                      durationMins: duration.clamp(15, 720),
+                      durationMins: duration,
                       price: price,
-                      clientName: clientNameController.text.trim(),
-                      clientPhone: phoneController.text.trim(),
-                      clientEmail:
-                          isValidBookingRequestEmail(widget.request.email)
-                          ? widget.request.email.trim()
+                      clientName: draft.name,
+                      clientPhone: draft.phone,
+                      clientEmail: isValidBookingRequestEmail(draft.email)
+                          ? draft.email
                           : null,
-                      serviceTitle: serviceController.text.trim(),
-                      location: locationController.text.trim(),
-                      extraNotes: notesController.text.trim(),
-                      createPaymentDue: createPaymentDue,
-                      enforceWorkingHours: enforceWorkingHours,
+                      serviceTitle: draft.service,
+                      location: draft.location,
+                      extraNotes: draft.notes,
+                      createPaymentDue: draft.createPaymentDue,
+                      enforceWorkingHours: false,
+                      allowOverlap: allowOverlap,
                     );
               }
 
               try {
-                try {
-                  final outcome = await confirm();
-                  if (context.mounted) Navigator.pop(context, outcome);
-                } on AppointmentScheduleException catch (error) {
-                  if (error.issue != AppointmentScheduleIssue.workingHours) {
-                    rethrow;
+                final scheduleReview = await ref
+                    .read(profileRepositoryProvider)
+                    .reviewBookingRequestSchedule(
+                      request: request,
+                      startTime: startTime.toUtc(),
+                      endTime: startTime
+                          .add(Duration(minutes: duration))
+                          .toUtc(),
+                    );
+                if (!context.mounted) return;
+                final proceed = await showBookingScheduleWarning(
+                  context,
+                  scheduleReview,
+                );
+                if (!proceed) {
+                  if (context.mounted) {
+                    setSheetState(() => submitting = false);
                   }
-                  if (!context.mounted) return;
-                  final proceed = await showWorkloopOutsideHoursConfirmation(
-                    context,
-                    detail: error.message,
-                  );
-                  if (!proceed) {
-                    if (context.mounted) {
-                      setSheetState(() => submitting = false);
-                    }
-                    return;
-                  }
-                  final outcome = await confirm(enforceWorkingHours: false);
-                  if (context.mounted) Navigator.pop(context, outcome);
+                  return;
+                }
+                final outcome = await confirm(
+                  allowOverlap: scheduleReview.conflictCount > 0,
+                );
+                if (context.mounted) {
+                  SlateHaptics.success();
+                  Navigator.pop(context, outcome);
                 }
               } on AppointmentScheduleException catch (error) {
                 if (context.mounted) {
@@ -607,206 +900,292 @@ class _RequestCardState extends ConsumerState<_RequestCard> {
 
             final price = double.tryParse(priceController.text.trim()) ?? 0;
             final valid = canSubmit();
-            final formNote = !valid
-                ? 'Add a client, phone, service, valid duration, and non-negative price.'
+            final choices = possibleInstants();
+            final formNote = selectedInstant == null
+                ? choices.length > 1
+                      ? 'The clocks change at this time. Choose which occurrence you agreed with the customer.'
+                      : selectedDate != null && selectedTime != null
+                      ? 'This clock time does not exist on the selected date. Choose another time.'
+                      : 'Choose the date and time agreed with the customer before creating the booking.'
+                : !valid
+                ? 'Add a client, phone, service, valid duration and price. Check the email address if provided.'
                 : createPaymentDue && price > 0
                 ? 'This will create the booking and an unpaid Money item.'
                 : 'This will create the booking and close the request.';
 
             return PopScope(
-              canPop: !submitting,
-              child: Padding(
-                padding: EdgeInsets.only(
-                  left: 16,
-                  right: 16,
-                  bottom: MediaQuery.of(context).viewInsets.bottom + 16,
-                ),
-                child: SlateSheetFrame(
-                  child: ConstrainedBox(
-                    constraints: BoxConstraints(
-                      maxHeight:
-                          (MediaQuery.sizeOf(context).height -
-                              MediaQuery.viewInsetsOf(context).bottom) *
-                          0.68,
+              canPop: false,
+              onPopInvokedWithResult: (didPop, result) async {
+                if (didPop || submitting || askingToClose) return;
+                if (!hasChanges()) {
+                  Navigator.pop(context);
+                  return;
+                }
+                askingToClose = true;
+                final decision = await showWorkloopDraftConfirmation(
+                  context,
+                  title: 'Keep this booking draft?',
+                  message:
+                      'Your changes have not been saved. Create the booking, keep editing, or discard the draft.',
+                  saveLabel: 'Create booking',
+                  canSave: canSubmit(),
+                );
+                askingToClose = false;
+                if (!context.mounted) return;
+                if (decision == WorkloopDraftDecision.save) {
+                  await submit();
+                } else if (decision == WorkloopDraftDecision.discard) {
+                  Navigator.pop(context);
+                }
+              },
+              child: SlateSheetFrame(
+                scrollable: true,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    WorkloopSheetHeader(
+                      title: 'Confirm booking',
+                      subtitle:
+                          'Check the details, then add it to your calendar.',
+                      canClose: !submitting,
                     ),
-                    child: SingleChildScrollView(
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                        vertical: AppSpacing.xs,
+                      ),
                       child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
-                            'Confirm booking',
-                            style: TextStyle(
-                              color: AppColors.t1,
-                              fontSize: 20,
-                              fontWeight: FontWeight.w600,
-                              letterSpacing: 0,
+                          if (requestedTimeLabel != null)
+                            _SheetSummaryRow(
+                              icon: LucideIcons.messageSquare,
+                              label: 'Asked for',
+                              value: requestedTimeLabel,
                             ),
-                          ),
-                          const SizedBox(height: 6),
-                          const Text(
-                            'Check the details, then add it to your calendar.',
-                            style: TextStyle(color: AppColors.t3),
-                          ),
-                          const SizedBox(height: 14),
-                          Container(
-                            padding: const EdgeInsets.all(14),
-                            decoration: BoxDecoration(
-                              color: AppColors.bgInteract,
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(color: AppColors.border),
-                            ),
-                            child: Column(
-                              children: [
-                                if (widget
-                                        .request
-                                        .preferredTimeText
-                                        ?.isNotEmpty ==
-                                    true)
-                                  _SheetSummaryRow(
-                                    icon: LucideIcons.messageSquare,
-                                    label: 'Asked for',
-                                    value: widget.request.preferredTimeText!,
-                                  ),
-                                if (widget.request.message?.isNotEmpty ==
-                                    true) ...[
-                                  if (widget
-                                          .request
-                                          .preferredTimeText
-                                          ?.isNotEmpty ==
-                                      true)
-                                    const SizedBox(height: 10),
-                                  _SheetSummaryRow(
-                                    icon: LucideIcons.messageCircle,
-                                    label: 'Message',
-                                    value: widget.request.message!,
-                                  ),
-                                ],
-                                if (widget.request.preferredTimeText?.isEmpty !=
-                                        false &&
-                                    widget.request.message?.isEmpty != false)
-                                  const _SheetEmptyHint(
-                                    text:
-                                        'No extra message was included with this request.',
-                                  ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-                          _SheetField(
-                            controller: clientNameController,
-                            label: 'Client name',
-                            icon: LucideIcons.user,
-                            keyboardType: TextInputType.name,
-                            onChanged: (_) => refreshForm(),
-                          ),
-                          const SizedBox(height: 10),
-                          _SheetField(
-                            controller: phoneController,
-                            label: 'Phone',
-                            icon: LucideIcons.phone,
-                            keyboardType: TextInputType.phone,
-                            onChanged: (_) => refreshForm(),
-                          ),
-                          const SizedBox(height: 10),
-                          _SheetField(
-                            controller: emailController,
-                            label: 'Customer email',
-                            icon: LucideIcons.mail,
-                            keyboardType: TextInputType.emailAddress,
-                            readOnly: true,
-                          ),
-                          const SizedBox(height: 10),
-                          _SheetField(
-                            controller: serviceController,
-                            label: 'Service',
-                            icon: LucideIcons.scissors,
-                            keyboardType: TextInputType.text,
-                            onChanged: (_) => refreshForm(),
-                          ),
-                          const SizedBox(height: 14),
-                          _ResponsiveSheetPair(
-                            first: _SheetPickerButton(
-                              icon: LucideIcons.calendar,
-                              label: _formatSheetDate(selectedDate),
-                              onTap: pickDate,
-                            ),
-                            second: _SheetPickerButton(
-                              icon: LucideIcons.clock3,
-                              label: selectedTime.format(context),
-                              onTap: pickTime,
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          _ResponsiveSheetPair(
-                            first: _SheetField(
-                              controller: durationController,
-                              label: 'Duration mins',
-                              icon: LucideIcons.timer,
-                              keyboardType: TextInputType.number,
-                              onChanged: (_) => refreshForm(),
-                            ),
-                            second: _SheetField(
-                              controller: priceController,
-                              label: 'Price',
-                              icon: LucideIcons.banknote,
-                              keyboardType: TextInputType.number,
-                              onChanged: (_) => refreshForm(),
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          _SheetField(
-                            controller: locationController,
-                            label: 'Location',
-                            icon: LucideIcons.mapPin,
-                            keyboardType: TextInputType.text,
-                            onChanged: (_) => refreshForm(),
-                          ),
-                          const SizedBox(height: 10),
-                          _SheetField(
-                            controller: notesController,
-                            label: 'Private booking note',
-                            icon: LucideIcons.fileText,
-                            keyboardType: TextInputType.multiline,
-                            maxLines: 2,
-                            onChanged: (_) => refreshForm(),
-                          ),
-                          if (price > 0) ...[
-                            const SizedBox(height: 12),
-                            _SheetSwitchRow(
-                              title: 'Add a payment to collect',
-                              subtitle:
-                                  'Links an unpaid Money item to the booking.',
-                              value: createPaymentDue,
-                              onChanged: (value) =>
-                                  setSheetState(() => createPaymentDue = value),
+                          if (request.message?.isNotEmpty == true) ...[
+                            if (requestedTimeLabel != null)
+                              const SizedBox(height: 10),
+                            _SheetSummaryRow(
+                              icon: LucideIcons.messageCircle,
+                              label: 'Message',
+                              value: request.message!,
                             ),
                           ],
-                          const SizedBox(height: 10),
-                          _SheetEmptyHint(text: formNote),
-                          if (submissionError != null) ...[
-                            const SizedBox(height: AppSpacing.sm),
-                            Semantics(
-                              liveRegion: true,
-                              container: true,
-                              label: submissionError,
-                              child: _SheetSubmissionError(
-                                message: submissionError!,
+                          if (requestedAddOns.isNotEmpty) ...[
+                            if (requestedTimeLabel != null ||
+                                request.message?.isNotEmpty == true)
+                              const SizedBox(height: 10),
+                            _SheetSummaryRow(
+                              icon: LucideIcons.plus,
+                              label: 'Add-ons',
+                              value: requestedAddOns
+                                  .map((item) => item.name)
+                                  .join(', '),
+                            ),
+                          ],
+                          if (requestedTimeLabel == null &&
+                              request.message?.isEmpty != false &&
+                              requestedAddOns.isEmpty)
+                            Text(
+                              'No extra message was included with this request.',
+                              style: TextStyle(
+                                color: AppColors.of(context).t3,
+                                fontSize: 12,
+                                height: 1.32,
                               ),
                             ),
-                          ],
-                          const SizedBox(height: 18),
-                          SlateButton(
-                            label: submitting
-                                ? 'Creating booking…'
-                                : 'Create booking',
-                            icon: submitting ? null : LucideIcons.calendarCheck,
-                            onPressed: valid && !submitting ? submit : null,
-                          ),
                         ],
                       ),
                     ),
-                  ),
+                    const SizedBox(height: 16),
+                    _SheetField(
+                      enabled: !submitting,
+                      controller: clientNameController,
+                      label: 'Client name',
+                      isRequired: true,
+                      icon: LucideIcons.user,
+                      keyboardType: TextInputType.name,
+                      onChanged: (_) => refreshForm(),
+                    ),
+                    const SizedBox(height: 10),
+                    _SheetField(
+                      enabled: !submitting,
+                      controller: phoneController,
+                      label: 'Phone',
+                      isRequired: true,
+                      icon: LucideIcons.phone,
+                      keyboardType: TextInputType.phone,
+                      onChanged: (_) => refreshForm(),
+                    ),
+                    const SizedBox(height: 10),
+                    _SheetField(
+                      enabled: !submitting,
+                      controller: emailController,
+                      label: 'Customer email',
+                      icon: LucideIcons.mail,
+                      keyboardType: TextInputType.emailAddress,
+                      readOnly: !canEditEmail,
+                      onChanged: (_) => refreshForm(),
+                    ),
+                    const SizedBox(height: 10),
+                    _SheetField(
+                      enabled: !submitting,
+                      controller: serviceController,
+                      label: 'Service',
+                      isRequired: true,
+                      keyboardType: TextInputType.text,
+                      readOnly: isServiceBundle,
+                      onChanged: (_) => refreshForm(),
+                    ),
+                    const SizedBox(height: 14),
+                    const WorkloopFieldLabel('Date and time', isRequired: true),
+                    const SizedBox(height: AppSpacing.xs),
+                    _ResponsiveSheetPair(
+                      first: _SheetPickerButton(
+                        icon: LucideIcons.calendar,
+                        label: selectedDate == null
+                            ? 'Choose date'
+                            : _formatSheetDate(selectedDate!),
+                        onTap: submitting ? null : pickDate,
+                      ),
+                      second: _SheetPickerButton(
+                        icon: LucideIcons.clock3,
+                        label: selectedTime?.format(context) ?? 'Choose time',
+                        onTap: submitting ? null : pickTime,
+                      ),
+                    ),
+                    if (requestedTime.issue != null &&
+                        selectedInstant == null) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        requestedTime.issue == BookingRequestTimeIssue.invalid
+                            ? 'The requested date or time could not be used. Confirm another time with the customer.'
+                            : requestedTime.issue ==
+                                  BookingRequestTimeIssue.repeatedHour
+                            ? 'This requested time occurs twice because the clocks change.'
+                            : 'The customer has not specified an exact date and time. Choose the details agreed with them.',
+                        style: TextStyle(color: AppColors.of(context).t3),
+                      ),
+                    ],
+                    if (choices.length > 1) ...[
+                      const SizedBox(height: 8),
+                      const WorkloopFieldLabel(
+                        'Time occurrence',
+                        isRequired: true,
+                      ),
+                      const SizedBox(height: AppSpacing.xs),
+                      WorkloopPickerField<DateTime>(
+                        title: 'Which occurrence?',
+                        hint: 'Choose the agreed time',
+                        value: selectedInstant == null
+                            ? null
+                            : choices
+                                  .where(
+                                    (choice) =>
+                                        choice.millisecondsSinceEpoch ~/
+                                            60000 ==
+                                        selectedInstant!
+                                                .millisecondsSinceEpoch ~/
+                                            60000,
+                                  )
+                                  .firstOrNull,
+                        options: choices.indexed
+                            .map(
+                              (entry) => WorkloopPickerOption(
+                                value: entry.$2,
+                                label:
+                                    '${entry.$1 == 0 ? 'First' : 'Second'} ${selectedTime!.format(context)} · ${bookingRequestOccurrenceLabel(entry.$2, bookingTimezone)}',
+                              ),
+                            )
+                            .toList(),
+                        enabled: !submitting,
+                        onChanged: (value) =>
+                            setSheetState(() => selectedInstant = value),
+                      ),
+                    ],
+                    const SizedBox(height: 12),
+                    _ResponsiveSheetPair(
+                      first: _SheetField(
+                        enabled: !submitting,
+                        controller: durationController,
+                        label: 'Duration mins',
+                        isRequired: true,
+                        readOnly: isServiceBundle,
+                        icon: LucideIcons.timer,
+                        keyboardType: TextInputType.number,
+                        onChanged: (_) => refreshForm(),
+                      ),
+                      second: _SheetField(
+                        enabled: !submitting,
+                        controller: priceController,
+                        label: 'Price',
+                        isRequired: true,
+                        readOnly: isServiceBundle,
+                        icon: LucideIcons.banknote,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        onChanged: (_) => refreshForm(),
+                      ),
+                    ),
+                    if (isServiceBundle) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        'Service names, duration and price are saved from the customer’s request.',
+                        style: TextStyle(color: AppColors.of(context).t3),
+                      ),
+                    ],
+                    const SizedBox(height: 10),
+                    _SheetField(
+                      enabled: !submitting,
+                      controller: locationController,
+                      label: 'Location',
+                      icon: LucideIcons.mapPin,
+                      keyboardType: TextInputType.text,
+                      onChanged: (_) => refreshForm(),
+                    ),
+                    const SizedBox(height: 10),
+                    _SheetField(
+                      enabled: !submitting,
+                      controller: notesController,
+                      label: 'Private booking note',
+                      icon: LucideIcons.fileText,
+                      keyboardType: TextInputType.multiline,
+                      maxLines: 2,
+                      onChanged: (_) => refreshForm(),
+                    ),
+                    if (price > 0) ...[
+                      const SizedBox(height: 12),
+                      _SheetSwitchRow(
+                        title: 'Add a payment to collect',
+                        subtitle: 'Links an unpaid Money item to the booking.',
+                        value: createPaymentDue,
+                        onChanged: submitting
+                            ? null
+                            : (value) =>
+                                  setSheetState(() => createPaymentDue = value),
+                      ),
+                    ],
+                    const SizedBox(height: 10),
+                    _SheetEmptyHint(text: formNote),
+                    if (submissionError != null) ...[
+                      const SizedBox(height: AppSpacing.sm),
+                      Semantics(
+                        liveRegion: true,
+                        container: true,
+                        label: submissionError,
+                        child: _SheetSubmissionError(message: submissionError!),
+                      ),
+                    ],
+                    const SizedBox(height: 18),
+                    SlateButton(
+                      label: submitting
+                          ? 'Creating booking…'
+                          : 'Create booking',
+                      icon: submitting ? null : LucideIcons.calendarCheck,
+                      onPressed: valid && !submitting ? submit : null,
+                    ),
+                  ],
                 ),
               ),
             );
@@ -827,6 +1206,8 @@ class _RequestCardState extends ConsumerState<_RequestCard> {
       locationController.dispose();
       notesController.dispose();
     });
+    if (!mounted) return;
+    setState(() => _openingBooking = false);
     if (confirmation == null) return;
 
     ref.invalidate(bookingRequestsProvider);
@@ -848,8 +1229,8 @@ class _RequestCardState extends ConsumerState<_RequestCard> {
           backgroundColor:
               confirmation.confirmationEmailStatus ==
                   BookingRequestConfirmationEmailStatus.failed
-              ? AppColors.warning
-              : AppColors.success,
+              ? AppColors.of(context).warning
+              : AppColors.of(context).success,
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -869,8 +1250,15 @@ class _RequestCardState extends ConsumerState<_RequestCard> {
   @override
   Widget build(BuildContext context) {
     final request = widget.request;
+    final requestedTimeLabel = bookingRequestRequestedTimeLabel(
+      context,
+      request,
+    );
     final pending = request.status == 'pending';
     final contacted = request.status == 'contacted';
+    final requestedAddOns = request.serviceItems
+        .where((item) => item.isAddOn)
+        .toList(growable: false);
     return Container(
       padding: widget.detailMode
           ? EdgeInsets.zero
@@ -878,9 +1266,9 @@ class _RequestCardState extends ConsumerState<_RequestCard> {
       decoration: widget.detailMode
           ? null
           : BoxDecoration(
-              color: AppColors.bgCard,
+              color: AppColors.of(context).bgCard,
               borderRadius: BorderRadius.circular(AppRadius.md),
-              border: Border.all(color: AppColors.border),
+              border: Border.all(color: AppColors.of(context).border),
             ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -890,8 +1278,8 @@ class _RequestCardState extends ConsumerState<_RequestCard> {
               Expanded(
                 child: Text(
                   request.name,
-                  style: const TextStyle(
-                    color: AppColors.t1,
+                  style: TextStyle(
+                    color: AppColors.of(context).t1,
                     fontSize: 16,
                     fontWeight: FontWeight.w600,
                   ),
@@ -909,7 +1297,7 @@ class _RequestCardState extends ConsumerState<_RequestCard> {
                     request.email,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: AppColors.t2),
+                    style: TextStyle(color: AppColors.of(context).t2),
                   ),
                 ),
                 Semantics(
@@ -920,10 +1308,10 @@ class _RequestCardState extends ConsumerState<_RequestCard> {
                     child: OutlinedButton.icon(
                       onPressed: _email,
                       style: OutlinedButton.styleFrom(
-                        foregroundColor: AppColors.t2,
+                        foregroundColor: AppColors.of(context).t2,
                         minimumSize: const Size(0, AppSpacing.minTouch),
                         padding: const EdgeInsets.symmetric(horizontal: 12),
-                        side: const BorderSide(color: AppColors.border),
+                        side: BorderSide(color: AppColors.of(context).border),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(AppRadius.sm),
                         ),
@@ -948,7 +1336,7 @@ class _RequestCardState extends ConsumerState<_RequestCard> {
               Expanded(
                 child: Text(
                   request.phone,
-                  style: const TextStyle(color: AppColors.t2),
+                  style: TextStyle(color: AppColors.of(context).t2),
                 ),
               ),
               Semantics(
@@ -959,10 +1347,10 @@ class _RequestCardState extends ConsumerState<_RequestCard> {
                   child: OutlinedButton.icon(
                     onPressed: _call,
                     style: OutlinedButton.styleFrom(
-                      foregroundColor: AppColors.t2,
+                      foregroundColor: AppColors.of(context).t2,
                       minimumSize: const Size(0, AppSpacing.minTouch),
                       padding: const EdgeInsets.symmetric(horizontal: 12),
-                      side: const BorderSide(color: AppColors.border),
+                      side: BorderSide(color: AppColors.of(context).border),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(AppRadius.sm),
                       ),
@@ -980,68 +1368,61 @@ class _RequestCardState extends ConsumerState<_RequestCard> {
               ),
             ],
           ),
-          if (request.serviceName?.isNotEmpty == true ||
-              request.preferredTimeText?.isNotEmpty == true) ...[
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                if (request.serviceName?.isNotEmpty == true)
-                  _InfoChip(
-                    icon: LucideIcons.scissors,
-                    label: request.serviceName!,
-                  ),
-                if (request.preferredTimeText?.isNotEmpty == true)
-                  _InfoChip(
-                    icon: LucideIcons.clock3,
-                    label: request.preferredTimeText!,
-                  ),
-              ],
+          if (request.serviceName?.isNotEmpty == true) ...[
+            const SizedBox(height: AppSpacing.lg),
+            _SheetSummaryRow(
+              icon: LucideIcons.briefcase,
+              label: 'Service',
+              value: request.serviceName!,
+            ),
+          ],
+          if (requestedTimeLabel != null) ...[
+            const SizedBox(height: AppSpacing.sm),
+            _SheetSummaryRow(
+              icon: LucideIcons.clock3,
+              label: 'Requested time',
+              value: requestedTimeLabel,
+            ),
+          ],
+          if (requestedAddOns.isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.sm),
+            _SheetSummaryRow(
+              icon: LucideIcons.plus,
+              label: 'Add-ons',
+              value: requestedAddOns.map((item) => item.name).join(', '),
             ),
           ],
           if (request.message?.isNotEmpty == true) ...[
             const SizedBox(height: 10),
             Text(
               request.message!,
-              style: const TextStyle(color: AppColors.t3, height: 1.35),
+              style: TextStyle(color: AppColors.of(context).t3, height: 1.35),
             ),
           ],
           if (pending || contacted) ...[
-            const SizedBox(height: 14),
-            Column(
-              children: [
-                if (pending) ...[
-                  _ActionButton(
-                    label: 'Mark contacted',
-                    variant: _RequestActionVariant.secondary,
-                    loading: _saving,
-                    onTap: () => _setStatus('contacted'),
-                  ),
-                  const SizedBox(height: 10),
-                ],
-                Row(
-                  children: [
-                    Expanded(
-                      child: _ActionButton(
-                        label: 'Decline',
-                        variant: _RequestActionVariant.destructiveQuiet,
-                        loading: _saving,
-                        onTap: _declineRequest,
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: _ActionButton(
-                        label: 'Book',
-                        variant: _RequestActionVariant.primary,
-                        loading: _saving,
-                        onTap: _confirmAsBooking,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
+            const SizedBox(height: AppSpacing.lg),
+            _ActionButton(
+              label: 'Book',
+              variant: _RequestActionVariant.primary,
+              loading: _saving || _openingBooking,
+              onTap: _confirmAsBooking,
+            ),
+            const SizedBox(height: AppSpacing.xs),
+            _ResponsiveSheetPair(
+              first: pending
+                  ? _ActionButton(
+                      label: 'Mark contacted',
+                      variant: _RequestActionVariant.secondary,
+                      loading: _saving || _openingBooking,
+                      onTap: () => _setStatus('contacted'),
+                    )
+                  : const SizedBox.shrink(),
+              second: _ActionButton(
+                label: 'Decline',
+                variant: _RequestActionVariant.destructiveQuiet,
+                loading: _saving || _openingBooking,
+                onTap: _declineRequest,
+              ),
             ),
           ],
         ],
@@ -1063,6 +1444,33 @@ String bookingRequestConfirmationMessage(
     'Booking confirmed. No email was available for confirmation.',
 };
 
+String? bookingRequestRequestedTimeLabel(
+  BuildContext context,
+  BookingRequest request, {
+  String? timezone,
+}) {
+  if (request.requestedFor != null) {
+    final effectiveTimezone = timezone ?? request.requestedTimezone?.trim();
+    if (effectiveTimezone == null || effectiveTimezone.isEmpty) {
+      return 'Requested time needs checking';
+    }
+    late final DateTime wallClock;
+    try {
+      wallClock = bookingRequestWallClock(
+        requestedForUtc: request.requestedFor!,
+        timezone: effectiveTimezone,
+      );
+    } on ArgumentError {
+      return 'Requested time unavailable';
+    }
+    final localizations = MaterialLocalizations.of(context);
+    return '${localizations.formatMediumDate(wallClock)} at '
+        '${localizations.formatTimeOfDay(TimeOfDay.fromDateTime(wallClock))}';
+  }
+  final legacy = request.preferredTimeText?.trim();
+  return legacy?.isNotEmpty == true ? legacy : null;
+}
+
 String _formatSheetDate(DateTime date) {
   final day = date.day.toString().padLeft(2, '0');
   final month = date.month.toString().padLeft(2, '0');
@@ -1072,7 +1480,7 @@ String _formatSheetDate(DateTime date) {
 class _SheetPickerButton extends StatelessWidget {
   final IconData icon;
   final String label;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
   const _SheetPickerButton({
     required this.icon,
@@ -1084,30 +1492,40 @@ class _SheetPickerButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return Semantics(
       button: true,
+      enabled: onTap != null,
       label: label,
-      onTap: onTap,
+      onTap: onTap == null
+          ? null
+          : () {
+              SlateHaptics.selection();
+              onTap!();
+            },
       child: ExcludeSemantics(
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
-          onTap: onTap,
+          onTap: onTap == null
+              ? null
+              : () {
+                  SlateHaptics.selection();
+                  onTap!();
+                },
           child: Container(
-            height: 50,
-            padding: const EdgeInsets.symmetric(horizontal: 12),
+            constraints: const BoxConstraints(minHeight: 50),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
             decoration: BoxDecoration(
-              color: AppColors.bgInteract,
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: AppColors.border),
+              color: AppColors.of(context).bgInteract,
+              borderRadius: BorderRadius.circular(AppRadius.md),
+              border: Border.all(color: AppColors.of(context).border),
             ),
             child: Row(
               children: [
-                Icon(icon, color: AppColors.t3, size: 17),
+                Icon(icon, color: AppColors.of(context).t3, size: 17),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
                     label,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: AppColors.t1,
+                    style: TextStyle(
+                      color: AppColors.of(context).t1,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
@@ -1154,35 +1572,48 @@ class _ResponsiveSheetPair extends StatelessWidget {
 class _SheetField extends StatelessWidget {
   final TextEditingController controller;
   final String label;
-  final IconData icon;
+  final bool isRequired;
+  final IconData? icon;
   final TextInputType keyboardType;
   final int maxLines;
   final bool readOnly;
+  final bool enabled;
   final ValueChanged<String>? onChanged;
 
   const _SheetField({
     required this.controller,
     required this.label,
-    required this.icon,
+    this.isRequired = false,
+    this.icon,
     required this.keyboardType,
     this.maxLines = 1,
     this.readOnly = false,
+    this.enabled = true,
     this.onChanged,
   });
 
   @override
   Widget build(BuildContext context) {
-    return TextField(
-      controller: controller,
-      keyboardType: keyboardType,
-      maxLines: maxLines,
-      readOnly: readOnly,
-      onChanged: onChanged,
-      style: const TextStyle(color: AppColors.t1, fontWeight: FontWeight.w600),
-      decoration: InputDecoration(
-        labelText: label,
-        labelStyle: const TextStyle(color: AppColors.t3),
-        prefixIcon: Icon(icon, color: AppColors.t3, size: 17),
+    return WorkloopFormField(
+      label: label,
+      isRequired: isRequired,
+      child: TextField(
+        controller: controller,
+        enabled: enabled,
+        keyboardType: keyboardType,
+        maxLines: maxLines,
+        readOnly: readOnly,
+        onChanged: onChanged,
+        style: TextStyle(
+          color: AppColors.of(context).t1,
+          fontWeight: FontWeight.w600,
+        ),
+        decoration: InputDecoration(
+          labelStyle: TextStyle(color: AppColors.of(context).t3),
+          prefixIcon: icon == null
+              ? null
+              : Icon(icon, color: AppColors.of(context).t3, size: 17),
+        ),
       ),
     );
   }
@@ -1199,20 +1630,26 @@ class _SheetSubmissionError extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: AppColors.error.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.error.withValues(alpha: 0.3)),
+        color: AppColors.of(context).error.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        border: Border.all(
+          color: AppColors.of(context).error.withValues(alpha: 0.3),
+        ),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(LucideIcons.circleAlert, color: AppColors.error, size: 17),
+          Icon(
+            LucideIcons.circleAlert,
+            color: AppColors.of(context).error,
+            size: 17,
+          ),
           const SizedBox(width: AppSpacing.xs),
           Expanded(
             child: Text(
               message,
-              style: const TextStyle(
-                color: AppColors.error,
+              style: TextStyle(
+                color: AppColors.of(context).error,
                 fontSize: 12,
                 height: 1.35,
               ),
@@ -1226,167 +1663,94 @@ class _SheetSubmissionError extends StatelessWidget {
 
 class _SheetEmptyHint extends StatelessWidget {
   final String text;
-
   const _SheetEmptyHint({required this.text});
-
   @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: AppColors.bgInteract,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Text(
-        text,
-        style: const TextStyle(color: AppColors.t3, fontSize: 12, height: 1.32),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => Text(
+    text,
+    style: TextStyle(
+      color: AppColors.of(context).t3,
+      fontSize: 13,
+      height: 1.4,
+    ),
+  );
 }
 
 class _SheetSummaryRow extends StatelessWidget {
   final IconData icon;
   final String label;
   final String value;
-
   const _SheetSummaryRow({
     required this.icon,
     required this.label,
     required this.value,
   });
-
   @override
-  Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Icon(icon, color: AppColors.green, size: 16),
-        const SizedBox(width: 10),
-        SizedBox(
-          width: 76,
-          child: Text(
-            label,
-            style: const TextStyle(
-              color: AppColors.t3,
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
+  Widget build(BuildContext context) => Row(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Padding(
+        padding: const EdgeInsets.only(top: 2),
+        child: Icon(icon, color: AppColors.of(context).t3, size: 18),
+      ),
+      const SizedBox(width: AppSpacing.sm),
+      Expanded(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label,
+              style: TextStyle(color: AppColors.of(context).t3, fontSize: 12),
             ),
-          ),
-        ),
-        Expanded(
-          child: Text(
-            value,
-            textAlign: TextAlign.end,
-            style: const TextStyle(
-              color: AppColors.t1,
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              height: 1.25,
+            const SizedBox(height: AppSpacing.xxs),
+            Text(
+              value,
+              style: TextStyle(
+                color: AppColors.of(context).t1,
+                fontSize: 14,
+                height: 1.4,
+              ),
             ),
-          ),
+          ],
         ),
-      ],
-    );
-  }
+      ),
+    ],
+  );
 }
 
 class _SheetSwitchRow extends StatelessWidget {
   final String title;
   final String subtitle;
   final bool value;
-  final ValueChanged<bool> onChanged;
-
+  final ValueChanged<bool>? onChanged;
   const _SheetSwitchRow({
     required this.title,
     required this.subtitle,
     required this.value,
     required this.onChanged,
   });
-
   @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppColors.bgInteract,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.border),
+  Widget build(BuildContext context) => SwitchListTile.adaptive(
+    contentPadding: EdgeInsets.zero,
+    title: Text(
+      title,
+      style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+    ),
+    subtitle: Text(
+      subtitle,
+      style: TextStyle(
+        color: AppColors.of(context).t3,
+        fontSize: 13,
+        height: 1.4,
       ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    color: AppColors.t1,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  subtitle,
-                  style: const TextStyle(
-                    color: AppColors.t3,
-                    fontSize: 12,
-                    height: 1.25,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Switch.adaptive(value: value, onChanged: onChanged),
-        ],
-      ),
-    );
-  }
-}
-
-class _InfoChip extends StatelessWidget {
-  final IconData icon;
-  final String label;
-
-  const _InfoChip({required this.icon, required this.label});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      constraints: BoxConstraints(
-        maxWidth: MediaQuery.sizeOf(context).width - (AppSpacing.pageX * 2),
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: AppColors.bgInteract,
-        borderRadius: BorderRadius.circular(AppRadius.md),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 13, color: AppColors.t3),
-          const SizedBox(width: 6),
-          Flexible(
-            child: Text(
-              label,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: AppColors.t2,
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+    ),
+    value: value,
+    onChanged: onChanged == null
+        ? null
+        : (value) {
+            SlateHaptics.selection();
+            onChanged!(value);
+          },
+  );
 }
 
 enum _RequestActionVariant { primary, secondary, destructiveQuiet }
@@ -1396,64 +1760,25 @@ class _ActionButton extends StatelessWidget {
   final _RequestActionVariant variant;
   final bool loading;
   final VoidCallback onTap;
-
   const _ActionButton({
     required this.label,
     required this.variant,
     required this.loading,
     required this.onTap,
   });
-
   @override
   Widget build(BuildContext context) {
-    final tokens = SlateTheme.of(context);
-    final isPrimary = variant == _RequestActionVariant.primary;
-    final isDestructive = variant == _RequestActionVariant.destructiveQuiet;
-    final color = isPrimary
-        ? tokens.primaryAction
-        : isDestructive
-        ? AppColors.error
-        : AppColors.t2;
-    final background = isPrimary
-        ? tokens.primaryAction
-        : isDestructive
-        ? Colors.transparent
-        : AppColors.t1.withValues(alpha: 0.06);
-    final foreground = isPrimary ? tokens.onPrimaryAction : color;
-    final border = isPrimary
-        ? Colors.transparent
-        : isDestructive
-        ? Colors.transparent
-        : AppColors.border;
-    return Semantics(
-      button: true,
-      enabled: !loading,
+    if (variant == _RequestActionVariant.destructiveQuiet) {
+      return WorkloopTextButton(
+        label: label,
+        destructive: true,
+        onPressed: loading ? null : onTap,
+      );
+    }
+    return SlateButton(
       label: label,
-      onTap: loading ? null : onTap,
-      child: ExcludeSemantics(
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: loading ? null : onTap,
-          child: Container(
-            constraints: const BoxConstraints(minHeight: AppSpacing.minTouch),
-            padding: const EdgeInsets.symmetric(vertical: 12),
-            decoration: BoxDecoration(
-              color: background,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: border),
-            ),
-            child: Center(
-              child: Text(
-                label,
-                style: TextStyle(
-                  color: foreground,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
+      secondary: variant == _RequestActionVariant.secondary,
+      onPressed: loading ? null : onTap,
     );
   }
 }
@@ -1465,10 +1790,10 @@ class _StatusBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = switch (status) {
-      'confirmed' => AppColors.success,
-      'declined' => AppColors.error,
-      'contacted' => AppColors.t2,
-      _ => AppColors.warning,
+      'confirmed' => AppColors.of(context).success,
+      'declined' => AppColors.of(context).error,
+      'contacted' => AppColors.of(context).t2,
+      _ => AppColors.of(context).warning,
     };
     final label = switch (status) {
       'confirmed' => 'Booked',
@@ -1509,6 +1834,7 @@ class _EmptyRequests extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) => SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
         child: ConstrainedBox(
           constraints: BoxConstraints(minHeight: constraints.maxHeight),
           child: Center(
@@ -1517,13 +1843,17 @@ class _EmptyRequests extends StatelessWidget {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(LucideIcons.inbox, color: AppColors.t3, size: 38),
+                  Icon(
+                    LucideIcons.inbox,
+                    color: AppColors.of(context).t3,
+                    size: 38,
+                  ),
                   const SizedBox(height: AppSpacing.sm),
                   Text(
                     title,
                     textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      color: AppColors.t1,
+                    style: TextStyle(
+                      color: AppColors.of(context).t1,
                       fontWeight: FontWeight.w600,
                       fontSize: 17,
                     ),
@@ -1532,7 +1862,7 @@ class _EmptyRequests extends StatelessWidget {
                   Text(
                     subtitle,
                     textAlign: TextAlign.center,
-                    style: const TextStyle(color: AppColors.t3),
+                    style: TextStyle(color: AppColors.of(context).t3),
                   ),
                   if (onRetry != null) ...[
                     const SizedBox(height: AppSpacing.md),

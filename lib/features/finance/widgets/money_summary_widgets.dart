@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_theme.dart';
@@ -21,25 +23,88 @@ class MoneyPeriodSwitcher extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return WorkloopSegmentedControl<FinancePeriod>(
-      selected: selected,
-      segments: [
-        const WorkloopSegment(value: FinancePeriod.week, label: 'Week'),
-        const WorkloopSegment(value: FinancePeriod.month, label: 'Month'),
-        WorkloopSegment(
-          value: FinancePeriod.custom,
-          label: customLabel ?? 'Custom',
-        ),
-      ],
-      onChanged: onSelected,
+    const segments = [
+      WorkloopSegment(value: FinancePeriod.week, label: 'Week'),
+      WorkloopSegment(value: FinancePeriod.month, label: 'Month'),
+      WorkloopSegment(value: FinancePeriod.custom, label: 'Custom'),
+    ];
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        var segmentWidth = AppSpacing.minTouch;
+        for (final segment in segments) {
+          final label = TextPainter(
+            text: TextSpan(
+              text: segment.label,
+              style: const TextStyle(
+                fontFamily: 'Manrope',
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            textDirection: Directionality.of(context),
+            textScaler: MediaQuery.textScalerOf(context),
+          )..layout();
+          segmentWidth = math.max(segmentWidth, label.width + 24);
+          label.dispose();
+        }
+        final width = math.max(
+          constraints.maxWidth,
+          segmentWidth * segments.length,
+        );
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: SizedBox(
+                width: width,
+                child: WorkloopNavigationControl<FinancePeriod>(
+                  selected: selected,
+                  segments: segments,
+                  onChanged: onSelected,
+                  enableSwipeSelection: width <= constraints.maxWidth,
+                ),
+              ),
+            ),
+            if (selected == FinancePeriod.custom &&
+                customLabel?.trim().isNotEmpty == true)
+              TextButton(
+                key: const ValueKey('money-custom-date-range'),
+                onPressed: () => onSelected(FinancePeriod.custom),
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
+                  minimumSize: const Size(0, AppSpacing.minTouch),
+                  foregroundColor: SlateTheme.of(context).textSecondary,
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        customLabel!,
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.sm),
+                    const Text('Change', style: TextStyle(fontSize: 12)),
+                  ],
+                ),
+              ),
+          ],
+        );
+      },
     );
   }
 }
 
 class ExpenseCategorySummary extends StatelessWidget {
   final PeriodMoneySummary summary;
+  final bool showHeading;
 
-  const ExpenseCategorySummary({super.key, required this.summary});
+  const ExpenseCategorySummary({
+    super.key,
+    required this.summary,
+    this.showHeading = true,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -49,15 +114,17 @@ class ExpenseCategorySummary extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const WorkloopSectionHeader(label: 'Spending by category'),
-        const SizedBox(height: AppSpacing.sm),
+        if (showHeading) ...[
+          const WorkloopSectionHeader(label: 'Spending by category'),
+          const SizedBox(height: AppSpacing.sm),
+        ],
         if (categories.isEmpty)
-          const Text(
+          Text(
             'No expenses in this period.',
             style: TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w600,
-              color: AppColors.t3,
+              color: AppColors.of(context).t3,
             ),
           )
         else
@@ -99,10 +166,10 @@ class DatePickTile extends StatelessWidget {
       onTap: onTap,
       child: ExcludeSemantics(
         child: Material(
-          color: AppColors.bgInteract,
+          color: AppColors.of(context).bgInteract,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(AppRadius.md),
-            side: const BorderSide(color: AppColors.border),
+            side: BorderSide(color: AppColors.of(context).border),
           ),
           child: InkWell(
             excludeFromSemantics: true,
@@ -116,10 +183,10 @@ class DatePickTile extends StatelessWidget {
                 children: [
                   Text(
                     label.toUpperCase(),
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 9,
                       fontWeight: FontWeight.w600,
-                      color: AppColors.t3,
+                      color: AppColors.of(context).t3,
                     ),
                   ),
                   const SizedBox(height: 6),
@@ -127,10 +194,10 @@ class DatePickTile extends StatelessWidget {
                     value,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w600,
-                      color: AppColors.t1,
+                      color: AppColors.of(context).t1,
                     ),
                   ),
                 ],
@@ -191,19 +258,19 @@ class _CategoryBar extends StatelessWidget {
             Expanded(
               child: Text(
                 label,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
-                  color: AppColors.t2,
+                  color: AppColors.of(context).t2,
                 ),
               ),
             ),
             Text(
               formatPounds(amount),
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w600,
-                color: AppColors.t1,
+                color: AppColors.of(context).t1,
               ),
             ),
           ],
@@ -214,8 +281,8 @@ class _CategoryBar extends StatelessWidget {
           child: LinearProgressIndicator(
             minHeight: 6,
             value: progress,
-            backgroundColor: AppColors.t1.withValues(alpha: 0.06),
-            valueColor: const AlwaysStoppedAnimation(AppColors.t1),
+            backgroundColor: AppColors.of(context).t1.withValues(alpha: 0.06),
+            valueColor: AlwaysStoppedAnimation(AppColors.of(context).t1),
           ),
         ),
       ],

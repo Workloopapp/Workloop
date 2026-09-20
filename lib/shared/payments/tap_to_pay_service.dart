@@ -1,5 +1,7 @@
 import 'package:flutter/services.dart';
 
+import '../../core/workloop_capabilities.dart';
+
 typedef ConnectionTokenLoader = Future<String> Function();
 
 class TapToPayAvailability {
@@ -43,6 +45,14 @@ class TapToPayService {
   }
 
   Future<TapToPayAvailability> availability() async {
+    if (!WorkloopCapabilities.paymentCollectionEnabled ||
+        !WorkloopCapabilities.tapToPayEnabled) {
+      return const TapToPayAvailability(
+        supported: false,
+        reason:
+            'Use a secure payment link. Contactless is not enabled for this build.',
+      );
+    }
     try {
       final result = await _channel.invokeMapMethod<Object?, Object?>(
         'availability',
@@ -61,6 +71,14 @@ class TapToPayService {
     required String locationId,
     required ConnectionTokenLoader connectionTokenLoader,
   }) async {
+    if (!WorkloopCapabilities.paymentCollectionEnabled ||
+        !WorkloopCapabilities.tapToPayEnabled) {
+      throw PlatformException(
+        code: 'tap_to_pay_disabled',
+        message:
+            'Use a secure payment link. Contactless is not enabled for this build.',
+      );
+    }
     _tokenLoader = connectionTokenLoader;
     try {
       final result = await _channel.invokeMapMethod<Object?, Object?>(

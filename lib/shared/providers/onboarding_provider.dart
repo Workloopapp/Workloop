@@ -13,11 +13,13 @@ String onboardingDraftKeyForUser(String userId) {
 }
 
 class OnboardingState {
+  final String logoUrl;
   final String firstName;
   final String businessName;
   final String industry;
   final String handle;
   final List<Map<String, dynamic>> services;
+  final bool servicesReviewed;
   final Map<String, dynamic> workingHours;
   final double revenueTarget;
   final Map<String, dynamic>?
@@ -27,11 +29,13 @@ class OnboardingState {
   final int currentStep;
 
   const OnboardingState({
+    this.logoUrl = '',
     this.firstName = '',
     this.businessName = '',
     this.industry = '',
     this.handle = '',
     this.services = const [],
+    this.servicesReviewed = false,
     this.workingHours = const {},
     this.revenueTarget = 0,
     this.firstBooking,
@@ -48,27 +52,34 @@ class OnboardingState {
   });
 
   OnboardingState copyWith({
+    String? logoUrl,
     String? firstName,
     String? businessName,
     String? industry,
     String? handle,
     List<Map<String, dynamic>>? services,
+    bool? servicesReviewed,
     Map<String, dynamic>? workingHours,
     double? revenueTarget,
     Map<String, dynamic>? firstBooking,
+    bool clearFirstBooking = false,
     bool? importAfterSetup,
     Map<String, bool>? notificationPreferences,
     int? currentStep,
   }) {
     return OnboardingState(
+      logoUrl: logoUrl ?? this.logoUrl,
       firstName: firstName ?? this.firstName,
       businessName: businessName ?? this.businessName,
       industry: industry ?? this.industry,
       handle: handle ?? this.handle,
       services: services ?? this.services,
+      servicesReviewed: servicesReviewed ?? this.servicesReviewed,
       workingHours: workingHours ?? this.workingHours,
       revenueTarget: revenueTarget ?? this.revenueTarget,
-      firstBooking: firstBooking ?? this.firstBooking,
+      firstBooking: clearFirstBooking
+          ? null
+          : firstBooking ?? this.firstBooking,
       importAfterSetup: importAfterSetup ?? this.importAfterSetup,
       notificationPreferences:
           notificationPreferences ?? this.notificationPreferences,
@@ -77,11 +88,13 @@ class OnboardingState {
   }
 
   Map<String, dynamic> toJson() => {
+    'logoUrl': logoUrl,
     'firstName': firstName,
     'businessName': businessName,
     'industry': industry,
     'handle': handle,
     'services': services,
+    'servicesReviewed': servicesReviewed,
     'workingHours': workingHours,
     'revenueTarget': revenueTarget,
     'firstBooking': firstBooking,
@@ -92,6 +105,7 @@ class OnboardingState {
 
   factory OnboardingState.fromJson(Map<String, dynamic> json) {
     return OnboardingState(
+      logoUrl: json['logoUrl'] as String? ?? '',
       firstName: json['firstName'] as String? ?? '',
       businessName: json['businessName'] as String? ?? '',
       industry: json['industry'] as String? ?? '',
@@ -100,6 +114,10 @@ class OnboardingState {
           .whereType<Map>()
           .map((item) => Map<String, dynamic>.from(item))
           .toList(),
+      servicesReviewed:
+          json['servicesReviewed'] as bool? ??
+          ((json['services'] as List?)?.isNotEmpty == true ||
+              ((json['currentStep'] as num?)?.toInt() ?? 0) > 3),
       workingHours: Map<String, dynamic>.from(
         json['workingHours'] as Map? ?? const {},
       ),
@@ -140,22 +158,28 @@ class OnboardingNotifier extends Notifier<OnboardingState> {
     final userId = _currentUserId;
     if (userId == null || _restoredForUserId == userId) return;
     await _pendingDraftWrite;
+    if (!ref.mounted || _currentUserId != userId) return;
     _restoredForUserId = userId;
     state = const OnboardingState();
 
     // The legacy key was shared by every account on the device and may contain
     // private client/business details. Never migrate it between users.
-    await _preferences.remove(legacyOnboardingDraftKey);
-
-    final draftKey = onboardingDraftKeyForUser(userId);
-    final value = await _preferences.getString(draftKey);
-    if (value == null || value.isEmpty) return;
     try {
+      await _preferences.remove(legacyOnboardingDraftKey);
+      final value = await _preferences.getString(
+        onboardingDraftKeyForUser(userId),
+      );
+      if (!ref.mounted || _currentUserId != userId) return;
+      if (value == null || value.isEmpty) return;
       state = OnboardingState.fromJson(
         Map<String, dynamic>.from(jsonDecode(value) as Map),
       );
     } catch (_) {
-      await _preferences.remove(draftKey);
+      // Device storage must not leave a new account stuck on a loading screen.
+      // A future edit can save a new draft; never apply another user's draft.
+      try {
+        await _preferences.remove(onboardingDraftKeyForUser(userId));
+      } catch (_) {}
     }
   }
 
@@ -176,6 +200,8 @@ class OnboardingNotifier extends Notifier<OnboardingState> {
     unawaited(_pendingDraftWrite);
   }
 
+  void setLogoUrl(String url) => _set(state.copyWith(logoUrl: url));
+
   void setName(String firstName, String businessName) {
     _set(state.copyWith(firstName: firstName, businessName: businessName));
   }
@@ -189,7 +215,16 @@ class OnboardingNotifier extends Notifier<OnboardingState> {
   }
 
   void setServices(List<Map<String, dynamic>> services) {
-    _set(state.copyWith(services: services));
+    final bookingService = state.firstBooking?['serviceName'];
+    _set(
+      state.copyWith(
+        services: services,
+        servicesReviewed: true,
+        clearFirstBooking:
+            bookingService != null &&
+            !services.any((service) => service['name'] == bookingService),
+      ),
+    );
   }
 
   void setWorkingHours(Map<String, dynamic> hours) {
@@ -203,6 +238,8 @@ class OnboardingNotifier extends Notifier<OnboardingState> {
   void setFirstBooking(Map<String, dynamic> booking) {
     _set(state.copyWith(firstBooking: booking));
   }
+
+  void clearFirstBooking() => _set(state.copyWith(clearFirstBooking: true));
 
   void setImportAfterSetup(bool enabled) {
     _set(state.copyWith(importAfterSetup: enabled));
@@ -226,7 +263,12 @@ class OnboardingNotifier extends Notifier<OnboardingState> {
     final userId = _currentUserId;
     if (userId != null) {
       await _pendingDraftWrite;
-      await _preferences.remove(onboardingDraftKeyForUser(userId));
+      try {
+        await _preferences.remove(onboardingDraftKeyForUser(userId));
+      } catch (_) {
+        // Workspace creation has already succeeded; a local cleanup failure
+        // must not prevent entering the saved business.
+      }
     }
   }
 }

@@ -1,6 +1,10 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/slate_models.dart';
 import '../repositories/slate_repositories.dart';
+import 'appointments_provider.dart';
+import 'business_clock_provider.dart';
+import 'finance_provider.dart';
+import 'tasks_provider.dart';
 import 'workspace_provider.dart';
 
 final clientsProvider = FutureProvider<List<Client>>((ref) async {
@@ -13,17 +17,11 @@ final clientsProvider = FutureProvider<List<Client>>((ref) async {
 final clientCrmRecordsProvider = FutureProvider<List<ClientCrmRecord>>((
   ref,
 ) async {
-  final workspaceId = await ref.watch(workspaceIdProvider.future);
-  if (workspaceId == null) return [];
-
-  final clientsFuture = ref.watch(clientsRepositoryProvider).list(workspaceId);
-  final appointmentsFuture = ref
-      .watch(appointmentsRepositoryProvider)
-      .list(workspaceId);
-  final paymentsFuture = ref
-      .watch(paymentsRepositoryProvider)
-      .list(workspaceId);
-  final tasksFuture = ref.watch(tasksRepositoryProvider).list(workspaceId);
+  final now = ref.watch(businessNowProvider);
+  final clientsFuture = ref.watch(clientsProvider.future);
+  final appointmentsFuture = ref.watch(appointmentsProvider.future);
+  final paymentsFuture = ref.watch(invoicesProvider.future);
+  final tasksFuture = ref.watch(allTasksProvider.future);
 
   final (clients, appointments, payments, tasks) = await (
     clientsFuture,
@@ -34,9 +32,10 @@ final clientCrmRecordsProvider = FutureProvider<List<ClientCrmRecord>>((
 
   return buildClientCrmRecords(
     clients: clients,
-    appointments: appointments,
+    appointments: appointments.map(Appointment.fromMap),
     payments: payments,
     tasks: tasks,
+    now: now,
   );
 });
 
@@ -87,6 +86,7 @@ List<ClientCrmRecord> buildClientCrmRecords({
                 item.status != 'done' && _isOverdue(item.dueDate, current),
           )
           .length,
+      evaluatedAt: current,
     );
   }).toList();
 }
@@ -114,6 +114,7 @@ class ClientCrmRecord {
   final double outstandingBalance;
   final int openTaskCount;
   final int overdueTaskCount;
+  final DateTime? evaluatedAt;
 
   const ClientCrmRecord({
     required this.client,
@@ -125,6 +126,7 @@ class ClientCrmRecord {
     required this.outstandingBalance,
     required this.openTaskCount,
     required this.overdueTaskCount,
+    this.evaluatedAt,
   });
 
   bool get needsAttention =>
@@ -137,9 +139,15 @@ class ClientCrmRecord {
   bool get isInactive => client.status == 'inactive';
 
   bool get isDormant {
-    final latest = lastBooking?.startTime ?? client.lastActivityAt;
+    final bookingDate = lastBooking?.startTime;
+    final activityDate = client.lastActivityAt ?? client.createdAt;
+    final latest = bookingDate == null
+        ? activityDate
+        : activityDate != null && activityDate.isAfter(bookingDate)
+        ? activityDate
+        : bookingDate;
     if (latest == null) return false;
-    return DateTime.now().difference(latest).inDays >= 60;
+    return (evaluatedAt ?? DateTime.now()).difference(latest).inDays >= 60;
   }
 
   String get segment {

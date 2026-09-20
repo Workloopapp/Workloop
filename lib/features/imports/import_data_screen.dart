@@ -29,9 +29,13 @@ class ImportDataScreen extends StatelessWidget {
             backSemanticLabel: 'Back to settings',
           ),
           const SizedBox(height: AppSpacing.xs),
-          const Text(
+          Text(
             'Bring existing work into one place. You review everything before Workloop creates it.',
-            style: TextStyle(color: AppColors.t2, fontSize: 15, height: 1.45),
+            style: TextStyle(
+              color: AppColors.of(context).t2,
+              fontSize: 15,
+              height: 1.45,
+            ),
           ),
           const SizedBox(height: AppSpacing.xl),
           const WorkloopSectionHeader(label: 'People and bookings'),
@@ -49,8 +53,8 @@ class ImportDataScreen extends StatelessWidget {
           ),
           _ImportRow(
             icon: LucideIcons.fileSpreadsheet,
-            title: 'Client CSV',
-            subtitle: 'Map columns, preview rows and skip duplicates',
+            title: 'Client files',
+            subtitle: 'Apple / Google Contacts vCards and spreadsheet CSVs',
             showDivider: false,
             onTap: () => _open(context, const CsvImportScreen()),
           ),
@@ -80,20 +84,20 @@ class ImportDataScreen extends StatelessWidget {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Icon(
+                Icon(
                   LucideIcons.shieldCheck,
-                  color: AppColors.t2,
+                  color: AppColors.of(context).t2,
                   size: 20,
                 ),
                 const SizedBox(width: AppSpacing.sm),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
-                    children: const [
+                    children: [
                       Text(
                         'Private by design',
                         style: TextStyle(
-                          color: AppColors.t1,
+                          color: AppColors.of(context).t1,
                           fontWeight: FontWeight.w600,
                         ),
                       ),
@@ -101,7 +105,7 @@ class ImportDataScreen extends StatelessWidget {
                       Text(
                         'Permissions are requested only when you choose a source. Workloop reads the minimum data needed and imports only your selections into your workspace.',
                         style: TextStyle(
-                          color: AppColors.t3,
+                          color: AppColors.of(context).t3,
                           fontSize: 12,
                           height: 1.45,
                         ),
@@ -145,27 +149,31 @@ class _ImportRow extends StatelessWidget {
       leading: Container(
         width: 40,
         height: 40,
-        decoration: const BoxDecoration(
-          color: AppColors.modBg,
+        decoration: BoxDecoration(
+          color: AppColors.of(context).modBg,
           shape: BoxShape.circle,
         ),
-        child: Icon(icon, color: AppColors.t2, size: 18),
+        child: Icon(icon, color: AppColors.of(context).t2, size: 18),
       ),
       title: Text(
         title,
-        style: const TextStyle(
-          color: AppColors.t1,
+        style: TextStyle(
+          color: AppColors.of(context).t1,
           fontSize: 15,
           fontWeight: FontWeight.w600,
         ),
       ),
       subtitle: Text(
         subtitle,
-        style: const TextStyle(color: AppColors.t3, fontSize: 12, height: 1.35),
+        style: TextStyle(
+          color: AppColors.of(context).t3,
+          fontSize: 12,
+          height: 1.35,
+        ),
       ),
-      trailing: const Icon(
+      trailing: Icon(
         LucideIcons.chevronRight,
-        color: AppColors.t4,
+        color: AppColors.of(context).t4,
         size: 18,
       ),
     );

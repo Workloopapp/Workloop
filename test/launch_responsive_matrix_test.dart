@@ -31,7 +31,6 @@ import 'package:workloop/shared/providers/notifications_provider.dart';
 import 'package:workloop/shared/providers/setup_checklist_provider.dart';
 import 'package:workloop/shared/providers/tasks_provider.dart';
 import 'package:workloop/shared/providers/workspace_provider.dart';
-import 'package:workloop/shared/providers/workspace_settings_provider.dart';
 import 'package:workloop/shared/repositories/auth_repository.dart';
 import 'package:workloop/shared/repositories/profile_repository.dart';
 import 'package:workloop/shared/repositories/services_repository.dart';
@@ -128,13 +127,11 @@ void main() {
 
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
-      addTearDown(() => WorkloopLegacyPalette.sync(Brightness.dark));
       for (final device in devices) {
         tester.view.physicalSize = device.size;
         tester.view.devicePixelRatio = 1;
         for (final scale in const [1.0, 2.0]) {
           for (final appearance in appearances) {
-            WorkloopLegacyPalette.sync(appearance.$2.brightness);
             for (final surface in surfaces) {
               await tester.pumpWidget(
                 ProviderScope(
@@ -169,9 +166,6 @@ void main() {
                     invoicesProvider.overrideWith((ref) async => const []),
                     expensesProvider.overrideWith((ref) async => const []),
                     financeSummaryProvider.overrideWith((ref) async => finance),
-                    workspaceSettingsProvider.overrideWith(
-                      (ref) async => const {'revenue_target': 5000},
-                    ),
                     settingsBusinessProfileProvider.overrideWith(
                       (ref) async => const BusinessProfile(
                         id: 'profile-1',
@@ -182,6 +176,7 @@ void main() {
                     ),
                     settingsWorkspaceSettingsProvider.overrideWith(
                       (ref) async => const {
+                        'revenue_target': 5000,
                         'working_hours': {
                           'Monday': {
                             'enabled': true,

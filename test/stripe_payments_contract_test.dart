@@ -9,8 +9,14 @@ import 'package:workloop/shared/models/slate_models.dart';
 import 'package:workloop/shared/repositories/payments_repository.dart';
 
 void main() {
-  test('beta payment collection is build-gated off by default', () {
-    expect(WorkloopCapabilities.paymentCollectionEnabled, isFalse);
+  test('payment collection follows the requested build gate', () {
+    expect(
+      WorkloopCapabilities.paymentCollectionEnabled,
+      const bool.fromEnvironment(
+        'PAYMENT_COLLECTION_ENABLED',
+        defaultValue: true,
+      ),
+    );
 
     final financeSource = File(
       'lib/features/finance/finance_screen.dart',
@@ -18,10 +24,6 @@ void main() {
     final bookingSource = File(
       'lib/features/appointments/appointment_detail_screen.dart',
     ).readAsStringSync();
-    expect(
-      financeSource,
-      contains('paymentCollectionEnabled && workspaceId != null'),
-    );
     expect(
       financeSource,
       contains('ref.read(paymentCollectionEnabledProvider)'),
@@ -92,23 +94,26 @@ void main() {
       );
     });
 
-    test('payment retries retain one key for each logical operation', () {
-      final repository = File(
-        'lib/shared/repositories/stripe_payments_repository.dart',
-      ).readAsStringSync();
-      final sheet = File(
-        'lib/features/finance/payment_collection_sheet.dart',
-      ).readAsStringSync();
-      expect(repository, contains('required String idempotencyKey'));
-      expect(sheet, contains('_paymentLinkIdempotencyKey ??='));
-      expect(sheet, contains('_terminalPaymentIdempotencyKey ??='));
-      expect(sheet, contains('_refundIdempotencyKeys.putIfAbsent'));
-      expect(retryMigration, contains('idempotency_key text'));
-      expect(
-        retryMigration,
-        contains('payment_refunds_workspace_idempotency_idx'),
-      );
-    });
+    test(
+      'payment retry persistence requires a supplied key and unique refund identity',
+      () {
+        final repository = File(
+          'lib/shared/repositories/stripe_payments_repository.dart',
+        ).readAsStringSync();
+        final sheet = File(
+          'lib/features/finance/payment_collection_sheet.dart',
+        ).readAsStringSync();
+        expect(repository, contains('required String idempotencyKey'));
+        // Stable link/terminal command behavior is covered by the live-state
+        // widget tests, including changed balances and lost responses.
+        expect(sheet, contains('_refundIdempotencyKeys.putIfAbsent'));
+        expect(retryMigration, contains('idempotency_key text'));
+        expect(
+          retryMigration,
+          contains('payment_refunds_workspace_idempotency_idx'),
+        );
+      },
+    );
 
     test('contactless payments offer a Stripe email receipt', () {
       final repository = File(
@@ -122,7 +127,7 @@ void main() {
       ).readAsStringSync();
 
       expect(repository, contains("'receiptEmail': ?receiptEmail"));
-      expect(sheet, contains("labelText: 'Email receipt'"));
+      expect(sheet, contains("'Email receipt'"));
       expect(sheet, contains("label: 'Send payment link'"));
       expect(function, contains('["receipt_email", receiptEmail]'));
       expect(function, contains('metadata: receiptEmail'));
@@ -249,11 +254,15 @@ void main() {
   test('contactless availability explains the real platform gate', () {
     expect(
       contactlessUnavailableMessage(TargetPlatform.iOS),
-      'Requires Apple Tap to Pay approval for this app build.',
+      WorkloopCapabilities.tapToPayEnabled
+          ? 'Contactless payments are not available on this phone. Use a card payment link.'
+          : 'Tap to Pay is not enabled in this version of Workloop. Use a card payment link.',
     );
     expect(
       contactlessUnavailableMessage(TargetPlatform.android),
-      'Contactless payments are not available on this phone yet.',
+      WorkloopCapabilities.tapToPayEnabled
+          ? 'Contactless payments are not available on this phone. Use a card payment link.'
+          : 'Tap to Pay is not enabled in this version of Workloop. Use a card payment link.',
     );
   });
 
@@ -274,13 +283,45 @@ void main() {
       ),
     );
 
-    expect(find.text('Get paid with Workloop'), findsOneWidget);
+    expect(find.text('Card & contactless payments'), findsOneWidget);
     expect(
-      find.text('Set up Stripe, send payment links, and manage payouts.'),
+      find.text(
+        'Take card payments by link, check Tap to Pay, and manage payouts.',
+      ),
       findsOneWidget,
     );
-    expect(find.textContaining('Tap to Pay'), findsNothing);
+    expect(find.textContaining('Tap to Pay'), findsOneWidget);
   });
+
+  testWidgets(
+    'disabled payment setup explains availability without a repository',
+    (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => PaymentSetupCard(
+                onTap: () => showPaymentSetupSheet(
+                  context: context,
+                  workspaceId: 'workspace-1',
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('Card & contactless payments'));
+      await tester.pumpAndSettle();
+      expect(
+        find.textContaining('Card payment collection is not enabled'),
+        findsOneWidget,
+      );
+      expect(find.text('Set up secure payments'), findsNothing);
+      expect(find.text('Close'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+    skip: WorkloopCapabilities.paymentCollectionEnabled,
+  );
 
   test('ready flow leads users to money they can collect', () {
     final source = File(
@@ -290,7 +331,7 @@ void main() {
     expect(source, contains("label: 'View payments to collect'"));
     expect(source, contains("label: 'Send payment link'"));
     expect(source, contains('Copy payment link'));
-    expect(source, contains("status: 'Pending'"));
+    expect(source, contains("status: 'Unavailable'"));
     expect(source, contains('Test mode — no real money will move.'));
     expect(source, contains('SlateErrorState(message: _error!)'));
   });

@@ -248,8 +248,8 @@ class _TextImportScreenState extends ConsumerState<TextImportScreen> {
             isNotes
                 ? 'Apple Notes and Google Keep do not provide safe direct access. Exported .txt and .md files keep you in control.'
                 : 'Each non-empty line becomes an open task. Review the files before confirming.',
-            style: const TextStyle(
-              color: AppColors.t2,
+            style: TextStyle(
+              color: AppColors.of(context).t2,
               fontSize: 15,
               height: 1.45,
             ),
@@ -269,7 +269,7 @@ class _TextImportScreenState extends ConsumerState<TextImportScreen> {
               child: ExcludeSemantics(
                 child: Text(
                   _message!,
-                  style: const TextStyle(color: AppColors.t3),
+                  style: TextStyle(color: AppColors.of(context).t3),
                 ),
               ),
             ),
@@ -310,6 +310,7 @@ class _TextImportScreenState extends ConsumerState<TextImportScreen> {
                 children: [
                   for (var index = 0; index < _files.length; index++)
                     WorkloopListRow(
+                      flat: true,
                       onTap: _importing
                           ? null
                           : () => setState(() {
@@ -332,8 +333,8 @@ class _TextImportScreenState extends ConsumerState<TextImportScreen> {
                       ),
                       title: Text(
                         _files[index].name,
-                        style: const TextStyle(
-                          color: AppColors.t1,
+                        style: TextStyle(
+                          color: AppColors.of(context).t1,
                           fontWeight: FontWeight.w600,
                         ),
                       ),
@@ -341,7 +342,7 @@ class _TextImportScreenState extends ConsumerState<TextImportScreen> {
                         _files[index].content.replaceAll(RegExp(r'\s+'), ' '),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(color: AppColors.t3),
+                        style: TextStyle(color: AppColors.of(context).t3),
                       ),
                     ),
                 ],

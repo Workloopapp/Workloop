@@ -125,11 +125,11 @@ int _taskSort(SlateTask a, SlateTask b) {
   return compareTasksForDisplay(a, b);
 }
 
-Color _priorityColor(String priority) {
+Color _priorityColor(BuildContext context, String priority) {
   return switch (priority) {
-    'high' => AppColors.error,
-    'medium' => AppColors.warning,
-    _ => AppColors.t3,
+    'high' => AppColors.of(context).error,
+    'medium' => AppColors.of(context).warning,
+    _ => AppColors.of(context).t3,
   };
 }
 

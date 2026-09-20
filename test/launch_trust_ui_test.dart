@@ -16,6 +16,8 @@ import 'package:workloop/shared/providers/clients_provider.dart';
 import 'package:workloop/shared/providers/tasks_provider.dart';
 import 'package:workloop/shared/providers/workspace_provider.dart';
 import 'package:workloop/shared/repositories/profile_repository.dart';
+import 'package:workloop/shared/sms/booking_sms_repository.dart';
+import 'package:workloop/shared/widgets/slate_ui.dart';
 
 void main() {
   testWidgets('business settings load failures expose an accessible retry', (
@@ -48,18 +50,33 @@ void main() {
     'client overview reports provider failure instead of trustworthy-looking zeroes',
     (tester) async {
       final sourceError = StateError('offline');
+      var failing = true;
+      var appointmentReads = 0;
+      var paymentReads = 0;
+      var taskReads = 0;
 
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
-            clientAppointmentsProvider.overrideWith(
-              (ref, clientId) async => throw sourceError,
-            ),
-            clientPaymentsProvider.overrideWith(
-              (ref, clientId) async => throw sourceError,
-            ),
-            clientTasksProvider.overrideWith(
-              (ref, clientId) async => throw sourceError,
+            clientAppointmentsProvider.overrideWith((ref, clientId) async {
+              appointmentReads++;
+              if (failing) throw sourceError;
+              return [];
+            }),
+            clientPaymentsProvider.overrideWith((ref, clientId) async {
+              paymentReads++;
+              if (failing) throw sourceError;
+              return [];
+            }),
+            clientTasksProvider.overrideWith((ref, clientId) async {
+              taskReads++;
+              if (failing) throw sourceError;
+              return [];
+            }),
+            bookingSmsCapabilitiesProvider.overrideWith(
+              (ref) async => const BookingSmsCapabilities(
+                availability: BookingSmsAvailability.notReady,
+              ),
             ),
           ],
           child: MaterialApp(
@@ -86,9 +103,29 @@ void main() {
         findsOneWidget,
       );
       expect(find.text('Nothing booked yet'), findsNothing);
-      expect(find.text('Jobs completed'), findsNothing);
+      expect(find.text('Bookings completed'), findsNothing);
       expect(find.text('Recent activity'), findsNothing);
-      expect(find.widgetWithText(TextButton, 'Try again'), findsOneWidget);
+      final activityError = find.ancestor(
+        of: find.text(
+          'Some client activity could not be loaded. Try again before relying on this overview.',
+        ),
+        matching: find.byType(SlateErrorState),
+      );
+      final retry = find.descendant(
+        of: activityError,
+        matching: find.widgetWithText(TextButton, 'Try again'),
+      );
+      expect(retry, findsOneWidget);
+      final readsBefore = (appointmentReads, paymentReads, taskReads);
+      failing = false;
+      await tester.tap(retry);
+      await tester.pumpAndSettle();
+      expect(appointmentReads, greaterThan(readsBefore.$1));
+      expect(paymentReads, greaterThan(readsBefore.$2));
+      expect(taskReads, greaterThan(readsBefore.$3));
+      expect(activityError, findsNothing);
+      expect(find.text('Nothing booked yet'), findsOneWidget);
+      expect(tester.takeException(), isNull);
     },
   );
 
@@ -143,6 +180,7 @@ void main() {
       ProviderScope(
         overrides: [
           allTasksProvider.overrideWith((ref) async => const [task]),
+          workspaceIdProvider.overrideWith((ref) async => 'workspace-1'),
           clientsProvider.overrideWith((ref) async => const []),
           taskChecklistProvider.overrideWith(
             (ref, taskId) async => const [item],
@@ -191,6 +229,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    await tester.tap(find.bySemanticsLabel('Edit Monday hours'));
+    await tester.pumpAndSettle();
     final remove = find.byTooltip('Remove Monday time block 1');
     expect(remove, findsOneWidget);
     expect(find.bySemanticsLabel('Remove Monday time block 1'), findsOneWidget);

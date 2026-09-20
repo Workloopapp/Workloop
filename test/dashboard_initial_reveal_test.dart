@@ -23,92 +23,96 @@ import 'package:workloop/shared/repositories/auth_repository.dart';
 import 'package:workloop/shared/widgets/slate_ui.dart';
 
 void main() {
-  testWidgets(
-    'cold launch reveals the dashboard once and refresh does not reopen it',
-    (tester) async {
-      final firstAppointments = Completer<List<Map<String, dynamic>>>();
-      final refreshedAppointments = Completer<List<Map<String, dynamic>>>();
-      final attention = Completer<List<DashboardAttentionItem>>();
-      var appointmentLoads = 0;
-      final authRepository = AuthRepository(
-        SupabaseClient(
-          'https://example.supabase.co',
-          'test-anon-key',
-          authOptions: const AuthClientOptions(autoRefreshToken: false),
-        ),
-      );
-      final summary = FinanceSummary.from(
-        payments: const [],
-        expenses: const [],
-        monthlyTarget: 3000,
-        now: DateTime(2026, 8, 11, 9),
-      );
+  testWidgets('navigation is usable before slow dashboard sections finish', (
+    tester,
+  ) async {
+    final firstAppointments = Completer<List<Map<String, dynamic>>>();
+    final refreshedAppointments = Completer<List<Map<String, dynamic>>>();
+    final attention = Completer<List<DashboardAttentionItem>>();
+    final finance = Completer<FinanceSummary>();
+    var appointmentLoads = 0;
+    final authRepository = AuthRepository(
+      SupabaseClient(
+        'https://example.supabase.co',
+        'test-anon-key',
+        authOptions: const AuthClientOptions(autoRefreshToken: false),
+      ),
+    );
+    final summary = FinanceSummary.from(
+      payments: const [],
+      expenses: const [],
+      monthlyTarget: 3000,
+      now: DateTime(2026, 8, 11, 9),
+    );
 
-      await tester.pumpWidget(
-        ProviderScope(
-          overrides: [
-            authRepositoryProvider.overrideWithValue(authRepository),
-            workspaceProvider.overrideWith(
-              (ref) async => const {
-                'id': 'workspace-1',
-                'name': 'Workloop Studio',
-              },
-            ),
-            dashboardClockProvider.overrideWith(
-              (ref) => Stream.value(DateTime(2026, 8, 11, 9)),
-            ),
-            appointmentsProvider.overrideWith((ref) {
-              appointmentLoads += 1;
-              return appointmentLoads == 1
-                  ? firstAppointments.future
-                  : refreshedAppointments.future;
-            }),
-            dashboardAttentionProvider.overrideWith((ref) => attention.future),
-            clientsProvider.overrideWith((ref) async => const <Client>[]),
-            invoicesProvider.overrideWith((ref) async => const <Payment>[]),
-            financeSummaryProvider.overrideWith((ref) async => summary),
-            allTasksProvider.overrideWith((ref) async => const <SlateTask>[]),
-            allNotesProvider.overrideWith((ref) async => const <SlateNote>[]),
-            businessFeedProvider.overrideWith(
-              (ref) async => const <BusinessFeedItem>[],
-            ),
-            unreadNotificationsProvider.overrideWith((ref) async => 0),
-            setupChecklistDismissedProvider.overrideWith((ref) async => true),
-          ],
-          child: MaterialApp(
-            theme: AppTheme.light,
-            home: const WorkspaceGate(child: MainShell()),
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          authRepositoryProvider.overrideWithValue(authRepository),
+          workspaceProvider.overrideWith(
+            (ref) async => const {
+              'id': 'workspace-1',
+              'name': 'Workloop Studio',
+            },
           ),
+          dashboardClockProvider.overrideWith(
+            (ref) => Stream.value(DateTime(2026, 8, 11, 9)),
+          ),
+          appointmentsProvider.overrideWith((ref) {
+            appointmentLoads += 1;
+            return appointmentLoads == 1
+                ? firstAppointments.future
+                : refreshedAppointments.future;
+          }),
+          dashboardAttentionProvider.overrideWith((ref) => attention.future),
+          clientsProvider.overrideWith((ref) async => const <Client>[]),
+          invoicesProvider.overrideWith((ref) async => const <Payment>[]),
+          financeSummaryProvider.overrideWith((ref) => finance.future),
+          allTasksProvider.overrideWith((ref) async => const <SlateTask>[]),
+          allNotesProvider.overrideWith((ref) async => const <SlateNote>[]),
+          businessFeedProvider.overrideWith(
+            (ref) async => const <BusinessFeedItem>[],
+          ),
+          unreadNotificationsProvider.overrideWith((ref) async => 0),
+          setupChecklistDismissedProvider.overrideWith((ref) async => true),
+        ],
+        child: MaterialApp(
+          theme: AppTheme.light,
+          home: const WorkspaceGate(child: MainShell()),
         ),
-      );
-      await tester.pump();
+      ),
+    );
+    await tester.pump();
 
-      expect(find.byKey(const ValueKey('dashboard-opening')), findsOneWidget);
-      expect(find.text('Opening Workloop'), findsOneWidget);
-      expect(find.byType(WorkloopBottomNav), findsNothing);
+    expect(find.byType(WorkloopBottomNav), findsOneWidget);
+    expect(find.text('Your day is clear'), findsNothing);
+    expect(find.text('Opening Workloop'), findsNothing);
 
-      firstAppointments.complete(const []);
-      attention.complete(const []);
-      await tester.pumpAndSettle();
+    firstAppointments.complete(const []);
+    attention.complete(const []);
+    await tester.pump();
 
-      expect(find.byKey(const ValueKey('dashboard-ready')), findsOneWidget);
-      expect(find.byType(WorkloopBottomNav), findsOneWidget);
-      expect(find.text('Today'), findsWidgets);
+    expect(find.byType(WorkloopBottomNav), findsOneWidget);
+    expect(find.text('Opening Workloop'), findsNothing);
 
-      final container = ProviderScope.containerOf(
-        tester.element(find.byType(MainShell)),
-      );
-      container.invalidate(workspaceProvider);
-      container.invalidate(appointmentsProvider);
-      await tester.pump();
+    finance.complete(summary);
+    await tester.pumpAndSettle();
 
-      expect(find.byKey(const ValueKey('dashboard-ready')), findsOneWidget);
-      expect(find.byKey(const ValueKey('dashboard-opening')), findsNothing);
-      expect(find.byType(WorkloopBottomNav), findsOneWidget);
+    expect(find.byType(WorkloopBottomNav), findsOneWidget);
+    expect(find.text('Today'), findsWidgets);
 
-      refreshedAppointments.complete(const []);
-      await tester.pumpAndSettle();
-      expect(tester.takeException(), isNull);
-    },
-  );
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(MainShell)),
+    );
+    container.invalidate(workspaceProvider);
+    container.invalidate(appointmentsProvider);
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey('dashboard-opening')), findsNothing);
+    expect(find.byType(WorkloopBottomNav), findsOneWidget);
+
+    refreshedAppointments.complete(const []);
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
 }

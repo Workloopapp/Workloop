@@ -1,3 +1,8 @@
+import { withWorkloopOperator } from "./workloop_operator_email.ts";
+import {
+  businessContactEmail,
+  loadBusinessEmailContact,
+} from "./business_contact_email.ts";
 export type BookingConfirmationEmailConfig = {
   apiKey: string;
   from: string;
@@ -93,31 +98,62 @@ function bookingTime(payload: Record<string, unknown>) {
   }
 }
 
+function bookingDuration(payload: Record<string, unknown>) {
+  const rawStart = text(payload.start_time);
+  const rawEnd = text(payload.end_time);
+  if (rawStart.length === 0 || rawEnd.length === 0) return "";
+
+  const start = new Date(rawStart);
+  const end = new Date(rawEnd);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+    return "";
+  }
+
+  const minutes = Math.round((end.getTime() - start.getTime()) / 60_000);
+  if (!Number.isFinite(minutes) || minutes <= 0) return "";
+  if (minutes % 60 === 0) {
+    const hours = minutes / 60;
+    return hours === 1 ? "1 hour" : `${hours} hours`;
+  }
+  return `${minutes} minutes`;
+}
+
 export function bookingConfirmationEmailContent(
   claim: Pick<ClaimedEmail, "payload">,
 ) {
+  const contact = businessContactEmail(claim.payload);
   const customerName = text(claim.payload.customer_name, "there");
   const businessName = text(claim.payload.business_name, "The business");
   const bookingTitle = text(claim.payload.booking_title, "Booking");
   const location = text(claim.payload.location);
   const time = bookingTime(claim.payload);
-  const subject = `${businessName} confirmed your booking`;
-  const locationText = location.length > 0 ? `\nLocation: ${location}` : "";
+  const subject = `${businessName} confirmed your booking: ${bookingTitle}`;
+  const duration = bookingDuration(claim.payload);
+  const locationLine = location.length > 0 ? `\nLocation: ${location}` : "";
+  const durationLine = duration.length > 0 ? `\nDuration: ${duration}` : "";
   const plainText =
-    `Hi ${customerName},\n\n${businessName} has confirmed your booking request.\n\nBooking: ${bookingTitle}\nWhen: ${time}${locationText}\n\nIf anything needs changing, contact ${businessName} directly.\n\nSent by Workloop`;
+    `Hi ${customerName},\n\n${businessName} has confirmed your booking request.\n\nBooking: ${bookingTitle}\nWhen: ${time}${durationLine}${locationLine}\n\nYou can review the details with ${businessName} directly if anything needs changing.\n\n${contact.text}\n\nSent by Workloop`;
   const locationHtml = location.length > 0
     ? `<br><strong>Location:</strong> ${escapeHtml(location)}`
     : "";
-  const html = `<p>Hi ${escapeHtml(customerName)},</p><p>${
-    escapeHtml(businessName)
-  } has confirmed your booking request.</p><p><strong>Booking:</strong> ${
-    escapeHtml(bookingTitle)
-  }<br><strong>When:</strong> ${
-    escapeHtml(time)
-  }${locationHtml}</p><p>If anything needs changing, contact ${
-    escapeHtml(businessName)
-  } directly.</p><p>Sent by Workloop</p>`;
-  return { subject, plainText, html };
+  const durationHtml = duration.length > 0
+    ? `<br><strong>Duration:</strong> ${escapeHtml(duration)}`
+    : "";
+  const html =
+    `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><style>@font-face{font-family:Manrope;src:url('https://workloop.uk/Manrope-Variable.ttf') format('truetype');font-weight:100 900}</style></head><body style="margin:0;background:#f5edd9;color:#443c32;font-family:'Manrope',Arial,sans-serif"><div style="display:none;max-height:0;overflow:hidden">Your booking with ${
+      escapeHtml(businessName)
+    } is confirmed.</div><table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f5edd9"><tr><td align="center" style="padding:32px 16px"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:600px;background:#fbf7ed;border:1px solid #8d8070;border-radius:8px"><tr><td style="padding:34px"><div style="font-size:26px;font-weight:650;letter-spacing:-.04em">workloop</div><p style="margin:30px 0 12px;color:#286280;font-size:12px;font-weight:600;letter-spacing:.08em;padding:10px 12px;background:#c3d7e4;border:1px solid #8d8070;border-radius:5px;color:#443c32">BOOKING CONFIRMED</p><h1 style="margin:0 0 18px;font-size:34px;line-height:1.1">You’re booked in.</h1><p style="color:#665c50;font-size:17px;line-height:1.6">Hi ${
+      escapeHtml(customerName)
+    }, ${
+      escapeHtml(businessName)
+    } has confirmed your booking request.</p><div style="margin:24px 0;padding:22px;background:#f0d18b;border-radius:6px;border:1px solid #8d8070;line-height:1.65"><strong>Booking:</strong> ${
+      escapeHtml(bookingTitle)
+    }<br><strong>When:</strong> ${
+      escapeHtml(time)
+    }${durationHtml}${locationHtml}</div><p style="color:#665c50;line-height:1.6">If anything needs changing, contact ${
+      escapeHtml(businessName)
+    } directly.</p>${contact.html}<p style="margin:28px 0 0;color:#665c50;font-size:14px">Sent by Workloop, the business operating system for one.</p></td></tr></table></td></tr></table></body></html>`;
+  return withWorkloopOperator({ subject, plainText, html });
 }
 
 export async function sendBookingConfirmationEmail(
@@ -136,6 +172,10 @@ export async function sendBookingConfirmationEmail(
     body: JSON.stringify({
       from: config.from,
       to: [claim.recipient_email],
+      reply_to: String(
+        (claim.payload.business_contact as Record<string, unknown> | undefined)
+          ?.email ?? "support@workloop.uk",
+      ),
       subject: content.subject,
       text: content.plainText,
       html: content.html,
@@ -178,6 +218,12 @@ export async function drainBookingConfirmationEmails(input: {
     let delivered = false;
     let failure = "";
     try {
+      const contact = await loadBusinessEmailContact(
+        input.client,
+        "confirmation",
+        claim.outbox_id,
+      );
+      claim.payload = { ...claim.payload, business_contact: contact };
       providerMessageId = await sendBookingConfirmationEmail(
         claim,
         input.config,

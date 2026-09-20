@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:workloop/core/workloop_app_info.dart';
 import 'package:workloop/features/auth/password_recovery_screen.dart';
@@ -52,6 +54,36 @@ void main() {
     );
   });
 
+  test('expired access-token rejection refreshes before local sign-out', () {
+    expect(
+      isRefreshableExpiredAccessTokenFailure(
+        statusCode: '403',
+        code: 'bad_jwt',
+        message: 'token has invalid claims: token is expired',
+      ),
+      isTrue,
+    );
+    expect(isTerminalSessionFailure(statusCode: '403'), isFalse);
+    expect(isTerminalSessionFailure(code: 'bad_jwt'), isFalse);
+    expect(isTerminalSessionFailure(code: 'session_not_found'), isTrue);
+    expect(isTerminalSessionFailure(code: 'user_not_found'), isTrue);
+    expect(isTerminalSessionFailure(code: 'refresh_token_not_found'), isTrue);
+    expect(isTerminalSessionFailure(statusCode: '503'), isFalse);
+  });
+
+  test('authenticated routes reuse the restored account bootstrap', () {
+    final source = File('lib/main.dart').readAsStringSync();
+
+    expect(
+      source,
+      contains(
+        'final currentUserId = Supabase.instance.client.auth.currentSession?.user.id;',
+      ),
+    );
+    expect(source, contains('_lastUserId = currentUserId;'));
+    expect(source, contains('_providersReadyForUserId = currentUserId;'));
+  });
+
   test('onboarding RPC payload uses server contract field names', () {
     final params = buildOnboardingRpcParams(
       businessName: ' Workloop Studio ',
@@ -60,7 +92,9 @@ void main() {
       services: const [
         {'name': 'Session', 'duration': 45, 'price': 65},
       ],
-      workingHours: const {'monday': []},
+      workingHours: const {
+        'Mon': {'enabled': false},
+      },
       revenueTarget: 5000,
       firstBooking: const {
         'clientName': 'Alex',

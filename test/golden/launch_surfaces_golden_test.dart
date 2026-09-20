@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -46,6 +47,7 @@ void main() {
 
   testWidgets('authentication login surface', (tester) async {
     await _pumpSurface(tester, const AuthScreen());
+    await _settleAuthBrandIcon(tester);
 
     await expectLater(
       find.byKey(const ValueKey('golden-surface')),
@@ -55,8 +57,8 @@ void main() {
 
   testWidgets('authentication registration surface', (tester) async {
     await _pumpSurface(tester, const AuthScreen());
+    await _settleAuthBrandIcon(tester);
     final modeToggle = find.byKey(const ValueKey('auth-mode-toggle'));
-    await tester.ensureVisible(modeToggle);
     await tester.tap(modeToggle);
     await tester.pumpAndSettle();
 
@@ -66,68 +68,117 @@ void main() {
     );
   });
 
-  testWidgets('onboarding operating loop light surface', (tester) async {
-    await _pumpSurface(
+  for (final (appearance, size, safeArea, theme) in [
+    (
+      'dark',
+      const Size(390, 844),
+      const EdgeInsets.only(top: 47, bottom: 34),
+      AppTheme.dark,
+    ),
+    (
+      'light',
+      const Size(430, 932),
+      const EdgeInsets.only(top: 59, bottom: 34),
+      AppTheme.light,
+    ),
+  ]) {
+    testWidgets('authentication iOS $appearance hierarchy surface', (
       tester,
-      Scaffold(
-        backgroundColor: AppColors.bg,
-        body: Stack(
-          children: [
-            const Positioned.fill(child: WorkloopTexturedBackdrop()),
-            SafeArea(child: ObWelcome(onNext: () {})),
-          ],
-        ),
-      ),
-      theme: AppTheme.light,
-    );
+    ) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      try {
+        await _pumpSurface(
+          tester,
+          const AuthScreen(),
+          theme: theme,
+          size: size,
+          safeArea: safeArea,
+        );
+        await _settleAuthBrandIcon(tester);
+        expect(find.byKey(const ValueKey('auth-apple')), findsOneWidget);
+        expect(find.byKey(const ValueKey('auth-google')), findsOneWidget);
+        final boundary = find.byKey(const ValueKey('golden-surface'));
+        final filename = 'auth-ios-$appearance-hierarchy.png';
+        await expectLater(boundary, matchesGoldenFile('files/$filename'));
+      } finally {
+        // Reset before Flutter checks debug-variable invariants.
+        debugDefaultTargetPlatformOverride = null;
+      }
+    });
+  }
 
-    expect(
-      find.bySemanticsLabel(
-        'Workloop operating loop: client, booking, work, payment, repeat.',
-      ),
-      findsOneWidget,
-    );
-    await expectLater(
-      find.byKey(const ValueKey('golden-surface')),
-      matchesGoldenFile('files/onboarding-operating-loop-light.png'),
-    );
-  });
+  for (final (appearance, theme, filename) in [
+    ('light', AppTheme.light, 'onboarding-operating-loop-light.png'),
+    ('dark', AppTheme.dark, 'onboarding-business-organiser-dark.png'),
+  ]) {
+    testWidgets('onboarding business organiser $appearance surface', (
+      tester,
+    ) async {
+      await _pumpSurface(
+        tester,
+        Scaffold(
+          backgroundColor: theme.scaffoldBackgroundColor,
+          body: Stack(
+            children: [
+              const Positioned.fill(child: WorkloopTexturedBackdrop()),
+              SafeArea(child: ObWelcome(onNext: () {})),
+            ],
+          ),
+        ),
+        theme: theme,
+      );
+
+      expect(find.text('Your business,\nin good order.'), findsOneWidget);
+      expect(find.text('A CLEARER WORKING DAY'), findsOneWidget);
+      final start = find.byKey(const ValueKey('onboarding-get-started'));
+      expect(start.hitTestable(), findsOneWidget);
+      expect(tester.getRect(start).bottom, lessThanOrEqualTo(844 - 34));
+      await expectLater(
+        find.byKey(const ValueKey('golden-surface')),
+        matchesGoldenFile('files/$filename'),
+      );
+    });
+  }
 
   testWidgets('shell navigation stays quiet in both appearances', (
     tester,
   ) async {
-    final screen = Scaffold(
-      body: const WorkloopTexturedBackdrop(),
-      bottomNavigationBar: WorkloopBottomNav(
-        currentIndex: 1,
-        items: const [
-          WorkloopNavItem(
-            label: 'Today',
-            icon: LucideIcons.home,
-            color: AppColors.accentPrimary,
+    final screen = Builder(
+      builder: (context) => WorkloopAppCanvas(
+        child: Scaffold(
+          body: const WorkloopTexturedBackdrop(),
+          bottomNavigationBar: WorkloopBottomNav(
+            currentIndex: 1,
+            items: [
+              WorkloopNavItem(
+                label: 'Today',
+                icon: LucideIcons.home,
+                color: AppColors.of(context).accentPrimary,
+              ),
+              WorkloopNavItem(
+                label: 'Clients',
+                icon: LucideIcons.users,
+                color: AppColors.of(context).accentPrimary,
+              ),
+              WorkloopNavItem(
+                label: 'Work',
+                icon: LucideIcons.briefcase,
+                color: AppColors.of(context).accentPrimary,
+              ),
+              WorkloopNavItem(
+                label: 'Money',
+                icon: LucideIcons.circlePoundSterling,
+                color: AppColors.of(context).accentPrimary,
+              ),
+              WorkloopNavItem(
+                label: 'Business',
+                icon: LucideIcons.store,
+                color: AppColors.of(context).accentPrimary,
+              ),
+            ],
+            onTap: (_) {},
           ),
-          WorkloopNavItem(
-            label: 'Clients',
-            icon: LucideIcons.users,
-            color: AppColors.accentPrimary,
-          ),
-          WorkloopNavItem(
-            label: 'Work',
-            icon: LucideIcons.briefcase,
-            color: AppColors.accentPrimary,
-          ),
-          WorkloopNavItem(
-            label: 'Money',
-            icon: LucideIcons.circlePoundSterling,
-            color: AppColors.accentPrimary,
-          ),
-          WorkloopNavItem(
-            label: 'Business',
-            icon: LucideIcons.store,
-            color: AppColors.accentPrimary,
-          ),
-        ],
-        onTap: (_) {},
+        ),
       ),
     );
 
@@ -297,7 +348,8 @@ void main() {
               type: 'booking',
               title: 'New booking request',
               body: 'Maya wants a signature appointment on Friday.',
-              deepLink: '/booking-requests',
+              deepLink:
+                  '/booking-requests/a1111111-1111-4111-8111-111111111111',
               createdAt: now,
             ),
             SlateNotification(
@@ -306,6 +358,7 @@ void main() {
               type: 'payment_received',
               title: 'Payment received',
               body: '£85 was recorded for Samira Khan.',
+              deepLink: '/payments/b1111111-1111-4111-8111-111111111111',
               read: true,
               createdAt: now.subtract(const Duration(days: 2)),
             ),
@@ -406,9 +459,15 @@ void main() {
         (ref) async => [
           DashboardAttentionItem(
             type: DashboardAttentionType.bookingRequest,
-            title: 'Review 2 booking requests',
-            detail: 'Waiting for your response',
-            source: 2,
+            title: 'Review Alex’s request',
+            detail: 'Window clean · Awaiting decision',
+            source: const BookingRequest(
+              id: 'request-focus-1',
+              workspaceId: 'workspace-1',
+              name: 'Alex',
+              phone: '07000000000',
+              serviceName: 'Window clean',
+            ),
             sortTime: now,
           ),
         ],
@@ -673,10 +732,14 @@ void main() {
 
   testWidgets('Work workspace schedule surface', (tester) async {
     final now = DateTime.now();
+    final noteReferenceDate = DateTime(2026, 8, 15, 9);
     final start = DateTime(now.year, now.month, now.day, 9, 30);
     await _pumpSurface(
       tester,
-      _marketingSurface(const WorkScreen(), currentIndex: 2),
+      _marketingSurface(
+        WorkScreen(referenceDate: noteReferenceDate),
+        currentIndex: 2,
+      ),
       theme: AppTheme.light,
       overrides: [
         appointmentsProvider.overrideWith(
@@ -756,16 +819,16 @@ void main() {
               workspaceId: 'workspace-1',
               title: 'Maya’s appointment preferences',
               body: 'Prefers a quiet appointment.',
-              createdAt: now,
-              updatedAt: now,
+              createdAt: noteReferenceDate,
+              updatedAt: noteReferenceDate,
             ),
             SlateNote(
               id: 'work-note-2',
               workspaceId: 'workspace-1',
               title: 'August supply list',
               body: 'Consultation packs and aftercare cards.',
-              createdAt: now,
-              updatedAt: now,
+              createdAt: noteReferenceDate,
+              updatedAt: noteReferenceDate,
             ),
             SlateNote(
               id: 'work-note-3',
@@ -773,8 +836,8 @@ void main() {
               title: 'Jordan’s first appointment',
               body: 'Allow ten minutes for the initial consultation.',
               clientName: 'Jordan Ellis',
-              createdAt: now,
-              updatedAt: now,
+              createdAt: noteReferenceDate,
+              updatedAt: noteReferenceDate,
             ),
           ],
         ),
@@ -1001,6 +1064,14 @@ void main() {
     );
 
     expect(find.textContaining('£420'), findsWidgets);
+    expect(
+      tester
+          .getBottomLeft(find.byKey(const ValueKey('money-history-toggle')))
+          .dy,
+      lessThanOrEqualTo(758),
+      reason:
+          'The cash figures and payment-history entry fit above the phone navigation.',
+    );
     await expectLater(
       find.byKey(const ValueKey('golden-surface')),
       matchesGoldenFile('files/money-populated-light.png'),
@@ -1541,6 +1612,12 @@ void main() {
   });
 }
 
+Future<void> _settleAuthBrandIcon(WidgetTester tester) async {
+  await tester.pumpAndSettle();
+  // The native vector illustration paints synchronously; no raster decode wait.
+  expect(find.byKey(const ValueKey('auth-brand-icon')), findsOneWidget);
+}
+
 List<Override> _bookingCalendarOverrides() {
   final firstStart = DateTime(2026, 8, 8, 10);
   final secondStart = DateTime(2026, 8, 11, 14, 30);
@@ -1584,11 +1661,11 @@ Future<void> _pumpSurface(
   Widget screen, {
   List<Override> overrides = const [],
   ThemeData? theme,
+  Size size = const Size(390, 844),
+  EdgeInsets safeArea = const EdgeInsets.only(top: 47, bottom: 34),
 }) async {
   final resolvedTheme = theme ?? AppTheme.dark;
-  WorkloopLegacyPalette.sync(resolvedTheme.brightness);
-  addTearDown(() => WorkloopLegacyPalette.sync(Brightness.dark));
-  tester.view.physicalSize = const Size(390, 844);
+  tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
@@ -1600,10 +1677,10 @@ Future<void> _pumpSurface(
         debugShowCheckedModeBanner: false,
         theme: resolvedTheme,
         home: MediaQuery(
-          data: const MediaQueryData(
-            size: Size(390, 844),
+          data: MediaQueryData(
+            size: size,
             devicePixelRatio: 1,
-            padding: EdgeInsets.only(top: 47, bottom: 34),
+            padding: safeArea,
             disableAnimations: true,
           ),
           child: RepaintBoundary(
@@ -1619,39 +1696,41 @@ Future<void> _pumpSurface(
 }
 
 Widget _marketingSurface(Widget screen, {required int currentIndex}) {
-  return Scaffold(
-    backgroundColor: AppColors.bg,
-    body: screen,
-    bottomNavigationBar: WorkloopBottomNav(
-      currentIndex: currentIndex,
-      items: const [
-        WorkloopNavItem(
-          label: 'Today',
-          icon: LucideIcons.home,
-          color: AppColors.accentPrimary,
-        ),
-        WorkloopNavItem(
-          label: 'Clients',
-          icon: LucideIcons.users,
-          color: AppColors.accentPrimary,
-        ),
-        WorkloopNavItem(
-          label: 'Work',
-          icon: LucideIcons.briefcase,
-          color: AppColors.accentPrimary,
-        ),
-        WorkloopNavItem(
-          label: 'Money',
-          icon: LucideIcons.circlePoundSterling,
-          color: AppColors.accentPrimary,
-        ),
-        WorkloopNavItem(
-          label: 'Business',
-          icon: LucideIcons.store,
-          color: AppColors.accentPrimary,
-        ),
-      ],
-      onTap: (_) {},
+  return Builder(
+    builder: (context) => Scaffold(
+      backgroundColor: AppColors.of(context).bg,
+      body: screen,
+      bottomNavigationBar: WorkloopBottomNav(
+        currentIndex: currentIndex,
+        items: [
+          WorkloopNavItem(
+            label: 'Today',
+            icon: LucideIcons.home,
+            color: AppColors.of(context).accentPrimary,
+          ),
+          WorkloopNavItem(
+            label: 'Clients',
+            icon: LucideIcons.users,
+            color: AppColors.of(context).accentPrimary,
+          ),
+          WorkloopNavItem(
+            label: 'Work',
+            icon: LucideIcons.briefcase,
+            color: AppColors.of(context).accentPrimary,
+          ),
+          WorkloopNavItem(
+            label: 'Money',
+            icon: LucideIcons.circlePoundSterling,
+            color: AppColors.of(context).accentPrimary,
+          ),
+          WorkloopNavItem(
+            label: 'Business',
+            icon: LucideIcons.store,
+            color: AppColors.of(context).accentPrimary,
+          ),
+        ],
+        onTap: (_) {},
+      ),
     ),
   );
 }
@@ -1662,9 +1741,21 @@ Future<void> _loadDeterministicFonts() async {
   // Flutter's test binding uses the block-glyph Ahem font for any style that
   // relies on a platform fallback. Map that fallback to Workloop's bundled
   // typeface so golden images represent the shipped UI rather than test boxes.
+  final mono = FontLoader('WorkloopMono')
+    ..addFont(rootBundle.load('assets/fonts/WorkloopMono-Regular.ttf'));
   final platformFallback = FontLoader('Ahem')
+    ..addFont(rootBundle.load('assets/fonts/Manrope-Variable.ttf'));
+  // The Apple button names this iOS system family explicitly. The headless
+  // test engine has no system font, so use a bundled test-only fallback.
+  final appleSystemFallback = FontLoader('.SF Pro Text')
     ..addFont(rootBundle.load('assets/fonts/Manrope-Variable.ttf'));
   final lucide = FontLoader('packages/lucide_flutter/LucideIcons')
     ..addFont(rootBundle.load('packages/lucide_flutter/assets/lucide.ttf'));
-  await Future.wait([manrope.load(), platformFallback.load(), lucide.load()]);
+  await Future.wait([
+    manrope.load(),
+    mono.load(),
+    platformFallback.load(),
+    appleSystemFallback.load(),
+    lucide.load(),
+  ]);
 }

@@ -19,6 +19,263 @@ void _expectBefore(String source, String first, String second) {
 String _phoneDigits(String value) => value.replaceAll(RegExp(r'[^0-9]'), '');
 
 void main() {
+  group('target-date public availability boundary', () {
+    late String migration;
+    late String edgeHandler;
+    late String edgeContract;
+
+    setUpAll(() {
+      migration = _source(
+        'supabase/migrations/'
+        '20260902183040_public_booking_target_date_availability.sql',
+      );
+      edgeHandler = _source(
+        'supabase/functions/get-public-booking-availability/index.ts',
+      );
+      edgeContract = _source(
+        'supabase/functions/get-public-booking-availability/'
+        'availability_contract.ts',
+      );
+    });
+
+    test('keeps the old RPC and adds a service-role-only dated version', () {
+      expect(
+        migration,
+        contains(
+          'create or replace function public.get_public_booking_slot_suggestions(',
+        ),
+      );
+      expect(
+        migration,
+        contains(
+          'create function public.get_public_booking_slot_suggestions_v3',
+        ),
+      );
+      expect(migration, contains('p_target_date date default null'));
+      expect(migration, contains('from public, anon, authenticated'));
+      expect(migration, contains('to service_role'));
+      expect(migration, isNot(contains('security definer')));
+    });
+
+    test('edge validates and forwards one optional target date', () {
+      expect(edgeContract, contains('targetdate: string | null'));
+      expect(edgeContract, contains('safeisodate'));
+      expect(edgeHandler, contains('get_public_booking_slot_suggestions_v3'));
+      expect(edgeHandler, contains('p_target_date: input.targetdate'));
+    });
+  });
+
+  group('service add-on and snapshot boundary', () {
+    late String migration;
+
+    setUpAll(() {
+      migration = _source(
+        'supabase/migrations/'
+        '20260902172046_service_add_ons_and_booking_item_snapshots.sql',
+      );
+    });
+
+    test('new public tables enable RLS and use explicit least privilege', () {
+      for (final table in const [
+        'service_add_ons',
+        'booking_request_items',
+        'appointment_items',
+      ]) {
+        expect(
+          migration,
+          contains('alter table public.$table enable row level security'),
+        );
+        expect(migration, contains('revoke all on table public.$table'));
+      }
+      expect(
+        migration,
+        contains(
+          'grant select on table public.booking_request_items, public.appointment_items',
+        ),
+      );
+      expect(
+        migration,
+        isNot(
+          contains(
+            'grant select, insert, update, delete on table public.booking_request_items',
+          ),
+        ),
+      );
+    });
+
+    test(
+      'tenant-safe foreign keys and immutable snapshot sources are explicit',
+      () {
+        expect(migration, contains('service_add_ons_workspace_service_fk'));
+        expect(
+          migration,
+          contains('booking_request_items_workspace_request_fk'),
+        );
+        expect(
+          migration,
+          contains('appointment_items_workspace_appointment_fk'),
+        );
+        expect(migration, contains('on delete set null (source_add_on_id)'));
+        expect(migration, contains('booking_request_items_one_base_uidx'));
+        expect(migration, contains('appointment_items_one_base_uidx'));
+        for (final index in const [
+          'booking_request_items_workspace_source_service_idx',
+          'booking_request_items_workspace_source_add_on_idx',
+          'appointment_items_workspace_source_service_idx',
+          'appointment_items_workspace_source_add_on_idx',
+        ]) {
+          expect(migration, contains('create index $index'));
+        }
+      },
+    );
+
+    test('v3 trusts catalog IDs and preserves older intake RPCs', () {
+      expect(
+        migration,
+        contains(
+          'create function app_private.snapshot_booking_request_base_service()',
+        ),
+      );
+      expect(migration, contains('after insert on public.booking_requests'));
+      expect(
+        migration,
+        contains(
+          'on conflict on constraint '
+          'booking_request_items_booking_request_id_position_key',
+        ),
+      );
+      expect(
+        migration,
+        isNot(contains('on conflict (booking_request_id, position)')),
+      );
+      expect(
+        migration,
+        contains('create function public.create_public_booking_request_v3'),
+      );
+      final v3Function = migration.substring(
+        migration.indexOf(
+          'create function public.create_public_booking_request_v3',
+        ),
+        migration.indexOf(
+          'comment on function public.create_public_booking_request_v3',
+        ),
+      );
+      expect(
+        v3Function,
+        isNot(contains("current_setting('request.jwt.claim.role'")),
+      );
+      expect(v3Function, contains('from public, anon, authenticated'));
+      expect(v3Function, contains('to service_role'));
+      expect(migration, contains("'invalid_add_on'::text"));
+      expect(migration, contains('add_on.id = any(p_add_on_ids)'));
+      expect(
+        migration,
+        contains(
+          'create function public.get_public_booking_slot_suggestions_v2',
+        ),
+      );
+      expect(migration, contains('sum(add_on.duration_mins)'));
+      expect(
+        migration,
+        contains('return public.get_public_booking_slot_suggestions'),
+      );
+      expect(
+        migration,
+        contains('from public.create_public_booking_request_v2'),
+      );
+      expect(
+        migration,
+        isNot(
+          contains('drop function public.create_public_booking_request_v2'),
+        ),
+      );
+    });
+
+    test('booking workflow copies request snapshots atomically', () {
+      final workflowWrapper = migration.substring(
+        migration.indexOf(
+          'create function app_private.create_booking_workflow(p_payload jsonb)',
+        ),
+      );
+      _expectBefore(
+        workflowWrapper,
+        'v_result := app_private.create_booking_workflow_without_item_snapshots',
+        'insert into public.appointment_items',
+      );
+      expect(
+        workflowWrapper,
+        contains('from public.booking_request_items request_item'),
+      );
+      expect(
+        workflowWrapper,
+        contains(
+          'on conflict on constraint '
+          'appointment_items_appointment_id_position_key',
+        ),
+      );
+      expect(
+        workflowWrapper,
+        isNot(contains('on conflict (appointment_id, position)')),
+      );
+      _expectBefore(
+        workflowWrapper,
+        'request.result is not null',
+        "if p_payload ? 'add_on_ids'",
+      );
+    });
+
+    test(
+      'snapshot wrapper remains outside confirmation email and overlap core',
+      () {
+        final confirmationMigration = _source(
+          'supabase/migrations/'
+          '20260813205930_booking_request_confirmation_email_outbox.sql',
+        );
+        final overlapMigration = _source(
+          'supabase/migrations/'
+          '20260902172036_allow_booking_schedule_exceptions.sql',
+        );
+
+        expect(
+          confirmationMigration,
+          contains(
+            'rename to create_booking_workflow_without_confirmation_email',
+          ),
+        );
+        expect(
+          confirmationMigration,
+          contains('insert into app_private.transactional_email_outbox'),
+        );
+        expect(
+          overlapMigration,
+          contains(
+            'create or replace function app_private.create_booking_workflow_without_confirmation_email',
+          ),
+        );
+        expect(
+          migration,
+          contains('rename to create_booking_workflow_without_item_snapshots'),
+        );
+        expect(
+          migration,
+          contains(
+            'v_result := app_private.create_booking_workflow_without_item_snapshots',
+          ),
+        );
+      },
+    );
+
+    test('database regression covers legacy conversion and email intent', () {
+      final pgTap = _source(
+        'supabase/tests/database/012_service_add_ons_and_snapshots.test.sql',
+      );
+      expect(pgTap, contains('public.create_public_booking_request_v2'));
+      expect(pgTap, contains('public.create_booking_workflow(payload)'));
+      expect(pgTap, contains('from public.appointment_items item'));
+      expect(pgTap, contains('app_private.transactional_email_outbox'));
+    });
+  });
+
   group('public booking request database boundary', () {
     late String rateLimitMigration;
 
@@ -100,6 +357,44 @@ void main() {
       expect(denyMigration, contains('using (false)'));
       expect(denyMigration, contains('with check (false)'));
     });
+  });
+
+  test('public profile publishes only active extras below public services', () {
+    final handler = _source('supabase/functions/get-public-profile/index.ts');
+    expect(handler, contains('service_add_ons('));
+    expect(handler, contains('.eq("service_add_ons.active", true)'));
+    expect(handler, contains('.eq("show_on_profile", true)'));
+    expect(handler, contains('.eq("active", true)'));
+    expect(handler, contains('.gte("duration_mins", 5)'));
+    expect(handler, contains('.lte("duration_mins", 1440)'));
+  });
+
+  test(
+    'service duration migration quarantines legacy values before bounding writes',
+    () {
+      final migration = _source(
+        'supabase/migrations/'
+        '20260902174021_bound_public_service_durations.sql',
+      );
+      expect(migration, contains('set duration_mins = 60'));
+      expect(migration, contains('active = false'));
+      expect(migration, contains('show_on_profile = false'));
+      expect(migration, contains('where duration_mins not between 5 and 1440'));
+      expect(migration, contains('services_duration_mins_check'));
+      _expectBefore(
+        migration,
+        'update public.services',
+        'add constraint services_duration_mins_check',
+      );
+    },
+  );
+
+  test('owner booking request queries load immutable item snapshots', () {
+    final repository = _source(
+      'lib/shared/repositories/profile_repository.dart',
+    );
+    expect(repository, contains('booking_request_items(id, workspace_id'));
+    expect(repository, contains('source_add_on_id'));
   });
 
   group('member booking conversion boundary', () {
@@ -360,13 +655,44 @@ void main() {
     final edgeHandler = File(
       'supabase/functions/create-booking-request/index.ts',
     ).readAsStringSync();
+    final profileHandler = File(
+      'supabase/functions/get-public-profile/index.ts',
+    ).readAsStringSync();
 
     expect(edgeHandler, contains('"create_public_booking_request_v2"'));
     expect(edgeHandler, contains('p_request_token: requestToken'));
     expect(edgeHandler, contains('p_email: email'));
     expect(edgeHandler, contains('bookingRequestOutcomeResponse(outcome)'));
+    for (final handler in [edgeHandler, profileHandler]) {
+      expect(handler, contains('"is_public_workspace_active"'));
+      expect(handler, contains('p_workspace_id: profile.workspace_id'));
+      expect(handler, contains('if (member !== true)'));
+    }
+    _expectBefore(
+      edgeHandler,
+      'if (member !== true)',
+      '"create_public_booking_request_v2"',
+    );
+    _expectBefore(
+      profileHandler,
+      'if (member !== true)',
+      '.from("workspaces")',
+    );
     expect(edgeHandler, isNot(contains('.from("booking_requests").insert')));
     expect(edgeHandler, isNot(contains('.from("notifications").insert')));
+  });
+
+  test('availability verifies an active public owner before reading slots', () {
+    final handler = File(
+      'supabase/functions/get-public-booking-availability/index.ts',
+    ).readAsStringSync();
+    expect(handler, contains('"is_public_profile_active"'));
+    expect(handler, contains('p_handle: input.handle'));
+    _expectBefore(
+      handler,
+      'if (active !== true)',
+      '"get_public_booking_slot_suggestions_v4"',
+    );
   });
 
   test('Flutter retry and triage paths preserve lifecycle guards', () {
@@ -401,7 +727,9 @@ void main() {
       RegExp(
         'fetchAllRepositoryPages<Map<String, dynamic>>',
       ).allMatches(appointments),
-      hasLength(4),
+      // Four current-schema reads plus four legacy projections used only when
+      // appointment_items has not reached the backend yet.
+      hasLength(8),
     );
     expect(appointments, contains(".order('start_time', ascending: true)"));
     expect(appointments, contains(".order('id', ascending: true)"));

@@ -12,6 +12,7 @@ import '../../shared/providers/workspace_provider.dart';
 import '../../shared/providers/workspace_settings_provider.dart';
 import '../../shared/repositories/appointments_repository.dart';
 import '../../shared/widgets/slate_ui.dart';
+import '../../shared/widgets/workloop_form_field.dart';
 import 'import_models.dart';
 
 typedef CalendarImportStep = Future<void> Function();
@@ -385,9 +386,13 @@ class _CalendarImportScreenState extends ConsumerState<CalendarImportScreen> {
         children: [
           const WorkloopRouteHeader(title: 'Import calendar'),
           const SizedBox(height: AppSpacing.xs),
-          const Text(
+          Text(
             'Review a one-time snapshot before creating any bookings. Your source calendar is never changed.',
-            style: TextStyle(color: AppColors.t2, fontSize: 15, height: 1.45),
+            style: TextStyle(
+              color: AppColors.of(context).t2,
+              fontSize: 15,
+              height: 1.45,
+            ),
           ),
           const SizedBox(height: AppSpacing.lg),
           if (_calendars.isEmpty) ...[
@@ -407,10 +412,11 @@ class _CalendarImportScreenState extends ConsumerState<CalendarImportScreen> {
               ),
             ],
           ] else ...[
-            const Text(
+            WorkloopFieldLabel(
               'Calendar',
+              isRequired: true,
               style: TextStyle(
-                color: AppColors.t2,
+                color: AppColors.of(context).t2,
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -438,10 +444,10 @@ class _CalendarImportScreenState extends ConsumerState<CalendarImportScreen> {
               enabled: !_importing,
             ),
             const SizedBox(height: AppSpacing.md),
-            const Text(
+            Text(
               'Date range',
               style: TextStyle(
-                color: AppColors.t2,
+                color: AppColors.of(context).t2,
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -450,18 +456,24 @@ class _CalendarImportScreenState extends ConsumerState<CalendarImportScreen> {
               onTap: _importing ? null : _pickRange,
               child: Row(
                 children: [
-                  const Icon(LucideIcons.calendarRange, color: AppColors.t3),
+                  Icon(
+                    LucideIcons.calendarRange,
+                    color: AppColors.of(context).t3,
+                  ),
                   const SizedBox(width: AppSpacing.sm),
                   Expanded(
                     child: Text(
                       '${_date(_from)} — ${_date(_to)}',
-                      style: const TextStyle(
-                        color: AppColors.t1,
+                      style: TextStyle(
+                        color: AppColors.of(context).t1,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
                   ),
-                  const Icon(LucideIcons.chevronRight, color: AppColors.t3),
+                  Icon(
+                    LucideIcons.chevronRight,
+                    color: AppColors.of(context).t3,
+                  ),
                 ],
               ),
             ),
@@ -475,7 +487,10 @@ class _CalendarImportScreenState extends ConsumerState<CalendarImportScreen> {
               child: ExcludeSemantics(
                 child: Text(
                   _message!,
-                  style: const TextStyle(color: AppColors.t3, height: 1.4),
+                  style: TextStyle(
+                    color: AppColors.of(context).t3,
+                    height: 1.4,
+                  ),
                 ),
               ),
             ),
@@ -518,6 +533,7 @@ class _CalendarImportScreenState extends ConsumerState<CalendarImportScreen> {
                     final start = event.start!.toLocal();
                     final failure = _eventFailures[id];
                     return WorkloopListRow(
+                      flat: true,
                       onTap: _importing
                           ? null
                           : () => setState(() {
@@ -540,8 +556,8 @@ class _CalendarImportScreenState extends ConsumerState<CalendarImportScreen> {
                         event.title?.trim().isNotEmpty == true
                             ? event.title!.trim()
                             : 'Untitled event',
-                        style: const TextStyle(
-                          color: AppColors.t1,
+                        style: TextStyle(
+                          color: AppColors.of(context).t1,
                           fontWeight: FontWeight.w600,
                         ),
                       ),
@@ -552,14 +568,14 @@ class _CalendarImportScreenState extends ConsumerState<CalendarImportScreen> {
                             event.allDay == true
                                 ? '${_date(start)} · All day'
                                 : '${_date(start)} · ${_time(start)}${event.end == null ? '' : '–${_time(event.end!.toLocal())}'}',
-                            style: const TextStyle(color: AppColors.t3),
+                            style: TextStyle(color: AppColors.of(context).t3),
                           ),
                           if (failure != null) ...[
                             const SizedBox(height: AppSpacing.xxs),
                             Text(
                               failure,
-                              style: const TextStyle(
-                                color: AppColors.error,
+                              style: TextStyle(
+                                color: AppColors.of(context).error,
                                 fontSize: 12,
                                 height: 1.35,
                               ),
@@ -573,10 +589,11 @@ class _CalendarImportScreenState extends ConsumerState<CalendarImportScreen> {
               ),
             ),
             const SizedBox(height: AppSpacing.lg),
-            const Text(
+            WorkloopFieldLabel(
               'Client for selected events',
+              isRequired: true,
               style: TextStyle(
-                color: AppColors.t2,
+                color: AppColors.of(context).t2,
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -601,9 +618,13 @@ class _CalendarImportScreenState extends ConsumerState<CalendarImportScreen> {
               enabled: !_importing,
             ),
             const SizedBox(height: AppSpacing.xs),
-            const Text(
+            Text(
               'Imported bookings start at £0 so you can confirm the service and price safely afterward.',
-              style: TextStyle(color: AppColors.t3, fontSize: 12, height: 1.4),
+              style: TextStyle(
+                color: AppColors.of(context).t3,
+                fontSize: 12,
+                height: 1.4,
+              ),
             ),
             const SizedBox(height: AppSpacing.lg),
             WorkloopPrimaryButton(

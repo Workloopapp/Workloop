@@ -2,6 +2,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:workloop/shared/models/slate_models.dart';
 import 'package:workloop/shared/providers/appointments_provider.dart';
+import 'package:workloop/shared/providers/booking_requests_provider.dart';
+import 'package:workloop/shared/providers/business_clock_provider.dart';
 import 'package:workloop/shared/providers/clients_provider.dart';
 import 'package:workloop/shared/providers/dashboard_provider.dart';
 import 'package:workloop/shared/providers/finance_provider.dart';
@@ -13,7 +15,20 @@ void main() {
       final now = DateTime(2026, 7, 6, 9);
       final items = buildDashboardAttentionItems(
         now: now,
-        pendingBookingRequests: 2,
+        bookingRequests: const [
+          BookingRequest(
+            id: 'request-1',
+            workspaceId: 'workspace-1',
+            name: 'Alex',
+            phone: '',
+          ),
+          BookingRequest(
+            id: 'request-2',
+            workspaceId: 'workspace-1',
+            name: 'Jamie',
+            phone: '',
+          ),
+        ],
         payments: [
           Payment.fromMap({
             'id': 'payment-overdue',
@@ -45,6 +60,14 @@ void main() {
           }),
         ],
         appointments: [
+          for (final date in ['2026-05-01', '2026-04-03', '2026-03-06'])
+            {
+              'id': 'regular-$date',
+              'workspace_id': 'workspace-1',
+              'contact_id': 'client-dormant',
+              'start_time': '${date}T09:00:00',
+              'status': 'completed',
+            },
           {
             'id': 'appointment-upcoming',
             'workspace_id': 'workspace-1',
@@ -103,6 +126,7 @@ void main() {
       expect(items.map((item) => item.title), isNot(contains('Collect £80')));
       expect(items.map((item) => item.type), [
         DashboardAttentionType.bookingRequest,
+        DashboardAttentionType.bookingRequest,
         DashboardAttentionType.overdueTask,
         DashboardAttentionType.unpaid,
         DashboardAttentionType.clientFollowUp,
@@ -120,14 +144,7 @@ void main() {
             (ref) async => const <Map<String, dynamic>>[],
           ),
           clientsProvider.overrideWith((ref) async => const <Client>[]),
-          dashboardFocusProvider.overrideWith(
-            (ref) async => const DashboardFocus(
-              nextAppointment: null,
-              pendingBookingRequests: 0,
-              overduePayments: 0,
-              overdueTotal: 0,
-            ),
-          ),
+          bookingRequestsProvider.overrideWith((ref) async => const []),
         ],
       );
       addTearDown(container.dispose);
@@ -137,5 +154,189 @@ void main() {
         throwsA(same(sourceError)),
       );
     });
+
+    test(
+      'each active request keeps its identity and oldest requests come first',
+      () {
+        final now = DateTime(2026, 9, 6);
+        final requests = [
+          BookingRequest(
+            id: 'new',
+            workspaceId: 'workspace-1',
+            name: 'Alex',
+            phone: '',
+            serviceName: 'Window clean',
+            createdAt: now.subtract(const Duration(hours: 1)),
+          ),
+          BookingRequest(
+            id: 'contacted',
+            workspaceId: 'workspace-1',
+            name: 'Jamie',
+            phone: '',
+            status: 'contacted',
+            createdAt: now.subtract(const Duration(days: 2)),
+          ),
+          const BookingRequest(
+            id: 'confirmed',
+            workspaceId: 'workspace-1',
+            name: 'Confirmed',
+            phone: '',
+            status: 'confirmed',
+          ),
+          const BookingRequest(
+            id: 'declined',
+            workspaceId: 'workspace-1',
+            name: 'Declined',
+            phone: '',
+            status: 'declined',
+          ),
+          const BookingRequest(
+            id: '',
+            workspaceId: 'workspace-1',
+            name: 'Missing identifier',
+            phone: '',
+          ),
+        ];
+        final items = buildDashboardAttentionItems(
+          bookingRequests: requests,
+          payments: const [],
+          tasks: const [],
+          appointments: const [],
+          clients: const [],
+          now: now,
+        );
+        expect(items, hasLength(2));
+        expect(items.map((item) => (item.source as BookingRequest).id), [
+          'contacted',
+          'new',
+        ]);
+        expect(items.map((item) => item.entityRoute), [
+          '/booking-requests/contacted',
+          '/booking-requests/new',
+        ]);
+        expect(items.first.title, 'Review Jamie’s request');
+        expect(items.last.detail, 'Window clean · Awaiting decision');
+      },
+    );
+
+    test(
+      'request resolution updates attention from the canonical collection',
+      () async {
+        var status = 'pending';
+        var requestReads = 0;
+        final container = ProviderContainer(
+          overrides: [
+            businessNowProvider.overrideWithValue(DateTime(2026, 9, 6)),
+            invoicesProvider.overrideWith((ref) async => const []),
+            allTasksProvider.overrideWith((ref) async => const []),
+            appointmentsProvider.overrideWith((ref) async => const []),
+            clientsProvider.overrideWith((ref) async => const []),
+            bookingRequestsProvider.overrideWith((ref) async {
+              requestReads++;
+              return [
+                BookingRequest(
+                  id: 'request-1',
+                  workspaceId: 'workspace-1',
+                  name: 'Alex',
+                  phone: '',
+                  status: status,
+                ),
+              ];
+            }),
+          ],
+        );
+        addTearDown(container.dispose);
+        final first = await container.read(dashboardAttentionProvider.future);
+        expect(first.single.entityRoute, '/booking-requests/request-1');
+        status = 'contacted';
+        container.invalidate(bookingRequestsProvider);
+        expect(
+          await container.read(dashboardAttentionProvider.future),
+          hasLength(1),
+        );
+        status = 'confirmed';
+        container.invalidate(bookingRequestsProvider);
+        expect(
+          await container.read(dashboardAttentionProvider.future),
+          isEmpty,
+        );
+        expect(requestReads, 3);
+      },
+    );
+
+    test(
+      'request load failures are visible instead of an empty attention list',
+      () {
+        final failure = StateError('requests unavailable');
+        final container = ProviderContainer(
+          overrides: [
+            invoicesProvider.overrideWith((ref) async => const []),
+            allTasksProvider.overrideWith((ref) async => const []),
+            appointmentsProvider.overrideWith((ref) async => const []),
+            clientsProvider.overrideWith((ref) async => const []),
+            bookingRequestsProvider.overrideWith((ref) async => throw failure),
+          ],
+        );
+        addTearDown(container.dispose);
+        expect(
+          container.read(dashboardAttentionProvider.future),
+          throwsA(same(failure)),
+        );
+      },
+    );
+
+    test(
+      'entity destinations preserve a single exact ID and reject mismatched sources',
+      () {
+        final now = DateTime(2026, 9, 6);
+        final payment = Payment(
+          id: 'payment/one?detail=1#anchor',
+          workspaceId: 'workspace-1',
+          number: 'PAY',
+          status: 'sent',
+          issueDate: now,
+          total: 10,
+        );
+        final paymentItem = DashboardAttentionItem(
+          type: DashboardAttentionType.unpaid,
+          title: 'Collect',
+          detail: '',
+          source: payment,
+          sortTime: now,
+        );
+        final uri = Uri.parse(paymentItem.entityRoute!);
+        expect(uri.pathSegments, ['payments', payment.id]);
+        expect(uri.hasQuery, isFalse);
+        expect(uri.hasFragment, isFalse);
+        final taskItem = DashboardAttentionItem(
+          type: DashboardAttentionType.overdueTask,
+          title: 'Task',
+          detail: '',
+          source: const SlateTask(
+            id: 'task-one',
+            workspaceId: 'workspace-1',
+            title: 'Call client',
+          ),
+          sortTime: now,
+        );
+        expect(taskItem.entityRoute, '/tasks/task-one');
+        final mismatched = DashboardAttentionItem(
+          type: DashboardAttentionType.unpaid,
+          title: 'Collect',
+          detail: '',
+          source: taskItem.source,
+          sortTime: now,
+        );
+        expect(mismatched.entityRoute, isNull);
+        final aggregate = DashboardAttentionItem(
+          type: DashboardAttentionType.bookingRequest,
+          title: 'Requests',
+          detail: '',
+          source: 2,
+          sortTime: now,
+        );
+        expect(aggregate.entityRoute, isNull);
+      },
+    );
   });
 }

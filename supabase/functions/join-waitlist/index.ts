@@ -61,8 +61,16 @@ Deno.serve(async (req: Request) => {
     return response(400, { error: "Invalid request body" });
   }
 
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return response(400, { error: "Invalid request body" });
+  }
+
   if (typeof payload.website === "string" && payload.website.trim()) {
     return response(200, { ok: true });
+  }
+
+  if (!payload || Array.isArray(payload) || payload.consent !== true) {
+    return response(400, { error: "Please agree to receive launch updates" });
   }
 
   const email = normalizeWaitlistEmail(payload.email);

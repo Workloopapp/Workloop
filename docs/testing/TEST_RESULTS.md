@@ -1,5 +1,13 @@
 # Workloop Test Results
 
+## Latest results — 4 September 2026
+
+Flutter analysis clean; 475 Flutter tests passed with four feature-gated skips; separate payment-enabled checks passed. Deno 89 tests and release-tools 11 regressions passed. Signed iOS profile build/install/launch and distribution upload passed; Build 10 is externally testing. Signed Android AAB and exact-derived emulator APK startup passed after repairing eager Terminal initialization. Isolated full SQL replay: 413 assertions including OS. Marketing: 19 tests, typecheck, focused lint and build passed. OS: typecheck/build, App Store adapter, six runner tests and 20 SQL assertions passed.
+
+See [current verification and its limits](../releases/2026-09-04-launch-audit.md) and [artifact chronology](../releases/2026-09-04-build-verification.md). Existing entries below describe earlier runs. No full hosted staging E2E, physical Android or live card transaction is claimed.
+
+---
+
 Last updated: 2026-08-13
 
 > **Final local evidence ledger for branch
@@ -1064,3 +1072,80 @@ profile build succeeds as `1.0.0 (5)` at 71.2 MB.
 | Public invitation | `https://testflight.apple.com/join/1ycJPHWx` is created with a controlled 50-tester limit | Apple keeps the link closed until the build is approved |
 | Reviewer access | Dedicated fictional-data account confirmation email delivered, corrected `workloop.uk` redirect consumed, password grant authenticated, and monitored reviewer contact saved | Credentials live in App Store Connect/local Keychain only |
 | Auth redirect boundary | Site URL is `https://workloop.uk`; allow-list retains the two mobile deep links plus `https://workloop.uk/**`; retired `workloop.app/**` was removed | Existing issued links retain their original redirect and should not be reused |
+
+## 51. 2026-08-31 TestFlight build 6 push handoff
+
+| Evidence | Observed result | Limit |
+| --- | --- | --- |
+| Flutter gate | Analysis clean; 386/386 tests pass; signed iOS profile build passes as `1.0.0 (6)` | Automated source/widget evidence plus development-signed profile build |
+| Push worker gate | Edge formatting/type-check passes and 4/4 focused delivery tests pass; an actual APNs ES256 signing check succeeds | Provider failure/retry cases are otherwise mocked |
+| Production backend | Push migration and follow-up foreign-key indexes are live; minute worker is deployed; APNs secrets are present; security/performance advisors were reviewed | Local pgTAP was not run because no local Docker/Podman runtime was available |
+| Physical iPhone push | Real APNs token registered; Apple accepted controlled privacy-safe sandbox alerts in one attempt; the user visibly confirmed receipt, including a terminated-app check | Foreground duplicate suppression, tap routing, quiet hours and two-account token reassignment remain manual checks |
+| App Store IPA | 34,619,970 bytes; SHA-256 `bf109d03084ece3bffec358abf8aba0549a2fd4da92d84efd56cc86a0bd088d1`; strict Apple Distribution signature; Store profile; production APNs; `get-task-allow=false`; `beta-reports-active=true` | Built from the current uncommitted working tree, so no immutable commit/tag provenance exists yet |
+| App Store upload | Build 6 upload completed and processed | Upload warned that `StripeTerminal.framework` lacks a matching dSYM, limiting that framework's crash symbolication |
+| TestFlight distribution | Build 6 is `Testing` in internal and private groups with 9 invitations and automatic notification enabled | TestFlight showed no Build 6 installations yet at the final check |
+| Tester transition | Existing bundle ID, app identity, Supabase workspace and public link are retained; Build 5 testers receive an in-place Build 6 update | Testers still need to choose Update/install it in TestFlight |
+| Release selection | Build 6 is attached to both intended groups | A separate Build 7 upload is `Ready to Submit` and intentionally remains outside the external group |
+
+## 52. 2026-09-01 Build 8 feedback source verification
+
+| Evidence | Observed result | Limit |
+| --- | --- | --- |
+| Flutter gate | 233 Dart files format-clean; analysis clean; 406/406 tests pass, including compact Auth, dashboard first reveal, exact notification routes, schedule exceptions, async lifecycle guards and timezone-aware booking requests | Automated source/widget evidence; no physical-device interaction in this pass |
+| Visual gate | Updated login, registration and public-booking goldens were inspected; smallest-phone responsive/auth regressions pass | Deterministic 390 x 844 and responsive test fixtures, not ambient-light or VoiceOver review |
+| Edge gate | 59 files format-clean, 47 files lint-clean, all configured handlers type-check and all 65 Edge tests pass | Provider delivery and database RPC calls remain mocked/local |
+| Push lifecycle | Direct APNs carries FlutterFire's required message identifier; bootstraps navigate via the app router, defer routes through sign-in, and revalidate user/workspace state around token registration | Physical foreground/background/terminated taps and sign-out races remain manual |
+| Database gate | Three new migrations retain default overlap rejection, add explicit owner consent, exact requested instants/timezones, entity-route enrichment and a fail-closed public-workspace-member insert guard | No local replay, lint or pgTAP run because Docker/Podman is unavailable; the production project has no preview branch; not promoted |
+| Live read-only check | Production migration history remains at Build 6 push; current advisors were reviewed; 8 ownerless public profiles still expose 29 active services through the old deployed Edge versions | The Build 8 source guard is not live and production was not mutated |
+| Compatibility | `create-booking-request` selects the legacy overload when Build 6 omits structured time fields and the exact-time overload for Build 8 | Must still be rehearsed against an isolated hosted branch before production promotion |
+| iOS profile | Development-signed `1.0.0 (8)` profile build succeeds at 73.2 MB with APNs development, Sign in with Apple and `get-task-allow=true` | Not an App Store archive/IPA and not installed on a physical iPhone |
+| Diff hygiene | `git diff --check` passes | The working tree contains earlier uncommitted Build 6/account/reporting work and has no immutable release provenance |
+
+Build 6 remains the live TestFlight beta. Build 7 predates this feedback. This
+source is therefore a Build 8 candidate only; it is not a deployed backend or
+tester-visible release.
+
+## 53. 2026-09-01 Build 9 booking and interface source verification
+
+| Evidence | Observed result | Limit |
+| --- | --- | --- |
+| Flutter | Format clean, analysis clean and 432/432 tests pass after fixing the compact-height Auth overflow and adding narrow current-schema fallbacks | Automated source/widget evidence |
+| Visual | 27 launch-surface goldens pass after intentional refresh; key Auth, shell, Work, Money, Business, Settings, booking-request and public-booking light/dark images were inspected | Deterministic fixtures, not physical accessibility review |
+| Edge | 63 files format-clean, 50 files lint-clean, configured handlers type-check and 71/71 tests pass | Database/provider calls are mocked or contract-level |
+| Database | Availability and add-on/snapshot migrations include pgTAP for privacy, RLS, trusted totals, legacy intake, confirmation snapshots and email wrapping | No local PostgreSQL/Docker runtime; pgTAP has not executed |
+| Compatibility | Build 6 intake remains available; the app retries legacy projections only when the new snapshot/add-on relations are specifically absent | New overlap, suggested-time and add-on behavior still requires hosted replay and backend promotion |
+| iOS profile | Development-signed `1.0.0 (9)` passes strict verification, installs and launches on the paired physical iPhone; CoreDevice confirmed the process | Install/launch evidence only; development APNs and `get-task-allow=true`, not TestFlight distribution |
+| App Store IPA | 34,770,219 bytes; SHA-256 `bc7360754b294aa459fdace3e87b497fcbcd30760f15980ece905e6a423f2c73`; strict-valid Apple Distribution signature; production APNs; `get-task-allow=false`; `beta-reports-active=true` | Built from the current dirty working tree and not uploaded |
+| Release identity | Source, installed development profile and distribution IPA are `1.0.0 (9)` | Production backend, physical feature matrix and TestFlight upload remain pending |
+
+## 54. 2026-09-02 Build 9 hosted rehearsal and production promotion
+
+| Evidence | Observed result | Limit |
+| --- | --- | --- |
+| Hosted branch replay | All five migrations replayed from the production base after correcting conflict targeting, retry ordering, service-role ACL handling and four covering indexes | Disposable branch; deleted after the final run to stop hourly billing |
+| Hosted behavior | Exact request/timezone, trusted base and add-on snapshots, duplicate token, exact notification route, bounded availability, default overlap rejection, explicit overlap/out-of-hours acceptance, deactivated-add-on retry and orphan-profile 404 all passed | Controlled branch data, not a physical UI walkthrough |
+| Production database | Migrations `20260902172036`-`20260902172046` are live; RLS, grants, triggers and indexes match the branch; advisors show no target-specific security or unindexed-FK finding | Existing private no-policy informational lints and intentional authenticated workflow warnings remain unchanged |
+| Production functions | Public profile v25, public booking request v28, availability v1 and scheduled worker v21 are ACTIVE; every retrieved deployed file equals local source | Provider push tap behavior still requires a device lifecycle check |
+| Scheduled worker | The protected minute call returned HTTP 200 continuously after v21 deployment | The only stored iOS token is a disabled development token (`apns_baddevicetoken`); a TestFlight launch must register a production token |
+| Production public smoke | Existing published profile and suggested availability both returned HTTP 200; the response is capped and uses Europe/London without diary metadata | No synthetic booking request was inserted into a real customer workspace |
+| Flutter gate | 234 Dart files format-clean; analysis clean; 435/435 tests pass; signed `ios-profile` build succeeds at 73.4 MB | The paired iPhone was unavailable for a post-promotion install |
+| Edge gate | 62 files format-clean, 50 files lint-clean, configured handlers type-check and 71/71 tests pass | Provider calls in unit tests are mocked |
+| Fresh App Store IPA | 34,766,683 bytes; SHA-256 `2d4179b6043cd241ee1365fa03d173918ed8497f553c3775644fd5d14f6128a4`; strict Apple Distribution signature; production APNs; Store profile; `get-task-allow=false`; `beta-reports-active=true`; Sign in with Apple | Not uploaded or TestFlight-installed; working tree remains uncommitted |
+
+Build 9 now has a promoted backend and a fresh signed artifact. It is not yet
+the tester-visible beta: physical post-promotion checks, two invalid published
+service durations and the App Store Connect upload/assignment remain open.
+
+## 55. 2026-09-02 public service duration guard
+
+| Evidence | Observed result | Limit |
+| --- | --- | --- |
+| Production data | The two outliers (`0` and `9,999,999`) are reset to 60 minutes, inactive and hidden; invalid service count is zero | Owners must review the fallback before reactivating those two services |
+| Database boundary | Validated `services_duration_mins_check` enforces 5-1,440; hosted pgTAP completes 9/9 and a controlled absurd update is rejected | Add-on durations intentionally keep their separate 0-1,440 rule |
+| Public API | `get-public-profile` v26 is ACTIVE, source-equal and filters the same bounds; both affected handles return HTTP 200 without the quarantined row | Smoke evidence covers the two affected production profiles |
+| Flutter and Edge | Analysis clean; 438/438 Flutter tests, 71/71 Edge tests, Edge format/lint/check and signed iOS profile build pass | Automated evidence, not a physical-device walkthrough |
+| Fresh App Store IPA | `1.0.0 (9)`, 34,766,747 bytes, SHA-256 `e8e0df6a5b657a8043049503cf5f33d7b68d760120da92eddeeff59d16145006`; strict-valid Apple Distribution, production APNs, Store beta entitlement and Sign in with Apple | Not uploaded to App Store Connect in this pass |
+
+Build 7 remains a separate already-uploaded App Store Connect build and cannot
+be replaced by another `1.0.0 (7)`. Build 9 is the current candidate because it
+contains the later stability, booking, UI and service-duration work.

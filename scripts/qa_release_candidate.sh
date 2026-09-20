@@ -60,6 +60,11 @@ if [[ -z "$pubspec_version" ]]; then
   exit 65
 fi
 
+release_config_metadata=""
+if [[ -n "${RELEASE_CONFIG_SNAPSHOT:-}" ]]; then
+  release_config_metadata="$(python3 scripts/release_config.py metadata --source "$RELEASE_CONFIG_SNAPSHOT")"
+fi
+
 flutter_version="unavailable"
 if command -v flutter >/dev/null 2>&1; then
   flutter_version="$(flutter --version 2>/dev/null | head -1)"
@@ -106,6 +111,9 @@ if [[ "$mode" == "--prepare" ]]; then
     echo "pubspec_version=$pubspec_version"
     echo "flutter=$flutter_version"
     echo "worktree=clean"
+    if [[ -n "$release_config_metadata" ]]; then
+      echo "$release_config_metadata"
+    fi
   } >"$provenance_file"
 
   echo "Release-candidate preflight passed."
@@ -117,6 +125,14 @@ else
   if [[ "$#" -eq 0 ]]; then
     echo "Pass at least one release artifact to --record-artifacts." >&2
     exit 64
+  fi
+  if [[ -n "$release_config_metadata" ]]; then
+    while IFS= read -r config_line; do
+      if ! grep -Fxq "$config_line" "$provenance_file"; then
+        echo "Release configuration changed after candidate preparation." >&2
+        exit 78
+      fi
+    done <<<"$release_config_metadata"
   fi
   if command -v shasum >/dev/null 2>&1; then
     hash_command=(shasum -a 256)
@@ -131,6 +147,10 @@ else
     if [[ ! -f "$artifact_path" ]]; then
       echo "Missing release artifact: $artifact_path" >&2
       exit 78
+    fi
+    if [[ "$artifact_path" == *.ipa ]]; then
+      python3 scripts/release_config.py verify-ipa \
+        --artifact "$artifact_path" --version "$pubspec_version"
     fi
   done
 

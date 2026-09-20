@@ -8,9 +8,12 @@ import '../../../shared/providers/workspace_provider.dart';
 import '../../../shared/repositories/slate_repositories.dart';
 import '../../../shared/utils/currency_format.dart';
 import '../../../shared/utils/public_booking_url.dart';
+import '../../getting_started/getting_started_store.dart';
 
 class ObComplete extends ConsumerStatefulWidget {
-  const ObComplete({super.key});
+  final VoidCallback? onReviewSetup;
+
+  const ObComplete({super.key, this.onReviewSetup});
 
   @override
   ConsumerState<ObComplete> createState() => _ObCompleteState();
@@ -23,6 +26,9 @@ class _ObCompleteState extends ConsumerState<ObComplete>
   late Animation<double> _slideUp;
   bool _saving = false;
   bool _saved = false;
+  String? _savedWorkspaceId;
+  bool _reminderPreferencesFailed = false;
+  bool _logoFailed = false;
   bool _animationStarted = false;
   String? _saveError;
 
@@ -79,15 +85,40 @@ class _ObCompleteState extends ConsumerState<ObComplete>
             revenueTarget: onboarding.revenueTarget,
             firstBooking: onboarding.firstBooking,
           );
+      if (!mounted) return;
       if (workspaceId == null) {
         throw StateError('Workspace was not created');
       }
-      await ref
-          .read(notificationsRepositoryProvider)
-          .upsertPreferences(workspaceId, onboarding.notificationPreferences);
-      ref.invalidate(workspaceProvider);
+      // The workspace and any first booking have already committed. An
+      // optional reminder preference failure must never invite another create.
+      var logoFailed = false;
+      if (onboarding.logoUrl.isNotEmpty) {
+        try {
+          await ref
+              .read(workspaceRepositoryProvider)
+              .update(workspaceId, {'logo_url': onboarding.logoUrl})
+              .timeout(const Duration(seconds: 8));
+        } catch (_) {
+          logoFailed = true;
+        }
+      }
       if (!mounted) return;
-      setState(() => _saved = true);
+      var reminderPreferencesFailed = false;
+      try {
+        await ref
+            .read(notificationsRepositoryProvider)
+            .upsertPreferences(workspaceId, onboarding.notificationPreferences)
+            .timeout(const Duration(seconds: 8));
+      } catch (_) {
+        reminderPreferencesFailed = true;
+      }
+      if (!mounted) return;
+      setState(() {
+        _saved = true;
+        _savedWorkspaceId = workspaceId;
+        _reminderPreferencesFailed = reminderPreferencesFailed;
+        _logoFailed = logoFailed;
+      });
     } catch (e, stack) {
       if (kDebugMode) {
         debugPrint('Error saving workspace: $e');
@@ -105,10 +136,20 @@ class _ObCompleteState extends ConsumerState<ObComplete>
   }
 
   Future<void> _goToDashboard() async {
-    if (!_saved) return;
+    if (!_saved || _savedWorkspaceId == null || _saving) return;
+    setState(() => _saving = true);
     final importAfterSetup = ref.read(onboardingProvider).importAfterSetup;
+    final userId = ref.read(supabaseClientProvider).auth.currentUser?.id;
+    if (userId != null) {
+      await ref.read(gettingStartedStoreProvider).prepareIntroduction((
+        userId: userId,
+        workspaceId: _savedWorkspaceId!,
+      ));
+    }
+    if (!mounted) return;
     await ref.read(onboardingProvider.notifier).clearDraft();
     if (!mounted) return;
+    ref.invalidate(workspaceProvider);
     context.go(importAfterSetup ? '/import-data' : '/');
   }
 
@@ -147,22 +188,24 @@ class _ObCompleteState extends ConsumerState<ObComplete>
                       _saveError == null
                           ? Icons.celebration_rounded
                           : Icons.error_outline_rounded,
-                      size: 64,
+                      size: 48,
                       color: _saveError == null
-                          ? AppColors.green
-                          : AppColors.error,
+                          ? AppColors.of(context).green
+                          : AppColors.of(context).error,
                     ),
-                    const SizedBox(height: 24),
+                    const SizedBox(height: 16),
                     Text(
-                      _saveError == null
+                      _saveError != null
+                          ? 'Setup needs\none more try.'
+                          : _saved
                           ? 'Your workspace\nis ready.'
-                          : 'Setup needs\none more try.',
+                          : 'Preparing your\nworkspace…',
                       style: TextStyle(
-                        fontSize: 32,
+                        fontSize: 28,
                         fontWeight: FontWeight.w600,
                         color: _saveError == null
-                            ? AppColors.t1
-                            : AppColors.error,
+                            ? AppColors.of(context).t1
+                            : AppColors.of(context).error,
                         letterSpacing: 0,
                         height: 1.1,
                       ),
@@ -176,7 +219,7 @@ class _ObCompleteState extends ConsumerState<ObComplete>
                     _SummaryRow(
                       icon: Icons.link_rounded,
                       label: publicBookingPageDisplayUrl(onboarding.handle),
-                      color: AppColors.green,
+                      color: AppColors.of(context).green,
                     ),
                     const SizedBox(height: 10),
                     _SummaryRow(
@@ -190,7 +233,7 @@ class _ObCompleteState extends ConsumerState<ObComplete>
                         icon: Icons.track_changes_rounded,
                         label:
                             '${formatPounds(onboarding.revenueTarget)} monthly target set',
-                        color: AppColors.green,
+                        color: AppColors.of(context).green,
                       ),
                     ],
                     if (_saveError != null) ...[
@@ -199,9 +242,29 @@ class _ObCompleteState extends ConsumerState<ObComplete>
                         liveRegion: true,
                         child: Text(
                           _saveError!,
-                          style: const TextStyle(
-                            color: AppColors.t2,
+                          style: TextStyle(
+                            color: AppColors.of(context).t2,
                             fontSize: 15,
+                            height: 1.4,
+                          ),
+                        ),
+                      ),
+                    ],
+                    if (_logoFailed) ...[
+                      const SizedBox(height: AppSpacing.md),
+                      const Text(
+                        'Your business is saved. Your logo could not be added; please add it in Settings → Business details.',
+                      ),
+                    ],
+                    if (_reminderPreferencesFailed) ...[
+                      const SizedBox(height: AppSpacing.md),
+                      Semantics(
+                        liveRegion: true,
+                        child: Text(
+                          'Your workspace is saved. Reminder preferences could not be saved; you can choose them in Settings.',
+                          style: TextStyle(
+                            color: AppColors.of(context).t2,
+                            fontSize: 13,
                             height: 1.4,
                           ),
                         ),
@@ -220,11 +283,11 @@ class _ObCompleteState extends ConsumerState<ObComplete>
                             ? _goToDashboard
                             : null,
                         child: _saving
-                            ? const SizedBox(
+                            ? SizedBox(
                                 width: 20,
                                 height: 20,
                                 child: CircularProgressIndicator(
-                                  color: AppColors.onBrandAccent,
+                                  color: AppColors.of(context).onBrandAccent,
                                   strokeWidth: 2,
                                 ),
                               )
@@ -243,6 +306,11 @@ class _ObCompleteState extends ConsumerState<ObComplete>
                               ),
                       ),
                     ),
+                    if (_saveError != null && widget.onReviewSetup != null)
+                      TextButton(
+                        onPressed: _saving ? null : widget.onReviewSetup,
+                        child: const Text('Review setup'),
+                      ),
                     const SizedBox(height: 32),
                   ],
                 ),
@@ -267,13 +335,13 @@ class _SummaryRow extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: AppColors.bgCard,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.border),
+        color: AppColors.of(context).bgCard,
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        border: Border.all(color: AppColors.of(context).border),
       ),
       child: Row(
         children: [
-          Icon(icon, color: color ?? AppColors.t2, size: 20),
+          Icon(icon, color: color ?? AppColors.of(context).t2, size: 20),
           const SizedBox(width: 12),
           Expanded(
             child: Text(
@@ -281,13 +349,13 @@ class _SummaryRow extends StatelessWidget {
               style: TextStyle(
                 fontSize: 15,
                 fontWeight: FontWeight.w500,
-                color: color ?? AppColors.t1,
+                color: color ?? AppColors.of(context).t1,
               ),
             ),
           ),
-          const Icon(
+          Icon(
             Icons.check_circle_rounded,
-            color: AppColors.success,
+            color: AppColors.of(context).success,
             size: 18,
           ),
         ],

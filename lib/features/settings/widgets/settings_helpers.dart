@@ -1,41 +1,27 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_flutter/lucide_flutter.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../shared/widgets/slate_ui.dart';
+import '../../../shared/widgets/workloop_form_field.dart';
 
-Widget settingsHandle() => Center(
-  child: Container(
-    width: 40,
-    height: 4,
-    decoration: BoxDecoration(
-      color: AppColors.border,
-      borderRadius: BorderRadius.circular(2),
-    ),
-  ),
-);
+Widget sectionLabel(String text) => WorkloopCaption(text);
 
-Widget sectionLabel(String text) => Text(
-  text.toUpperCase(),
-  style: const TextStyle(
-    fontSize: 10,
-    fontWeight: FontWeight.w600,
-    letterSpacing: 0,
-    color: AppColors.t3,
-  ),
-);
-
-Widget infoRow(String label, String value) => Padding(
+Widget infoRow(BuildContext context, String label, String value) => Padding(
   padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
   child: Row(
     mainAxisAlignment: MainAxisAlignment.spaceBetween,
     children: [
-      Text(label, style: const TextStyle(fontSize: 14, color: AppColors.t2)),
+      Text(
+        label,
+        style: TextStyle(fontSize: 14, color: AppColors.of(context).t2),
+      ),
       Flexible(
         child: Text(
           value,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 14,
             fontWeight: FontWeight.w500,
-            color: AppColors.t1,
+            color: AppColors.of(context).t1,
           ),
           textAlign: TextAlign.end,
           overflow: TextOverflow.ellipsis,
@@ -45,7 +31,8 @@ Widget infoRow(String label, String value) => Padding(
   ),
 );
 
-Widget tappableRow({
+Widget tappableRow(
+  BuildContext context, {
   required String label,
   required String value,
   required VoidCallback onTap,
@@ -54,14 +41,14 @@ Widget tappableRow({
   color: Colors.transparent,
   child: InkWell(
     onTap: onTap,
-    borderRadius: BorderRadius.circular(16),
+    borderRadius: BorderRadius.circular(AppRadius.md),
     child: Padding(
       padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
       child: Row(
         children: [
           Text(
             label,
-            style: const TextStyle(fontSize: 14, color: AppColors.t2),
+            style: TextStyle(fontSize: 14, color: AppColors.of(context).t2),
           ),
           const Spacer(),
           Text(
@@ -69,132 +56,130 @@ Widget tappableRow({
             style: TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w500,
-              color: valueColor ?? AppColors.t1,
+              color: valueColor ?? AppColors.of(context).t1,
             ),
           ),
           const SizedBox(width: 8),
-          const Icon(LucideIcons.pencil, size: 14, color: AppColors.t3),
+          Icon(LucideIcons.pencil, size: 14, color: AppColors.of(context).t3),
         ],
       ),
     ),
   ),
 );
 
-Widget skeletonBox(double height) => Container(
+Widget skeletonBox(BuildContext context, double height) => Container(
   height: height,
   decoration: BoxDecoration(
-    color: AppColors.t1.withValues(alpha: 0.035),
-    borderRadius: BorderRadius.circular(16),
+    color: AppColors.of(context).t1.withValues(alpha: 0.035),
+    borderRadius: BorderRadius.circular(AppRadius.md),
   ),
 );
 
-Widget saveBtn({
+Widget saveBtn(
+  BuildContext context, {
   required String label,
   required VoidCallback onTap,
   bool loading = false,
   bool disabled = false,
-  Color color = AppColors.accentPrimaryStrong,
-}) => SizedBox(
-  width: double.infinity,
-  height: 52,
-  child: ElevatedButton(
-    onPressed: loading || disabled ? null : onTap,
-    style: ElevatedButton.styleFrom(
-      backgroundColor: color,
-      foregroundColor: color == AppColors.accentPrimaryStrong
-          ? AppColors.onBrandAccent
-          : AppColors.bg,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-      elevation: 0,
-    ),
-    child: loading
-        ? SizedBox(
-            width: 18,
-            height: 18,
-            child: CircularProgressIndicator(
-              color: color == AppColors.accentPrimaryStrong
-                  ? AppColors.onBrandAccent
-                  : AppColors.bg,
-              strokeWidth: 2,
+  Color? color,
+}) {
+  final palette = AppColors.of(context);
+  final effectiveColor = color ?? palette.accentPrimaryStrong;
+  final foregroundColor = effectiveColor == palette.accentPrimaryStrong
+      ? palette.onBrandAccent
+      : palette.bg;
+  return SizedBox(
+    width: double.infinity,
+    height: 52,
+    child: ElevatedButton(
+      onPressed: loading || disabled ? null : onTap,
+      style: ElevatedButton.styleFrom(
+        backgroundColor: effectiveColor,
+        foregroundColor: foregroundColor,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadius.md),
+        ),
+        elevation: 0,
+      ),
+      child: loading
+          ? SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(
+                color: foregroundColor,
+                strokeWidth: 2,
+              ),
+            )
+          : Text(
+              label,
+              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
             ),
-          )
-        : Text(
-            label,
-            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
-          ),
-  ),
-);
+    ),
+  );
+}
 
-Widget cancelBtn(BuildContext ctx) => SizedBox(
+Widget cancelBtn(BuildContext context) => SizedBox(
   width: double.infinity,
   height: 52,
   child: TextButton(
-    onPressed: () => Navigator.pop(ctx),
-    child: const Text(
+    onPressed: () => Navigator.pop(context),
+    child: Text(
       'Cancel',
       style: TextStyle(
         fontSize: 15,
         fontWeight: FontWeight.w500,
-        color: AppColors.t3,
+        color: AppColors.of(context).t3,
       ),
     ),
   ),
 );
 
-Widget settingsField({
+Widget settingsField(
+  BuildContext context, {
   required String label,
   required TextEditingController controller,
+  bool? isRequired,
   String? hint,
   TextInputType? keyboardType,
   bool autofocus = false,
   int maxLines = 1,
   int? maxLength,
-}) => Column(
-  crossAxisAlignment: CrossAxisAlignment.start,
-  children: [
-    Text(
-      label,
-      style: const TextStyle(
-        fontSize: 10,
-        fontWeight: FontWeight.w600,
-        letterSpacing: 0,
-        color: AppColors.t3,
+  String? errorText,
+  String? helperText,
+}) => WorkloopFormField(
+  label: label,
+  isRequired: isRequired,
+  child: TextField(
+    controller: controller,
+    keyboardType: keyboardType,
+    autofocus: autofocus,
+    maxLines: maxLines,
+    maxLength: maxLength,
+    style: TextStyle(color: AppColors.of(context).t1, fontSize: 14),
+    decoration: InputDecoration(
+      hintText: hint,
+      errorText: errorText,
+      helperText: helperText,
+      counterText: maxLength == null ? null : '',
+      hintStyle: TextStyle(color: AppColors.of(context).t3),
+      filled: true,
+      fillColor: AppColors.of(context).t1.withValues(alpha: 0.028),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: BorderSide(color: AppColors.of(context).border),
       ),
-    ),
-    const SizedBox(height: 8),
-    TextField(
-      controller: controller,
-      keyboardType: keyboardType,
-      autofocus: autofocus,
-      maxLines: maxLines,
-      maxLength: maxLength,
-      style: const TextStyle(color: AppColors.t1, fontSize: 14),
-      decoration: InputDecoration(
-        hintText: hint,
-        counterText: maxLength == null ? null : '',
-        hintStyle: const TextStyle(color: AppColors.t3),
-        filled: true,
-        fillColor: AppColors.t1.withValues(alpha: 0.028),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: AppColors.border),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: AppColors.border),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(
-            color: AppColors.accentPrimary,
-            width: 1.5,
-          ),
-        ),
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 14,
-          vertical: 12,
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: BorderSide(color: AppColors.of(context).border),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: BorderSide(
+          color: AppColors.of(context).accentPrimary,
+          width: 1.5,
         ),
       ),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
     ),
-  ],
+  ),
 );

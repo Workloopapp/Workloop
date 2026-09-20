@@ -4,19 +4,47 @@ import 'package:go_router/go_router.dart';
 import 'package:lucide_flutter/lucide_flutter.dart';
 
 import '../../../core/theme/app_theme.dart';
-import '../../../core/workloop_app_info.dart';
 import '../../../shared/providers/maps_preference_provider.dart';
 import '../../../shared/utils/maps_launcher.dart';
 import '../../../shared/widgets/slate_ui.dart';
-import '../legal_document_screen.dart';
 
-class SettingsAppTab extends ConsumerWidget {
+class SettingsAppTab extends ConsumerStatefulWidget {
   const SettingsAppTab({super.key});
+  @override
+  ConsumerState<SettingsAppTab> createState() => _SettingsAppTabState();
+}
+
+class _SettingsAppTabState extends ConsumerState<SettingsAppTab> {
+  bool _saving = false;
+
+  Future<void> _chooseMaps(MapsAppPreference preference) async {
+    if (_saving) return;
+    final selected = await showMapsPreferenceSheet(
+      context,
+      selected: preference,
+    );
+    if (selected == null || !mounted) return;
+    setState(() => _saving = true);
+    try {
+      await ref.read(preferredMapsAppProvider.notifier).setPreference(selected);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Your maps choice could not be saved. Please try again.',
+            ),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final mapsPreference = ref.watch(preferredMapsAppProvider);
-    final preference = mapsPreference.value ?? MapsAppPreference.askEveryTime;
     return ListView(
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.pageX,
@@ -25,66 +53,51 @@ class SettingsAppTab extends ConsumerWidget {
         AppSpacing.xxl,
       ),
       children: [
-        const WorkloopSectionHeader(label: 'Apps and connections'),
+        const WorkloopSectionHeader(label: 'Directions'),
         const SizedBox(height: AppSpacing.xs),
-        _PreferenceRow(
-          icon: LucideIcons.navigation,
-          title: 'Default maps app',
-          subtitle: preference.label,
-          onTap: () async {
-            final selected = await showMapsPreferenceSheet(
-              context,
-              selected: preference,
-            );
-            if (selected == null) return;
-            await ref
-                .read(preferredMapsAppProvider.notifier)
-                .setPreference(selected);
-          },
+        mapsPreference.when(
+          loading: () => const Padding(
+            padding: EdgeInsets.symmetric(vertical: AppSpacing.md),
+            child: Text('Loading your maps choice…'),
+          ),
+          error: (_, _) => SlateErrorState(
+            message: 'Could not load your maps choice.',
+            onRetry: () => ref.invalidate(preferredMapsAppProvider),
+          ),
+          data: (preference) => _PreferenceRow(
+            icon: LucideIcons.navigation,
+            title: 'Default maps app',
+            subtitle: _saving ? 'Saving…' : preference.label,
+            onTap: _saving ? null : () => _chooseMaps(preference),
+          ),
         ),
-        const WorkloopDivider(margin: EdgeInsets.zero),
+        const SizedBox(height: AppSpacing.sm),
+        Text(
+          'Used when you open directions to a client or booking.',
+          style: TextStyle(
+            color: AppColors.of(context).t3,
+            fontSize: 13,
+            height: 1.4,
+          ),
+        ),
+        const SizedBox(height: AppSpacing.lg),
+        const WorkloopSectionHeader(label: 'Calendar'),
+        const SizedBox(height: AppSpacing.xs),
         _PreferenceRow(
           icon: LucideIcons.calendarClock,
-          title: 'Calendar',
-          subtitle: 'Export bookings to a standard calendar file',
+          title: 'Export bookings to a calendar',
+          subtitle: 'Save a calendar file to use in another app.',
           onTap: () => context.push('/calendar-sync'),
         ),
-        const SizedBox(height: AppSpacing.xxl),
-        const WorkloopSectionHeader(label: 'Legal'),
-        const SizedBox(height: AppSpacing.xs),
-        _PreferenceRow(
-          icon: LucideIcons.shieldCheck,
-          title: 'Privacy policy',
-          subtitle: 'How Workloop handles and protects data',
-          onTap: () => Navigator.push<void>(
-            context,
-            MaterialPageRoute(
-              builder: (_) => const LegalDocumentScreen(
-                document: WorkloopLegalDocument.privacy,
-              ),
-            ),
+        const SizedBox(height: AppSpacing.sm),
+        Text(
+          'This is a copy of your bookings at the time you export. Later changes in either app will not sync automatically.',
+          style: TextStyle(
+            color: AppColors.of(context).t3,
+            fontSize: 13,
+            height: 1.4,
           ),
         ),
-        const WorkloopDivider(margin: EdgeInsets.zero),
-        _PreferenceRow(
-          icon: LucideIcons.fileText,
-          title: 'Terms of use',
-          subtitle: 'The agreement for using Workloop',
-          onTap: () => Navigator.push<void>(
-            context,
-            MaterialPageRoute(
-              builder: (_) => const LegalDocumentScreen(
-                document: WorkloopLegalDocument.terms,
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(height: AppSpacing.xxl),
-        const WorkloopSectionHeader(label: 'About Workloop'),
-        const SizedBox(height: AppSpacing.xs),
-        _InformationRow(label: 'Version', value: WorkloopAppInfo.version),
-        const WorkloopDivider(margin: EdgeInsets.zero),
-        _InformationRow(label: 'Build', value: WorkloopAppInfo.buildNumber),
       ],
     );
   }
@@ -94,7 +107,7 @@ class _PreferenceRow extends StatelessWidget {
   final IconData icon;
   final String title;
   final String subtitle;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
   const _PreferenceRow({
     required this.icon,
@@ -107,10 +120,11 @@ class _PreferenceRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final tokens = SlateTheme.of(context);
     return WorkloopListRow(
+      flat: true,
       onTap: onTap,
       showDivider: false,
       padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.md,
+        horizontal: 0,
         vertical: AppSpacing.md,
       ),
       leading: Container(
@@ -138,39 +152,6 @@ class _PreferenceRow extends StatelessWidget {
         LucideIcons.chevronRight,
         color: tokens.textTertiary,
         size: 16,
-      ),
-    );
-  }
-}
-
-class _InformationRow extends StatelessWidget {
-  final String label;
-  final String value;
-
-  const _InformationRow({required this.label, required this.value});
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = SlateTheme.of(context);
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              label,
-              style: TextStyle(color: tokens.textSecondary, fontSize: 14),
-            ),
-          ),
-          Text(
-            value,
-            style: TextStyle(
-              color: tokens.textPrimary,
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ],
       ),
     );
   }

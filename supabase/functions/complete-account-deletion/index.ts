@@ -1,6 +1,8 @@
 import { createClient } from "@supabase/supabase-js";
 import { closeWorkloopStripeAccount } from "../_shared/stripe_account_offboarding.ts";
-import { isSoleWorkspaceOwner } from "../_shared/sole_workspace_owner.ts";
+import { StripeApiError, stripeRequest } from "../_shared/stripe_api.ts";
+import { canCompleteAccountDeletion } from "../_shared/account_deletion_owner.ts";
+import { removeWorkspaceReceiptFiles } from "../_shared/receipt_storage_cleanup.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -54,7 +56,12 @@ Deno.serve(async (req: Request) => {
   const configuredAdminToken = Deno.env.get("ACCOUNT_DELETION_ADMIN_TOKEN") ??
     "";
   const suppliedAdminToken = req.headers.get("x-admin-token") ?? "";
-  if (!configuredAdminToken || suppliedAdminToken !== configuredAdminToken) {
+  let tokenDifference = configuredAdminToken.length ^ suppliedAdminToken.length;
+  for (let index = 0; index < configuredAdminToken.length; index++) {
+    tokenDifference |= configuredAdminToken.charCodeAt(index) ^
+      (suppliedAdminToken.charCodeAt(index) || 0);
+  }
+  if (!configuredAdminToken || tokenDifference !== 0) {
     return response(401, { error: "Unauthorized" });
   }
 
@@ -106,6 +113,28 @@ Deno.serve(async (req: Request) => {
     });
   }
 
+  // A NULL workspace can mean either pre-onboarding deletion or a retry after
+  // the workspace was removed. Never delete Auth while another workspace still
+  // references this account; this also guards late administrative changes.
+  const { data: ownedMemberships, error: ownedMembershipError } = await supabase
+    .from("workspace_members")
+    .select("workspace_id")
+    .eq("user_id", userId)
+    .limit(2);
+  if (ownedMembershipError) {
+    return response(503, { error: "Could not verify account ownership" });
+  }
+  if (
+    (ownedMemberships ?? []).some((membership) =>
+      membership.workspace_id !== request.workspace_id
+    )
+  ) {
+    return response(409, {
+      error:
+        "Deletion blocked because another workspace still uses this account",
+    });
+  }
+
   if (request.workspace_id) {
     const { data: memberships, error: membershipError } = await supabase
       .from("workspace_members")
@@ -118,7 +147,21 @@ Deno.serve(async (req: Request) => {
         error: "Could not verify workspace ownership",
       });
     }
-    if (!isSoleWorkspaceOwner(memberships, userId)) {
+    const { data: authUserResult, error: authUserLookupError } = await supabase
+      .auth.admin.getUserById(userId);
+    const authUserMissing = authUserLookupError &&
+      (authUserLookupError.status === 404 ||
+        /not found|does not exist/i.test(authUserLookupError.message));
+    if (authUserLookupError && !authUserMissing) {
+      return response(500, { error: "Could not verify the Auth owner" });
+    }
+    if (
+      !canCompleteAccountDeletion({
+        memberships,
+        requestedUserId: userId,
+        authUserExists: authUserResult?.user != null,
+      })
+    ) {
       return response(409, {
         error:
           "Deletion blocked because sole workspace ownership could not be verified",
@@ -196,15 +239,61 @@ Deno.serve(async (req: Request) => {
 
     if (paymentAccount) {
       const stripeSecretKey = Deno.env.get("STRIPE_SECRET_KEY") ?? "";
+      const accountId = stringValue(paymentAccount.stripe_account_id, 100);
+      const mode = stringValue(paymentAccount.mode, 8);
       try {
-        await closeWorkloopStripeAccount(
-          stripeSecretKey,
-          stringValue(paymentAccount.stripe_account_id, 100),
-          stringValue(paymentAccount.mode, 8),
-        );
-      } catch (_) {
+        // Only service_role can write this audit table. Reuse the existing
+        // audit for a durable provider checkpoint, scoped to this exact request,
+        // owner, workspace and account. A later local failure can safely retry.
+        const { data: checkpoint, error: checkpointError } = await supabase
+          .from("account_deletion_audit")
+          .select("id")
+          .eq("request_id", request.id)
+          .eq("workspace_id", request.workspace_id)
+          .eq("user_id", userId)
+          .eq("completion_mode", "stripe_access_revoked")
+          .eq("notes", `${mode}:${accountId}`)
+          .limit(1)
+          .maybeSingle();
+        if (checkpointError) {
+          throw new Error("Could not read provider checkpoint");
+        }
+        if (!checkpoint) {
+          await closeWorkloopStripeAccount(
+            stripeSecretKey,
+            accountId,
+            mode,
+            stripeRequest,
+            Deno.env.get(
+              mode === "live"
+                ? "STRIPE_CONNECT_CLIENT_ID"
+                : "STRIPE_CONNECT_TEST_CLIENT_ID",
+            ) ?? "",
+          );
+          const { error: auditError } = await supabase.from(
+            "account_deletion_audit",
+          )
+            .insert({
+              request_id: request.id,
+              workspace_id: request.workspace_id,
+              user_id: userId,
+              requested_at: request.requested_at,
+              completed_by: "admin-token",
+              completion_mode: "stripe_access_revoked",
+              workspace_deleted: false,
+              auth_user_deleted: false,
+              notes: `${mode}:${accountId}`,
+            });
+          if (auditError) {
+            throw new Error("Could not checkpoint provider offboarding");
+          }
+        }
+      } catch (error) {
         console.error("account_deletion_stripe_offboarding_failed", {
           requestId: request.id,
+          code: error instanceof StripeApiError
+            ? error.code
+            : "offboarding_not_confirmed",
         });
         const released = await releaseClaim(
           "Stripe offboarding was not confirmed; no local account data was deleted.",
@@ -219,7 +308,42 @@ Deno.serve(async (req: Request) => {
     }
   }
 
+  // Logo objects include uploads made during onboarding, before a workspace
+  // exists. Remove the authenticated account's folder before deleting metadata.
+  try {
+    await removeWorkspaceReceiptFiles(
+      supabase.storage.from("business-logos"),
+      userId,
+    );
+  } catch (_) {
+    await releaseClaim(
+      "Business logo cleanup failed; retry before deleting account records.",
+    );
+    return response(500, {
+      error: "Could not complete business logo deletion",
+    });
+  }
+
   let workspaceDeleted = false;
+  if (request.workspace_id) {
+    try {
+      await removeWorkspaceReceiptFiles(
+        supabase.storage.from("expense-receipts"),
+        request.workspace_id,
+      );
+      await removeWorkspaceReceiptFiles(
+        supabase.storage.from("record-attachments"),
+        request.workspace_id,
+      );
+    } catch (_) {
+      await releaseClaim(
+        "Private file cleanup failed; retry before deleting workspace records.",
+      );
+      return response(500, {
+        error: "Could not complete private file deletion",
+      });
+    }
+  }
   let authUserDeleted = false;
 
   // The request survives workspace deletion (FK uses ON DELETE SET NULL), so
@@ -250,6 +374,11 @@ Deno.serve(async (req: Request) => {
   workspaceDeleted = true;
 
   if (userId) {
+    // Prevent new sign-ins while the final delete is being completed. Existing
+    // access JWTs are bounded separately by RLS and the app's server check.
+    await supabase.auth.admin.updateUserById(userId, {
+      ban_duration: "876000h",
+    }).catch(() => null);
     const { error: authDeleteError } = await supabase.auth.admin.deleteUser(
       userId,
     );

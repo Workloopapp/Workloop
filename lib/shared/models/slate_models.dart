@@ -20,6 +20,14 @@ Map<String, dynamic>? _nestedMap(dynamic value) {
   return null;
 }
 
+List<Map<String, dynamic>> _nestedMapList(dynamic value) {
+  if (value is! List) return const [];
+  return value
+      .whereType<Map>()
+      .map((item) => Map<String, dynamic>.from(item))
+      .toList(growable: false);
+}
+
 List<String> _stringListFrom(dynamic value) {
   if (value is List) {
     return value
@@ -42,6 +50,7 @@ String? _cleanDisplayText(dynamic value) {
 class Workspace {
   final String id;
   final String name;
+  final String? logoUrl;
   final String? industry;
   final DateTime? createdAt;
 
@@ -49,6 +58,7 @@ class Workspace {
     required this.id,
     required this.name,
     this.industry,
+    this.logoUrl,
     this.createdAt,
   });
 
@@ -57,6 +67,7 @@ class Workspace {
       id: map['id'] as String,
       name: map['name'] as String? ?? 'Your Business',
       industry: map['industry'] as String?,
+      logoUrl: map['logo_url'] as String?,
       createdAt: _dateTimeFrom(map['created_at']),
     );
   }
@@ -65,6 +76,7 @@ class Workspace {
     'id': id,
     'name': name,
     if (industry != null) 'industry': industry,
+    if (logoUrl != null) 'logo_url': logoUrl,
     if (createdAt != null) 'created_at': createdAt!.toIso8601String(),
   };
 }
@@ -154,6 +166,8 @@ class Service {
   final double price;
   final String? description;
   final bool showOnProfile;
+  final bool active;
+  final List<ServiceAddOn> addOns;
 
   const Service({
     required this.id,
@@ -163,6 +177,8 @@ class Service {
     required this.price,
     this.description,
     this.showOnProfile = true,
+    this.active = true,
+    this.addOns = const [],
   });
 
   factory Service.fromMap(Map<String, dynamic> map) {
@@ -174,6 +190,10 @@ class Service {
       price: _doubleFrom(map['price']),
       description: _cleanDisplayText(map['description']),
       showOnProfile: map['show_on_profile'] as bool? ?? true,
+      active: map['active'] as bool? ?? true,
+      addOns: _nestedMapList(
+        map['service_add_ons'] ?? map['add_ons'],
+      ).map(ServiceAddOn.fromMap).toList(growable: false),
     );
   }
 
@@ -185,7 +205,95 @@ class Service {
     'price': price,
     'description': description,
     'show_on_profile': showOnProfile,
+    'active': active,
   };
+}
+
+class ServiceAddOn {
+  final String id;
+  final String workspaceId;
+  final String serviceId;
+  final String name;
+  final String? description;
+  final int durationMins;
+  final double price;
+  final bool active;
+  final int position;
+
+  const ServiceAddOn({
+    required this.id,
+    required this.workspaceId,
+    required this.serviceId,
+    required this.name,
+    this.description,
+    this.durationMins = 0,
+    this.price = 0,
+    this.active = true,
+    this.position = 0,
+  });
+
+  factory ServiceAddOn.fromMap(Map<String, dynamic> map) => ServiceAddOn(
+    id: map['id'] as String,
+    workspaceId: map['workspace_id'] as String? ?? '',
+    serviceId: map['service_id'] as String? ?? '',
+    name: map['name'] as String? ?? 'Optional extra',
+    description: _cleanDisplayText(map['description']),
+    durationMins: _intFrom(map['duration_mins']),
+    price: _doubleFrom(map['price']),
+    active: map['active'] as bool? ?? true,
+    position: _intFrom(map['position']),
+  );
+
+  Map<String, dynamic> toMap() => {
+    'id': id,
+    'workspace_id': workspaceId,
+    'service_id': serviceId,
+    'name': name,
+    'description': description,
+    'duration_mins': durationMins,
+    'price': price,
+    'active': active,
+    'position': position,
+  };
+}
+
+class ServiceItemSnapshot {
+  final String id;
+  final String workspaceId;
+  final String itemKind;
+  final String? sourceServiceId;
+  final String? sourceAddOnId;
+  final String name;
+  final int durationMins;
+  final double price;
+  final int position;
+
+  const ServiceItemSnapshot({
+    required this.id,
+    required this.workspaceId,
+    required this.itemKind,
+    required this.name,
+    required this.durationMins,
+    required this.price,
+    required this.position,
+    this.sourceServiceId,
+    this.sourceAddOnId,
+  });
+
+  bool get isAddOn => itemKind == 'add_on';
+
+  factory ServiceItemSnapshot.fromMap(Map<String, dynamic> map) =>
+      ServiceItemSnapshot(
+        id: map['id'] as String,
+        workspaceId: map['workspace_id'] as String? ?? '',
+        itemKind: map['item_kind'] as String? ?? 'base',
+        sourceServiceId: map['source_service_id'] as String?,
+        sourceAddOnId: map['source_add_on_id'] as String?,
+        name: map['name'] as String? ?? 'Service',
+        durationMins: _intFrom(map['duration_mins']),
+        price: _doubleFrom(map['price']),
+        position: _intFrom(map['position']),
+      );
 }
 
 class Appointment {
@@ -201,8 +309,10 @@ class Appointment {
   final String? notes;
   final String? location;
   final String? recurrenceRule;
+  final String? recurrenceTimezone;
   final String? clientName;
   final String? serviceName;
+  final List<ServiceItemSnapshot> serviceItems;
 
   const Appointment({
     required this.id,
@@ -217,19 +327,38 @@ class Appointment {
     this.notes,
     this.location,
     this.recurrenceRule,
+    this.recurrenceTimezone,
     this.clientName,
     this.serviceName,
+    this.serviceItems = const [],
   });
 
   factory Appointment.fromMap(Map<String, dynamic> map) {
     final contact = _nestedMap(map['contacts']);
     final service = _nestedMap(map['services']);
+    final serviceItems =
+        _nestedMapList(
+            map['appointment_items'],
+          ).map(ServiceItemSnapshot.fromMap).toList(growable: false)
+          ..sort((left, right) => left.position.compareTo(right.position));
+    ServiceItemSnapshot? baseItem;
+    for (final item in serviceItems) {
+      if (!item.isAddOn) {
+        baseItem = item;
+        break;
+      }
+    }
+    final serviceNames = serviceItems
+        .where((item) => !item.isAddOn)
+        .map((item) => item.name)
+        .toList();
+    final savedTitle = _cleanDisplayText(map['title']);
     return Appointment(
       id: map['id'] as String,
       workspaceId: map['workspace_id'] as String? ?? '',
       contactId: map['contact_id'] as String?,
       serviceId: map['service_id'] as String?,
-      title: map['title'] as String?,
+      title: savedTitle,
       startTime:
           _dateTimeFrom(map['start_time']) ??
           DateTime.fromMillisecondsSinceEpoch(0),
@@ -239,8 +368,12 @@ class Appointment {
       notes: _cleanDisplayText(map['notes']),
       location: map['location'] as String?,
       recurrenceRule: map['recurrence_rule'] as String?,
+      recurrenceTimezone: map['recurrence_timezone'] as String?,
       clientName: contact?['name'] as String?,
-      serviceName: service?['name'] as String?,
+      serviceName: serviceNames.length > 1
+          ? serviceNames.join(' + ')
+          : baseItem?.name ?? savedTitle ?? _cleanDisplayText(service?['name']),
+      serviceItems: serviceItems,
     );
   }
 
@@ -257,7 +390,26 @@ class Appointment {
     'notes': notes,
     'location': location,
     'recurrence_rule': recurrenceRule,
+    'recurrence_timezone': recurrenceTimezone,
   };
+}
+
+class PaymentReceipt {
+  final String id;
+  final double amount;
+  final DateTime receivedAt;
+  const PaymentReceipt({
+    required this.id,
+    required this.amount,
+    required this.receivedAt,
+  });
+  factory PaymentReceipt.fromMap(Map<String, dynamic> row) => PaymentReceipt(
+    id: row['id'] as String? ?? '',
+    amount: _doubleFrom(row['amount']),
+    receivedAt:
+        _dateTimeFrom(row['received_at']) ??
+        DateTime.fromMillisecondsSinceEpoch(0),
+  );
 }
 
 class Payment {
@@ -276,6 +428,10 @@ class Payment {
   final String? notes;
   final String? clientName;
   final String? clientEmail;
+  final String? sourceDocumentId;
+  final List<PaymentReceipt> receipts;
+  final double depositAmount;
+  final DateTime? depositDueDate;
 
   const Payment({
     required this.id,
@@ -293,6 +449,10 @@ class Payment {
     this.notes,
     this.clientName,
     this.clientEmail,
+    this.sourceDocumentId,
+    this.receipts = const [],
+    this.depositAmount = 0,
+    this.depositDueDate,
   });
 
   double get collectedAmount {
@@ -305,11 +465,44 @@ class Payment {
   }
 
   double get outstandingAmount {
+    if (status == 'cancelled' || status == 'declined') return 0;
     if (total <= 0) return 0;
     return (total - collectedAmount).clamp(0, total).toDouble();
   }
 
   DateTime get receivedDate => incomeRecordedAt?.toLocal() ?? issueDate;
+
+  bool get hasDeposit => depositAmount > 0;
+  double get depositOutstandingAmount =>
+      (depositAmount - collectedAmount).clamp(0, outstandingAmount).toDouble();
+  bool get depositReceived =>
+      hasDeposit &&
+      depositOutstandingAmount == 0 &&
+      status != 'cancelled' &&
+      status != 'declined';
+  double get collectionAmount => depositOutstandingAmount > 0
+      ? depositOutstandingAmount
+      : outstandingAmount;
+
+  /// Issued documents retain each receipt/refund date. Older money entries
+  /// preserve their existing single recorded-date behavior.
+  List<PaymentReceipt> get cashReceipts => sourceDocumentId != null
+      ? receipts
+      : [
+          PaymentReceipt(
+            id: id,
+            amount: collectedAmount,
+            receivedAt: receivedDate,
+          ),
+        ];
+
+  double receivedAmountBetween(DateTime start, DateTime end) => cashReceipts
+      .where(
+        (receipt) =>
+            !receipt.receivedAt.isBefore(start) &&
+            receipt.receivedAt.isBefore(end),
+      )
+      .fold<double>(0, (total, receipt) => total + receipt.amount);
 
   factory Payment.fromMap(Map<String, dynamic> map) {
     final contact = _nestedMap(map['contacts']);
@@ -334,6 +527,12 @@ class Payment {
       notes: _cleanDisplayText(map['notes']),
       clientName: contact?['name'] as String?,
       clientEmail: contact?['email'] as String?,
+      sourceDocumentId: map['source_document_id'] as String?,
+      depositAmount: _doubleFrom(map['deposit_amount']),
+      depositDueDate: _dateTimeFrom(map['deposit_due_date']),
+      receipts: _nestedMapList(
+        map['payment_receipts'],
+      ).map(PaymentReceipt.fromMap).toList(),
     );
   }
 
@@ -343,6 +542,20 @@ class Payment {
     'contact_id': contactId,
     'appointment_id': appointmentId,
     'invoice_number': number,
+    if (sourceDocumentId != null) 'source_document_id': sourceDocumentId,
+    if (sourceDocumentId != null) 'deposit_amount': depositAmount,
+    if (sourceDocumentId != null)
+      'deposit_due_date': depositDueDate?.toIso8601String().split('T').first,
+    if (sourceDocumentId != null)
+      'payment_receipts': receipts
+          .map(
+            (receipt) => {
+              'id': receipt.id,
+              'amount': receipt.amount,
+              'received_at': receipt.receivedAt.toIso8601String(),
+            },
+          )
+          .toList(),
     'status': status,
     'issue_date': issueDate.toIso8601String().split('T').first,
     if (incomeRecordedAt != null)
@@ -658,10 +871,13 @@ class BookingRequest {
   final String? serviceName;
   final int? serviceDurationMins;
   final double? servicePrice;
+  final DateTime? requestedFor;
+  final String? requestedTimezone;
   final String? preferredTimeText;
   final String? message;
   final String status;
   final DateTime? createdAt;
+  final List<ServiceItemSnapshot> serviceItems;
 
   const BookingRequest({
     required this.id,
@@ -673,14 +889,32 @@ class BookingRequest {
     this.serviceName,
     this.serviceDurationMins,
     this.servicePrice,
+    this.requestedFor,
+    this.requestedTimezone,
     this.preferredTimeText,
     this.message,
     this.status = 'pending',
     this.createdAt,
+    this.serviceItems = const [],
   });
+
+  /// Contacting someone does not confirm or decline their request.
+  bool get needsDecision => status == 'pending' || status == 'contacted';
 
   factory BookingRequest.fromMap(Map<String, dynamic> map) {
     final service = _nestedMap(map['services']);
+    final serviceItems =
+        _nestedMapList(
+            map['booking_request_items'],
+          ).map(ServiceItemSnapshot.fromMap).toList(growable: false)
+          ..sort((left, right) => left.position.compareTo(right.position));
+    ServiceItemSnapshot? baseItem;
+    for (final item in serviceItems) {
+      if (!item.isAddOn) {
+        baseItem = item;
+        break;
+      }
+    }
     return BookingRequest(
       id: map['id'] as String,
       workspaceId: map['workspace_id'] as String? ?? '',
@@ -688,17 +922,30 @@ class BookingRequest {
       phone: map['phone'] as String? ?? '',
       email: map['email'] as String? ?? '',
       serviceId: map['service_id'] as String?,
-      serviceName: service?['name'] as String?,
-      serviceDurationMins: _intFrom(service?['duration_mins'], 0) == 0
-          ? null
-          : _intFrom(service?['duration_mins']),
-      servicePrice: service?['price'] == null
-          ? null
-          : _doubleFrom(service?['price']),
+      serviceName: serviceItems.where((item) => !item.isAddOn).length > 1
+          ? serviceItems
+                .where((item) => !item.isAddOn)
+                .map((item) => item.name)
+                .join(' + ')
+          : baseItem?.name ?? service?['name'] as String?,
+      serviceDurationMins: serviceItems.isNotEmpty
+          ? serviceItems.fold<int>(
+              0,
+              (total, item) => total + item.durationMins,
+            )
+          : (_intFrom(service?['duration_mins'], 0) == 0
+                ? null
+                : _intFrom(service?['duration_mins'])),
+      servicePrice: serviceItems.isNotEmpty
+          ? serviceItems.fold<double>(0, (total, item) => total + item.price)
+          : (service?['price'] == null ? null : _doubleFrom(service?['price'])),
+      requestedFor: _dateTimeFrom(map['requested_for']),
+      requestedTimezone: map['requested_timezone'] as String?,
       preferredTimeText: map['preferred_time_text'] as String?,
       message: _cleanDisplayText(map['message']),
       status: map['status'] as String? ?? 'pending',
       createdAt: _dateTimeFrom(map['created_at']),
+      serviceItems: serviceItems,
     );
   }
 
@@ -709,6 +956,9 @@ class BookingRequest {
     'phone': phone,
     'email': email,
     'service_id': serviceId,
+    if (requestedFor != null)
+      'requested_for': requestedFor!.toUtc().toIso8601String(),
+    'requested_timezone': requestedTimezone,
     'preferred_time_text': preferredTimeText,
     'message': message,
     'status': status,

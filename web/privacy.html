@@ -13,7 +13,7 @@
     <header>
       <a class="brand" href="/"><span class="mark">W</span>Workloop</a>
       <h1>Privacy policy</h1>
-      <p class="updated">Last updated 13 August 2026</p>
+      <p class="updated">Effective 12 September 2026</p>
       <p class="summary">
         Workloop is built for trusted day-to-day business operations. We do not
         sell personal data, and the current release contains no advertising SDK.
@@ -22,15 +22,31 @@
     <main>
       <section>
         <h2>1. Who this policy covers</h2>
-        <p>This policy explains how Workloop handles personal data when a solo service business owner uses the Workloop app, public profile, or support channels. Workloop is operated from the United Kingdom. Privacy questions can be sent to <a href="mailto:support@workloop.uk">support@workloop.uk</a>.</p>
+        <p>Workloop is a trading name of Haani Enterprise Limited. Registered in England and Wales. Company number 15758586. Registered office: 35 Well Lane, Batley, WF17 5HQ, England. This policy explains how we handle personal data when a solo service business owner uses the Workloop app, public profile, or support channels. Haani Enterprise Limited is the data controller for account administration, service security, diagnostics, Workloop communications and support information. For support and privacy questions, email <a href="mailto:support@workloop.uk">support@workloop.uk</a>.</p>
       </section>
       <section>
         <h2>2. Data you provide</h2>
-        <p>We process account details, business profile and service information, working hours, client records, bookings, tasks, notes, income and expense records, and support messages. If you join the Workloop launch list, we process your email address, consent time and signup source to send a welcome receipt and relevant beta or launch access updates. A customer who submits a public booking request provides their name, phone number, email address, requested service or time, and any message. If the business accepts that request, Workloop uses the email address to send the customer a booking confirmation and retains it with the request and client record. If you use Stripe payment collection, Workloop also stores connected-account and transaction references, amounts, currency, status, receipt links, and refund or dispute status needed to show and reconcile payments. When a customer asks for a contactless-payment receipt, the email address you enter is sent to Stripe for receipt delivery and may be associated with the payment record. Workloop does not receive or store full card numbers or card security codes. If you choose a device import, Workloop reads the relevant contacts or calendar events on your device to present a review list, then adds only the records you confirm to your workspace. File imports process only the files you select.</p>
+        <p>We process account details, business profile and service information, working hours, client records, bookings, tasks, notes, income and expense records, and support messages. If you join the Workloop launch list, we process your email address, consent time and signup source to send a welcome receipt and relevant beta or launch access updates. A customer who submits a public booking request provides their name, phone number, email address, requested service or time, and any message. If the business accepts that request, Workloop uses the email address to send the customer a booking confirmation and scheduled reminders on behalf of the business, and retains it with the request and client record. If you use Stripe payment collection, Workloop also stores connected-account and transaction references, amounts, currency, status, receipt links, and refund or dispute status needed to show and reconcile payments. When a customer asks for a payment receipt, the email address you enter is sent to Stripe for receipt delivery and may be associated with the payment record. Workloop does not receive or store full card numbers or card security codes. If you choose a device import, Workloop reads the relevant contacts or calendar events on your device to present a review list, then adds only the records you confirm to your workspace. File imports process only the files you select.</p>
+      </section>
+      <section>
+        <h2>Business records and receipt reading</h2>
+        <p>Business records can also include quote and invoice details, payment terms and deposits, receipt attachments, mileage journeys and reviewed tax-estimate inputs. Receipt reading takes place on your device. Workloop does not send receipt content to an OCR service or store the raw recognised text. Details you choose to apply become part of the expense record. Saved receipt attachments are uploaded to private workspace storage.</p>
       </section>
       <section>
         <h2>3. How data is used</h2>
         <p>Data is used to authenticate you, provide and secure your workspace, connect business records into daily workflows, create exports, support public booking requests, answer support enquiries, prevent abuse, and meet legal obligations. We do not sell personal data. The current release contains no advertising SDK.</p>
+      </section>
+      <section>
+        <h2>Email preferences and useful updates</h2>
+        <p>Essential account and booking messages are sent automatically. Workloop tips, product updates, referral ideas and inactivity reminders use consent or a qualifying customer relationship with an opt-out offered at signup. Every marketing email includes an unsubscribe link, and you can change your choice in Settings &gt; Emails to you. We record this choice and recent app activity to avoid irrelevant reminders. We do not enrol your clients in Workloop marketing because they make a booking. Customers can stop booking reminders from the link in those emails without cancelling their booking.</p>
+      </section>
+      <section>
+        <h2>Optional local weather</h2>
+        <p>Local weather is off until you enable it. If you choose Use my location, Workloop asks your phone for a foreground location and reduces its precision before sending it over an authenticated connection to our Supabase server function. That function requests a forecast from MET Norway using the reduced-precision coordinates; it does not pass your Workloop identity or device IP address to MET Norway. Weather locations are not saved in your business workspace or used for advertising, and weather does not track your device in the background. You may instead choose a UK area: the address or postcode query is sent to Google Places, and the area you choose is remembered only on this device, separately for each account, for less than 30 days. Weather responses are held in temporary caches. Tap the weather beside your Today greeting to change the area or turn weather off. Phone location permission can also be changed in your device settings.</p>
+      </section>
+      <section>
+        <h2>Crash diagnostics</h2>
+        <p>Supported releases use Google Firebase Crashlytics to help us find and fix app failures. Reports include technical crash details, code locations, app version, operating system and device information, and installation or session identifiers. These reports are not fully anonymous. Workloop limits reports from its app code to fixed error categories and code locations rather than original error messages or customer content. Reports collected by native software may contain technical exception details and cannot undergo that same filtering. We do not add Workloop account IDs, client records or a history of screens visited and actions taken to Crashlytics reports. Google processes diagnostics under its Firebase data practices at <a href="https://firebase.google.com/support/privacy">https://firebase.google.com/support/privacy</a>.</p>
       </section>
       <section>
         <h2>4. Legal bases</h2>
@@ -38,15 +54,15 @@
       </section>
       <section>
         <h2>5. Service providers and sharing</h2>
-        <p>Supabase provides authentication, database, storage, and server functions. Resend processes the email address and message content needed to deliver launch-list receipts, access updates and transactional booking confirmations under <a href="https://resend.com/legal/privacy-policy">Resend’s privacy policy</a>. Stripe processes card payments, connected-account verification, payouts, refunds, disputes, and requested receipt delivery when you enable payment collection; Stripe receives payment, identity, and any customer receipt email you supply under <a href="https://stripe.com/gb/privacy">Stripe’s privacy policy</a>. Google Places may process an address search query when you use address lookup, subject to <a href="https://policies.google.com/privacy">Google’s privacy policy</a>. Apple, Google, or your chosen device app may process information when you deliberately open a contact, calendar, map, email, or file action. We disclose data when legally required or when needed to protect users and the service.</p>
+        <p>Supabase provides authentication, database, storage, and server functions. Resend processes email addresses and message content to deliver account, security, booking and eligible marketing emails under its privacy policy at <a href="https://resend.com/legal/privacy-policy">https://resend.com/legal/privacy-policy</a>. UK2/Stackmail hosts our support inbox. Stripe processes card payments, connected-account verification, payouts, refunds, disputes, and requested receipt delivery when you enable payment collection; Stripe receives payment, identity, and any customer receipt email you supply under its own privacy terms at <a href="https://stripe.com/gb/privacy">https://stripe.com/gb/privacy</a>. Google Places may process an address search query when you use address lookup or choose a weather area, subject to Google’s privacy policy at <a href="https://policies.google.com/privacy">https://policies.google.com/privacy</a>. MET Norway provides local forecasts using the reduced-precision coordinates sent by our weather server, subject to its privacy policy at <a href="https://www.met.no/en/About-us/privacy">https://www.met.no/en/About-us/privacy</a>. Apple, Google, or your chosen device app may process information when you deliberately open a contact, calendar, map, email, or file action. We disclose data when legally required or when needed to protect users and the service.</p>
       </section>
       <section>
         <h2>6. Your clients’ information</h2>
-        <p>You decide which client information is entered into Workloop and remain responsible for having a lawful reason to use it, keeping it accurate, and responding to your clients’ rights. Do not store unnecessary sensitive information in free-text fields.</p>
+        <p>The business using Workloop decides which client information is entered and how it is used, and remains the data controller for its own client records. Haani Enterprise Limited processes those records on that business’s behalf to provide Workloop. The business remains responsible for having a lawful reason to use the information, keeping it accurate and responding to its clients’ rights. If you are a customer of a business using Workloop, contact that business directly about your booking or its use of your information. Do not store unnecessary sensitive information in free-text fields.</p>
       </section>
       <section>
         <h2>7. Retention and deletion</h2>
-        <p>Workspace data is kept while your account is active and as needed to provide the service. You can export your workspace and request account deletion from Settings &gt; Account. Deletion removes the account and workspace through a protected server process, subject to limited records that must be kept for security, dispute, tax, or other legal reasons and normal backup expiry cycles. See the <a href="/delete-account.html">account deletion page</a>.</p>
+        <p>Workspace data is kept while your account is active and as needed to provide the service. You can export your workspace and request account deletion from Settings &gt; Privacy &amp; data. Deletion removes the account and workspace through a protected server process, subject to limited records that must be kept for security, dispute, tax, or other legal reasons and normal backup expiry cycles. See the <a href="/delete-account.html">account deletion page</a>.</p>
       </section>
       <section>
         <h2>8. Security</h2>
@@ -54,7 +70,7 @@
       </section>
       <section>
         <h2>9. Your rights</h2>
-        <p>Depending on where you live, you may ask to access, correct, export, restrict, object to, or erase personal data. You may also complain to your local supervisory authority; in the United Kingdom this is the Information Commissioner’s Office. Contact support@workloop.uk to exercise a right.</p>
+        <p>Depending on where you live, you may ask to access, correct, export, restrict, object to, or erase personal data. You may also complain to your local supervisory authority; in the United Kingdom this is the Information Commissioner’s Office. Contact <a href="mailto:support@workloop.uk">support@workloop.uk</a> to exercise a right.</p>
       </section>
       <section>
         <h2>10. International processing</h2>
@@ -68,8 +84,10 @@
         <h2>12. Changes</h2>
         <p>We may update this policy as Workloop changes. Material changes will be communicated in the app or through the account contact details where appropriate.</p>
       </section>
+      <section><h2>14. Subscription access</h2><p>For a Workloop subscription purchased through Apple or Google, we store the store transaction reference, product, expiry, renewal or refund status and its association with your Workloop account to verify access. The store handles billing; Workloop does not receive your full payment-card details. We also keep verified trial dates, subscription reminder records and any lifetime beta-access grant. We use your account email to send service reminders about an upcoming trial renewal.</p></section>
     </main>
     <footer>
+      <p>Workloop is a trading name of Haani Enterprise Limited.<br />Registered in England and Wales. Company number 15758586.<br />Registered office: 35 Well Lane, Batley, WF17 5HQ, England.<br />For support, email <a href="mailto:support@workloop.uk">support@workloop.uk</a>.</p>
       <nav><a href="/terms.html">Terms</a><a href="/delete-account.html">Delete account</a><a href="mailto:support@workloop.uk">Contact</a></nav>
     </footer>
   </body>

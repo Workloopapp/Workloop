@@ -111,7 +111,7 @@ void main() {
       ];
       final items = buildDashboardAttentionItems(
         now: now,
-        pendingBookingRequests: 0,
+        bookingRequests: const [],
         payments: payments,
         tasks: const [],
         appointments: const [],

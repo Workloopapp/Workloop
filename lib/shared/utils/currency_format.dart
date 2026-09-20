@@ -11,3 +11,7 @@ String currencyInputValue(num? amount) {
 
 /// Formats an amount in pounds while preserving any pence.
 String formatPounds(num amount) => '£${currencyInputValue(amount)}';
+
+/// Compare totals at the same penny precision shown to the business owner.
+double roundToPence(double amount) =>
+    amount.isFinite ? double.parse(amount.toStringAsFixed(2)) : amount;

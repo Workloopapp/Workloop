@@ -16,6 +16,7 @@ class ClientOverviewTab extends ConsumerWidget {
   final VoidCallback onOpenBookings;
   final VoidCallback onOpenPayments;
   final VoidCallback onOpenTasks;
+  final VoidCallback? onOpenFiles;
   final ValueChanged<String> onOpenAddress;
 
   const ClientOverviewTab({
@@ -26,6 +27,7 @@ class ClientOverviewTab extends ConsumerWidget {
     required this.onOpenBookings,
     required this.onOpenPayments,
     required this.onOpenTasks,
+    this.onOpenFiles,
     required this.onOpenAddress,
   });
 
@@ -36,22 +38,27 @@ class ClientOverviewTab extends ConsumerWidget {
     final tasks = ref.watch(clientTasksProvider(clientId));
     final activityUnavailable =
         appointments.hasError || payments.hasError || tasks.hasError;
+    final activityLoading =
+        (!appointments.hasValue && appointments.isLoading) ||
+        (!payments.hasValue && payments.isLoading) ||
+        (!tasks.hasValue && tasks.isLoading);
     final appointmentRows = appointments.value ?? const [];
     final paymentRows = payments.value ?? const <Payment>[];
     final taskRows = tasks.value ?? const <SlateTask>[];
 
-    void retryActivity() {
-      ref.invalidate(clientAppointmentsProvider(clientId));
-      ref.invalidate(clientPaymentsProvider(clientId));
-      ref.invalidate(clientTasksProvider(clientId));
+    Future<void> retryActivity() async {
+      await Future.wait([
+        refreshClientAppointments(ref, clientId),
+        refreshClientPayments(ref, clientId),
+        refreshClientTasks(ref, clientId),
+      ]);
     }
 
     return RefreshIndicator(
-      color: AppColors.accentPrimary,
-      onRefresh: () async {
-        retryActivity();
-      },
+      color: AppColors.of(context).accentPrimary,
+      onRefresh: retryActivity,
       child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(
           AppSpacing.pageX,
           AppSpacing.xs,
@@ -65,6 +72,8 @@ class ClientOverviewTab extends ConsumerWidget {
                   'Some client activity could not be loaded. Try again before relying on this overview.',
               onRetry: retryActivity,
             )
+          else if (activityLoading)
+            const SlateLoadingBlock(height: 220)
           else ...[
             _NextBookingSection(
               appointments: appointmentRows,
@@ -89,13 +98,22 @@ class ClientOverviewTab extends ConsumerWidget {
           ],
           const WorkloopDivider(margin: EdgeInsets.symmetric(vertical: 22)),
           _NotesSection(client: client, onEdit: onEdit),
+          if (onOpenFiles != null) ...[
+            const SizedBox(height: AppSpacing.sm),
+            _QuietRow(
+              icon: LucideIcons.paperclip,
+              title: 'Photos & files',
+              subtitle: 'Client photos and documents',
+              onTap: onOpenFiles!,
+            ),
+          ],
           const WorkloopDivider(margin: EdgeInsets.symmetric(vertical: 22)),
           _DetailsSection(
             client: client,
             onEdit: onEdit,
             onOpenAddress: onOpenAddress,
           ),
-          if (!activityUnavailable) ...[
+          if (!activityUnavailable && !activityLoading) ...[
             const WorkloopDivider(margin: EdgeInsets.symmetric(vertical: 22)),
             _RecentActivity(
               appointments: appointmentRows,
@@ -131,43 +149,46 @@ class _NextBookingSection extends StatelessWidget {
         appointments.where((row) {
           final date = _appointmentDate(row);
           final status = row['status'] as String? ?? 'scheduled';
-          return date != null && date.isAfter(now) && status != 'cancelled';
+          return date != null && date.isAfter(now) && status == 'scheduled';
         }).toList()..sort(
           (a, b) => _appointmentDate(a)!.compareTo(_appointmentDate(b)!),
         );
     final next = upcoming.isEmpty ? null : upcoming.first;
     final laterCount = (upcoming.length - 1).clamp(0, upcoming.length);
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _SectionHeader(
-          title: 'Next booking',
-          action: 'View bookings',
-          onAction: onOpenBookings,
-        ),
-        const SizedBox(height: AppSpacing.sm),
-        if (next == null)
-          _QuietRow(
-            icon: LucideIcons.calendarPlus,
-            title: 'Nothing booked yet',
-            subtitle: 'Add the next piece of work when it is agreed.',
-            onTap: onOpenBookings,
-          )
-        else
-          _BookingPanel(
-            appointment: next,
-            laterCount: laterCount,
-            onTap: () async {
-              await Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => AppointmentDetailScreen(appointment: next),
-                ),
-              );
-            },
-          ),
-      ],
+    return WorkloopPaperPanel(
+      title: 'Next booking',
+      padding: EdgeInsets.zero,
+      trailing: TextButton(
+        onPressed: onOpenBookings,
+        child: const Text('View bookings'),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (next == null)
+            _QuietRow(
+              flat: true,
+              icon: LucideIcons.calendarPlus,
+              title: 'Nothing booked yet',
+              subtitle: 'Add a booking when a time is agreed.',
+              onTap: onOpenBookings,
+            )
+          else
+            _BookingPanel(
+              appointment: next,
+              laterCount: laterCount,
+              onTap: () async {
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => AppointmentDetailScreen(appointment: next),
+                  ),
+                );
+              },
+            ),
+        ],
+      ),
     );
   }
 }
@@ -189,7 +210,7 @@ class _BookingPanel extends StatelessWidget {
     final service = _appointmentTitle(appointment);
     final address = appointment['location'] as String? ?? '';
     return Material(
-      color: AppColors.panelSoft.withValues(alpha: 0.72),
+      color: Colors.transparent,
       borderRadius: BorderRadius.circular(AppRadius.lg),
       child: InkWell(
         onTap: onTap,
@@ -201,13 +222,13 @@ class _BookingPanel extends StatelessWidget {
               Container(
                 width: 42,
                 height: 42,
-                decoration: const BoxDecoration(
-                  color: AppColors.modBg,
+                decoration: BoxDecoration(
+                  color: AppColors.of(context).modBg,
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(
+                child: Icon(
                   LucideIcons.calendarClock,
-                  color: AppColors.modCalendar,
+                  color: AppColors.of(context).modCalendar,
                   size: 18,
                 ),
               ),
@@ -220,8 +241,8 @@ class _BookingPanel extends StatelessWidget {
                       service,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: AppColors.t1,
+                      style: TextStyle(
+                        color: AppColors.of(context).t1,
                         fontSize: 15,
                         fontWeight: FontWeight.w600,
                       ),
@@ -235,8 +256,8 @@ class _BookingPanel extends StatelessWidget {
                       ].join(' · '),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: AppColors.t3,
+                      style: TextStyle(
+                        color: AppColors.of(context).t3,
                         fontSize: 12,
                         fontWeight: FontWeight.w500,
                       ),
@@ -245,8 +266,8 @@ class _BookingPanel extends StatelessWidget {
                       const SizedBox(height: AppSpacing.xxs),
                       Text(
                         '$laterCount more ${laterCount == 1 ? 'booking' : 'bookings'} scheduled',
-                        style: const TextStyle(
-                          color: AppColors.t3,
+                        style: TextStyle(
+                          color: AppColors.of(context).t3,
                           fontSize: 11,
                         ),
                       ),
@@ -254,9 +275,9 @@ class _BookingPanel extends StatelessWidget {
                   ],
                 ),
               ),
-              const Icon(
+              Icon(
                 LucideIcons.chevronRight,
-                color: AppColors.t3,
+                color: AppColors.of(context).t3,
                 size: 16,
               ),
             ],
@@ -287,7 +308,7 @@ class _RelationshipSnapshot extends StatelessWidget {
         .length;
     final received = payments.fold<double>(
       0,
-      (sum, payment) => sum + payment.amountPaid,
+      (sum, payment) => sum + payment.collectedAmount,
     );
     final openTasks = tasks.where((task) => task.status != 'done').length;
 
@@ -343,8 +364,8 @@ class _Metric extends StatelessWidget {
           value,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: const TextStyle(
-            color: AppColors.t1,
+          style: TextStyle(
+            color: AppColors.of(context).t1,
             fontSize: 18,
             fontWeight: FontWeight.w600,
           ),
@@ -352,8 +373,8 @@ class _Metric extends StatelessWidget {
         const SizedBox(height: AppSpacing.xxs),
         Text(
           label,
-          style: const TextStyle(
-            color: AppColors.t3,
+          style: TextStyle(
+            color: AppColors.of(context).t3,
             fontSize: 11,
             fontWeight: FontWeight.w600,
           ),
@@ -378,10 +399,10 @@ class _WorthALook extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final remaining = payments.fold<double>(0, (sum, payment) {
-      final balance = payment.total - payment.amountPaid;
-      return sum + (balance > 0 ? balance : 0);
-    });
+    final remaining = payments.fold<double>(
+      0,
+      (sum, payment) => sum + payment.outstandingAmount,
+    );
     final openTasks = tasks.where((task) => task.status != 'done').toList();
     if (remaining <= 0 && openTasks.isEmpty) return const SizedBox.shrink();
 
@@ -427,50 +448,55 @@ class _NotesSection extends StatelessWidget {
   Widget build(BuildContext context) {
     final notes = (client['notes'] as String? ?? '').trim();
     final important = (client['important_notes'] as String? ?? '').trim();
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _SectionHeader(title: 'Client notes', action: 'Edit', onAction: onEdit),
-        const SizedBox(height: AppSpacing.sm),
-        if (important.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Icon(
-                  LucideIcons.bookmark,
-                  color: AppColors.modClients,
-                  size: 16,
-                ),
-                const SizedBox(width: AppSpacing.sm),
-                Expanded(
-                  child: Text(
-                    important,
-                    style: const TextStyle(
-                      color: AppColors.t1,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      height: 1.4,
+    return WorkloopPaperPanel(
+      title: 'Client notes',
+      tone: WorkloopPaperTone.warm,
+      trailing: TextButton(onPressed: onEdit, child: const Text('Edit')),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (important.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    LucideIcons.bookmark,
+                    color: AppColors.of(context).modClients,
+                    size: 16,
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                  Expanded(
+                    child: Text(
+                      important,
+                      style: TextStyle(
+                        color: AppColors.of(context).t1,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        height: 1.4,
+                      ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
+            ),
+          Text(
+            notes.isEmpty && important.isEmpty
+                ? 'No client notes added yet.'
+                : notes.isEmpty
+                ? 'No additional notes.'
+                : notes,
+            style: TextStyle(
+              color: notes.isEmpty
+                  ? AppColors.of(context).t3
+                  : AppColors.of(context).t2,
+              fontSize: 13,
+              height: 1.45,
             ),
           ),
-        Text(
-          notes.isEmpty && important.isEmpty
-              ? 'No client notes added yet.'
-              : notes.isEmpty
-              ? 'No additional notes.'
-              : notes,
-          style: TextStyle(
-            color: notes.isEmpty ? AppColors.t3 : AppColors.t2,
-            fontSize: 13,
-            height: 1.45,
-          ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
@@ -543,7 +569,7 @@ class _DetailsSection extends StatelessWidget {
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(row.icon, color: AppColors.t3, size: 16),
+                    Icon(row.icon, color: AppColors.of(context).t3, size: 16),
                     const SizedBox(width: AppSpacing.sm),
                     Expanded(
                       child: Column(
@@ -551,8 +577,8 @@ class _DetailsSection extends StatelessWidget {
                         children: [
                           Text(
                             row.label,
-                            style: const TextStyle(
-                              color: AppColors.t3,
+                            style: TextStyle(
+                              color: AppColors.of(context).t3,
                               fontSize: 10,
                               fontWeight: FontWeight.w600,
                             ),
@@ -560,8 +586,8 @@ class _DetailsSection extends StatelessWidget {
                           const SizedBox(height: 2),
                           Text(
                             row.value,
-                            style: const TextStyle(
-                              color: AppColors.t2,
+                            style: TextStyle(
+                              color: AppColors.of(context).t2,
                               fontSize: 13,
                               fontWeight: FontWeight.w500,
                               height: 1.35,
@@ -572,11 +598,11 @@ class _DetailsSection extends StatelessWidget {
                     ),
                     if (row.onTap != null) ...[
                       const SizedBox(width: AppSpacing.sm),
-                      const Padding(
+                      Padding(
                         padding: EdgeInsets.only(top: 8),
                         child: Icon(
                           LucideIcons.navigation,
-                          color: AppColors.accentPrimary,
+                          color: AppColors.of(context).accentPrimary,
                           size: 16,
                         ),
                       ),
@@ -600,13 +626,13 @@ class _DetailsSection extends StatelessWidget {
                       vertical: 6,
                     ),
                     decoration: BoxDecoration(
-                      color: AppColors.t1.withValues(alpha: 0.035),
+                      color: AppColors.of(context).t1.withValues(alpha: 0.035),
                       borderRadius: BorderRadius.circular(AppRadius.md),
                     ),
                     child: Text(
                       tag,
-                      style: const TextStyle(
-                        color: AppColors.t2,
+                      style: TextStyle(
+                        color: AppColors.of(context).t2,
                         fontSize: 11,
                         fontWeight: FontWeight.w600,
                       ),
@@ -662,9 +688,13 @@ class _RecentActivity extends StatelessWidget {
         if (loading && visible.isEmpty)
           const SlateLoadingBlock(height: 72, radius: AppRadius.md)
         else if (visible.isEmpty)
-          const Text(
+          Text(
             'Bookings, payments, and tasks will appear here as the relationship builds.',
-            style: TextStyle(color: AppColors.t3, fontSize: 13, height: 1.4),
+            style: TextStyle(
+              color: AppColors.of(context).t3,
+              fontSize: 13,
+              height: 1.4,
+            ),
           )
         else
           ...visible.map((item) {
@@ -762,8 +792,8 @@ class _SectionHeader extends StatelessWidget {
         Expanded(
           child: Text(
             title,
-            style: const TextStyle(
-              color: AppColors.t1,
+            style: TextStyle(
+              color: AppColors.of(context).t1,
               fontSize: 18,
               fontWeight: FontWeight.w600,
             ),
@@ -781,50 +811,54 @@ class _QuietRow extends StatelessWidget {
   final String title;
   final String subtitle;
   final VoidCallback onTap;
+  final bool flat;
 
   const _QuietRow({
     required this.icon,
     required this.title,
     required this.subtitle,
     required this.onTap,
+    this.flat = false,
   });
 
   @override
   Widget build(BuildContext context) {
     return WorkloopListRow(
+      flat: flat,
+      showDivider: !flat,
       onTap: onTap,
       leading: Container(
         width: 38,
         height: 38,
-        decoration: const BoxDecoration(
-          color: AppColors.modBg,
+        decoration: BoxDecoration(
+          color: AppColors.of(context).modBg,
           shape: BoxShape.circle,
         ),
-        child: Icon(icon, color: AppColors.t3, size: 17),
+        child: Icon(icon, color: AppColors.of(context).t3, size: 17),
       ),
       title: Text(
         title,
-        maxLines: 1,
+        maxLines: flat ? 2 : 1,
         overflow: TextOverflow.ellipsis,
-        style: const TextStyle(
-          color: AppColors.t1,
+        style: TextStyle(
+          color: AppColors.of(context).t1,
           fontSize: 14,
           fontWeight: FontWeight.w600,
         ),
       ),
       subtitle: Text(
         subtitle,
-        maxLines: 1,
+        maxLines: flat ? 2 : 1,
         overflow: TextOverflow.ellipsis,
-        style: const TextStyle(
-          color: AppColors.t3,
+        style: TextStyle(
+          color: AppColors.of(context).t3,
           fontSize: 12,
           fontWeight: FontWeight.w500,
         ),
       ),
-      trailing: const Icon(
+      trailing: Icon(
         LucideIcons.chevronRight,
-        color: AppColors.t3,
+        color: AppColors.of(context).t3,
         size: 16,
       ),
     );

@@ -157,6 +157,23 @@ class StripePaymentsRepository {
     );
   }
 
+  Future<Map<String, dynamic>> paymentRequestEmail(
+    String transactionId, {
+    required bool send,
+    String? expectedEmail,
+  }) async {
+    return _map(
+      await _client.rpc(
+        'queue_payment_request_email',
+        params: {
+          'p_transaction_id': transactionId,
+          'p_send': send,
+          'p_expected_email': expectedEmail,
+        },
+      ),
+    );
+  }
+
   Future<void> refund({
     required String workspaceId,
     required String transactionId,

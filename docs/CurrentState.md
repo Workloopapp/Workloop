@@ -1,6 +1,74 @@
 # Workloop Current State
 
-Last updated: 2026-08-15
+## Current verification — 4 September 2026
+
+**Build 10 is now externally available in TestFlight.** The signed Android Build 10 is built and emulator-verified, but Play registration/distribution is incomplete. Hosted card collection is enabled; real-money verification remains blocked on a genuine merchant. Clearview is a fictional demo.
+
+See [the authoritative dated audit](releases/2026-09-04-launch-audit.md) for source/artifact identities, deployed website/backend changes, completed checks and remaining launch gates. The older sections below describe historical candidates and must not be read as current distribution status.
+
+---
+
+Last updated: 2026-09-01
+
+## 2026-09-01 beta feedback implementation candidate
+
+- Source identity is now `Workloop 1.0.0 (8)`. Build 7 already exists in App
+  Store Connect and predates this feedback, so these changes must not be
+  distributed under that build number. Build 6 remains the current TestFlight
+  beta until a separately verified Build 8 is uploaded and assigned.
+- Expired access tokens are refreshed and retried instead of being treated as
+  an automatic sign-out. Only explicit terminal session/user conditions clear
+  local account state. User-scoped providers are reset before a new workspace
+  is revealed, and the dashboard waits for its first coherent data snapshot.
+- The auth surface uses a compact phone layout that keeps sign-in visible on a
+  standard iPhone while retaining scrolling for keyboards, small phones and
+  larger accessibility text. The owner booking-page preview back control is
+  anchored to the top safe area.
+- Notification routes are allow-listed to exact bookings, booking requests,
+  payments, tasks and notes. Local reminders and remote pushes carry the exact
+  entity route, including new booking-request notifications.
+- Owners can explicitly save overlapping or outside-hours bookings after a
+  calm warning. Conflict rejection remains the server default when consent is
+  absent. Public requests now persist the exact requested instant and workspace
+  timezone; legacy Build 6 payloads remain accepted during the staged rollout.
+- Public services are directly selectable, opening hours use a 12-hour display,
+  service durations use friendly hours/minutes, and service setup accepts
+  separate hour/minute fields with an immediately editable name.
+
+This section describes verified source, not a live backend deployment or a
+TestFlight Build 8. The two migrations and updated public-profile/booking Edge
+Functions must be promoted in release order, followed by physical-iPhone push,
+resume, booking-time and schedule-exception checks.
+
+## 2026-08-31 TestFlight beta 6 handoff
+
+- `Workloop 1.0.0 (6)` is processed and `Testing` in both `Workloop Internal
+  Beta` and `Workloop Private Beta`. The private group retains its existing 9
+  testers and automatic tester notification is enabled, so Build 5 installs
+  update in place through TestFlight without changing account or workspace
+  identity. The existing public invitation remains
+  `https://testflight.apple.com/join/1ycJPHWx`.
+- The uploaded App Store IPA is 34,619,970 bytes with SHA-256
+  `bf109d03084ece3bffec358abf8aba0549a2fd4da92d84efd56cc86a0bd088d1`.
+  It is Apple Distribution signed, strict-valid, uses the Store profile, has
+  `get-task-allow=false`, `beta-reports-active=true`, and carries the production
+  APNs entitlement. Upload processing warned that `StripeTerminal.framework`
+  has no matching dSYM; this limits symbolication for that framework but did not
+  block testing or push delivery.
+- Firebase is attached to existing billed Google project `workloop-502614` and
+  the iOS app uses the shared sandbox/production APNs authentication key. The
+  provider private key remains outside the repository. Supabase stores the APNs
+  provider fields as Edge secrets and the scheduled delivery worker sends
+  privacy-safe alerts directly through APNs without weakening Google's
+  service-account-key organisation policy.
+- A development-signed Build 6 profile registered a real iPhone APNs token and
+  a controlled sandbox alert was accepted by Apple in one attempt and visibly
+  received by the user, including a terminated-app check. Foreground duplicate
+  suppression, tap/deep-link routing, quiet hours and two-account token
+  reassignment remain explicit manual-beta checks.
+- App Store Connect also contains a separate Build 7 upload in `Ready to
+  Submit`; it is not attached to the external group. Build 6 remains the active
+  beta release.
 
 ## 2026-08-15 TestFlight beta 5 handoff
 
@@ -536,7 +604,12 @@ Last updated: 2026-08-15
 - Shared fields, search, pickers, sheets, dialogs, buttons, switches, haptics, motion, loading, empty, error, and success states form the canonical interaction system.
 - A resumable onboarding preferences step, real-record dashboard setup checklist, and action-led empty states guide first value without inserting demo data.
 - Privacy-first import supports selected contacts, one-time calendar events, client CSV, task text, and note text/Markdown. Partial attempts retain only failed records for retry so already-created records are not duplicated. Unsupported private stores are labelled honestly.
-- In-app notifications and on-device task/booking reminders are supported on iOS and Android. Task reminders follow the selected timing; opted-in booking reminders are scheduled about 15 minutes before the booking. Tapping a reminder routes back into Workloop. Remote APNs/FCM push delivery is not claimed.
+- In-app notifications and on-device task/booking reminders are supported on
+  iOS and Android. Task reminders follow the selected timing; opted-in booking
+  reminders are scheduled about 15 minutes before the booking. Tapping a
+  reminder routes back into Workloop. Build 6 additionally provides optional
+  privacy-safe business-activity push on iOS through APNs; Android remote push
+  delivery is not yet claimed.
 - See `docs/LaunchReadiness.md` for the current release gate. `docs/FinalPolishAudit.md` remains a historical snapshot of the earlier July polish pass.
 
 ### 2026-07-28 final UI/UX refinement
@@ -910,7 +983,10 @@ Last updated: 2026-08-15
 
 - Money-to-booking workflow: new bookings and completed bookings use atomic linked-payment workflows; production-like end-to-end and real-device QA is still needed.
 - Calendar integration: explicit event import and point-in-time `.ics` export exist; real external provider sync does not.
-- Notifications: in-app centre/preferences and on-device task/booking reminders exist; APNs/FCM cross-device push delivery does not.
+- Notifications: in-app centre/preferences and on-device task/booking reminders
+  exist on iOS and Android. Optional business-activity APNs delivery is live for
+  the iOS Build 6 beta; Android remote delivery and the full iOS lifecycle
+  matrix remain incomplete.
 - Recurring bookings: series creation is intentionally hidden from V1 until
   create/edit scope, exceptions and series-level conflict recovery can be
   completed. Existing recurrence data remains readable and compatible.
@@ -1313,3 +1389,946 @@ function deployment. Bounce/suppression operations, disposable account
 deletion, external Auth lifecycle, physical accessibility and an exact clean
 Build 5 distribution artifact remain open, so this is not yet an upload-ready
 beta.
+
+### 2026-08-15 account lifecycle and operating automations
+
+- A deletion request now immediately bans the Auth identity and revokes its
+  refresh sessions. Flutter independently revalidates the server-side Auth
+  user and deletion state before exposing a workspace, clears any local
+  onboarding draft and signs out locally when the identity is gone or pending
+  deletion. A deleted identity can no longer fall through into onboarding.
+- The existing protected scheduled worker completes requested deletions in
+  bounded batches. It runs deletion before email work and isolates each job so
+  an email-provider failure cannot leave a deletion request active. A manually
+  removed Auth user can be recovered only when it has no remaining workspace
+  memberships; ambiguous ownership still fails closed.
+- The database now creates preference-aware, deduplicated attention items for
+  booking requests waiting four hours, overdue invoices and a local-time 07:00
+  daily brief. Existing device-side appointment and task reminder scheduling
+  remains the reminder authority.
+- Private operational alerts cover stuck deletions and delayed or terminal
+  transactional email. The same worker sends those alerts to the configured
+  operations address without logging customer content.
+- Scheduled retention prunes old notifications, inactive push tokens, expired
+  rate-limit state and retained Stripe webhook payloads. Completed-deletion
+  identifiers and transactional outbox rows are scrubbed on bounded schedules.
+- A weekly GitHub health check can verify a recent completed Supabase backup
+  through a read-only Management API token. It is opt-in and fails closed when
+  the latest completed backup exceeds the configured age.
+
+Production now has lifecycle migrations `20260815192234`, `20260815192246`
+and the service-role correction `20260815192737`, plus request-worker version
+19, completion-worker version 22 and scheduled-worker version 11. The existing
+minute cron is active, `OPERATIONS_ALERT_EMAIL` is configured, and its latest
+HTTP response was 200 with no job failures. The first live run generated six
+waiting-booking and 27 overdue-payment attention items, detected the existing
+stuck deletion, completed it, closed the alert and delivered the pending
+completion email. Both paid rehearsal branches were deleted after passing.
+
+GitHub now holds a 90-day, single-project, backup-read-only credential, the
+production project reference and `ENABLE_BACKUP_HEALTH=true`. A direct live
+Management API check returned five backups and a latest `COMPLETED` backup at
+2026-08-15 06:14:57 UTC. The scheduled check itself remains source-only until
+this workflow and script are committed and reach the repository default
+branch. A fresh disposable request/sign-out/re-signup journey is still required
+before calling every mobile lifecycle transition externally proven.
+
+### 2026-08-15 transactional Auth email pack
+
+- All six Supabase Auth action templates and seven enabled security-change
+  notifications now have a version-controlled Workloop subject, HTML body,
+  clear purpose, fixed support route and consistent premium visual treatment.
+- A separate private outbox queues exactly one welcome when a new Auth user
+  first becomes email-verified, including provider signups that arrive already
+  confirmed. Existing users are not bulk-emailed.
+- The existing scheduled Resend worker now drains booking, launch-list and
+  account-welcome queues. All three use fixed senders, stable provider
+  idempotency keys, leases, bounded retry and no recipient/body logging.
+- Local proof: all 56 migrations replay cleanly, 156/156 pgTAP assertions pass,
+  database lint reports zero findings and the full Edge suite passes 48/48.
+  Hosted Supabase now matches all 13 reviewed templates. Production has the
+  private outbox migration and scheduled-worker version 8; its trigger/grants
+  were verified read-only. A fresh external signup remains the final provider
+  delivery proof for the new verification-to-welcome sequence.
+
+### 2026-08-15 account-deletion confirmation emails
+
+- An accepted deletion request now queues a purpose-specific email confirming
+  that Workloop received the request while stating clearly that deletion is not
+  complete yet.
+- The authoritative transition to `completed` queues a separate confirmation
+  only after workspace and Auth deletion have succeeded. It explains that the
+  account can no longer be used and links the privacy notice for the limited
+  records Workloop may retain for security, legal or financial obligations.
+- Both events use a private, service-only outbox with one row per request/event,
+  fixed recipient data, stable Resend idempotency, a five-minute lease and
+  bounded 24-hour retry. Application clients cannot select a recipient, claim
+  a job or manufacture a completion email.
+- Production now has migrations `20260815190332`, `20260815190424` and the
+  service-role correction `20260815192737` plus scheduled email-worker version
+  11. Read-only verification found both triggers,
+  denied claim access to `anon` and `authenticated`, granted only
+  `service_role`, and found no unexpected queued rows. The production worker is
+  intentionally limited to the four already-approved transactional queues;
+  and the production scheduled worker has successfully claimed and delivered
+  a pending completion email without exposing the queue to app roles.
+- Combined local proof: all 62 migrations replay cleanly, 199/199 pgTAP
+  assertions pass across eight files, database lint reports zero findings, the
+  Edge suite passes 58/58, Deno format/lint/type-check are clean, Flutter
+  analysis is clean, all 384 Flutter tests pass, and the iOS profile build
+  succeeds. A controlled disposable deletion and inbox check remains the final
+  external proof of provider delivery and exact request/completion wording.
+
+### 2026-08-31 private founder control room and Apple beta reporting
+
+- A private `reporting` schema now supplies aggregate-only current KPIs, daily
+  metrics and source health to the owner-only Workloop Control Room in Google
+  Data Studio. The database login inherits a NOLOGIN read-only group with no
+  access to Auth or application tables.
+- Verified Resend webhooks update delivery aggregates without storing recipient,
+  subject or body content. Google Analytics and Search Console are connected as
+  separate website sources.
+- App Store Connect uses separate least-privilege team keys: Sales and Reports
+  for future store analytics and Developer for TestFlight metrics. Their private
+  keys exist only as hosted Edge Function secrets; the downloaded copies were
+  removed after secret verification.
+- `collect-apple-reporting` authenticates a daily Vault-backed Cron request,
+  fetches tester state and 365-day sessions/crashes/feedback, discards tester
+  identity, and upserts ten aggregate metrics. The first production invocation
+  returned HTTP 200 with 7 installed testers, 97 sessions, 0 crashes and 1
+  feedback item; the dashboard shows TestFlight source health as `succeeded`.
+- Regular App Store download analytics remain dormant while Workloop is a
+  TestFlight-only beta. The Sales and Reports credential is staged for the
+  public-store reporting collector when a store release exists.
+
+### 2026-08-31 Build 6 remote push candidate
+
+- Build identity is now `1.0.0 (6)`. The iOS target includes the Push
+  Notifications entitlement and remote-notification background mode.
+- Firebase Messaging obtains the native APNs token on iOS and registers one
+  opaque token per signed-in device through
+  membership-checked RPCs. A refreshed token can belong to only one account,
+  and explicit sign-out removes the current device token when possible.
+- New business-attention rows fan out to a private per-device outbox. The
+  existing protected minute worker claims with leases, sends privacy-safe lock
+  screen copy directly through APNs, retries transient failures and disables dead
+  provider tokens. Stored notification preferences and 21:00-07:00 local quiet
+  hours are enforced before delivery.
+- Tapping an alert opens only an allow-listed authenticated Workloop route.
+  Foreground messages refresh the in-app centre without displaying a second
+  system banner. Existing task and booking reminders remain device scheduled.
+- Local proof is clean: Flutter analysis, 386 Flutter tests, 4 push-worker
+  tests, Edge type-check and the signed iOS profile build all pass. The profile
+  artifact is `1.0.0 (6)`, 73.2 MB, with development APNs and background
+  entitlements.
+- Firebase is attached to billed project `workloop-502614`; the iOS app and
+  development/production APNs key are configured. The push migration, worker
+  and APNs provider secrets are live. A controlled physical-iPhone sandbox
+  delivery was visibly received, and the production-entitled Build 6 IPA is
+  processed and `Testing` in both TestFlight groups. The remaining manual gates
+  are foreground duplicate suppression, notification tap routing, quiet hours
+  and two-account token reassignment.
+
+### 2026-09-01 Build 8 feedback and stability candidate
+
+- The complete tester-feedback list is implemented in source: compact Auth,
+  refreshed expired-session recovery, one coherent dashboard reveal, anchored
+  booking-page preview navigation, editable onboarding services, friendly
+  hours/minutes and 12-hour public hours, selectable public services, exact
+  workspace-timezone request times, and explicit owner confirmation for
+  overlaps or outside-hours bookings.
+- Public request-time guidance now compares the selected service duration with
+  the published hours. It remains a preference rather than a promise, exposes
+  no existing booking data and still permits an exceptional time request.
+- Notification taps now use exact allow-listed entity routes. Direct APNs
+  payloads include the privacy-neutral delivery identifier FlutterFire needs
+  for foreground, warm-tap and cold-start callbacks, and both notification
+  bootstraps navigate through the app router rather than an inherited context
+  above it. Routes wait safely through sign-in when necessary.
+- Async saves, pickers, provider refreshes, token registration and account
+  actions now re-check mounted user/workspace state after waits, reducing
+  disposed-widget crashes and cross-session races.
+- Public service-role endpoints now require a current workspace member before
+  serving a profile or accepting a request. A separate insert trigger is the
+  database defence in depth. Production still has 8 ownerless public profiles
+  exposing 29 active services until this source is promoted.
+- Final local proof: 233 Dart files are format-clean, Flutter analysis is clean,
+  all 406 Flutter tests and all 65 Edge tests pass, every configured Edge entry
+  point type-checks, four deterministic data profiles validate, diff hygiene is
+  clean and the development-signed `1.0.0 (8)` iOS profile builds at 73.2 MB.
+- This remains a source candidate. The production project has no preview
+  branch, the three new migrations have not had hosted replay/pgTAP, the Edge
+  changes are not deployed, no distribution IPA exists and the physical
+  notification/session/booking matrix remains open.
+
+### 2026-09-01 Build 9 booking and interface candidate
+
+- Auth now uses the installed W/arrows Workloop icon and a balanced standard-
+  iPhone composition; compact-height devices simplify the brand panel and keep
+  the complete form scrollable.
+- Root and peer navigation use quiet filled selection states. Headers share a
+  narrow module-colour marker and aligned top-right create actions, while all
+  modal sheets share one radius, handle and padding system.
+- Service rows no longer guess an industry with decorative icons. Owner service
+  setup supports up to eight parent-scoped extras with extra duration and price;
+  packages remain ordinary services.
+- The public booking page offers capped suggested times computed from trusted
+  hours, timezone, notice, buffer, existing work and the aggregate selected
+  duration. Customers can always request another time and are told that a time
+  is not held or confirmed.
+- Booking requests and appointments use immutable service-item snapshots.
+  Legacy intake remains compatible and receives the same trusted base snapshot.
+- Repository reads now fall back only for the specific not-yet-deployed
+  add-on/snapshot relations, so the signed candidate remains usable against the
+  current Build 6 production schema while the staged migration is rehearsed.
+- Current local proof: formatting and analysis are clean, 432/432 Flutter tests
+  pass, 71/71 Edge tests pass, all configured handlers type-check and refreshed
+  light/dark goldens were inspected. Database pgTAP is authored but cannot run
+  locally without Docker/Postgres; production has not yet been changed.
+- The candidate is versioned `1.0.0 (9)`. Its development-signed profile was
+  strictly verified, installed and launched on the paired physical iPhone.
+  A strict-valid 34,770,219-byte App Store IPA was also produced with
+  production APNs, `get-task-allow=false` and `beta-reports-active=true`.
+  Ordered backend promotion, the physical feature matrix and TestFlight upload
+  remain release gates.
+
+### 2026-09-02 Build 9 hosted rehearsal and production promotion
+
+- A paid disposable Supabase branch replayed the five booking migrations from
+  production migration `20260831174824`. The rehearsal found and corrected an
+  ambiguous snapshot conflict target, retry ordering after add-on deactivation,
+  an optional JWT-claim dependency inside service-role-only RPCs, and four
+  missing composite foreign-key indexes. The branch was deleted after the final
+  smoke matrix, so its hourly charge is no longer running.
+- Hosted smoke evidence covered exact requested instants and timezone, base and
+  add-on snapshots, duplicate request tokens, entity notification routes,
+  privacy-safe availability, default overlap rejection, explicit overlap and
+  outside-hours acceptance, deactivated-add-on idempotent retry, and the
+  orphaned-profile 404 boundary.
+- Production now contains migrations `20260902172036` through
+  `20260902172046`. `get-public-profile` v25,
+  `create-booking-request` v28, `get-public-booking-availability` v1 and the
+  combined scheduled worker v21 are active; every deployed file matches the
+  reviewed local source.
+- Production RLS, grants, triggers and covering indexes match the rehearsed
+  boundary. Security advisors report no finding against the new tables or
+  service-role-only RPCs, and performance advisors report no new unindexed
+  foreign keys. Live public profile and availability calls both returned HTTP
+  200 with bounded Europe/London suggestions.
+- The protected every-minute worker continues to return HTTP 200 after v21 was
+  deployed. The only stored iOS token is a development token already disabled
+  after APNs returned `BadDeviceToken`; installing and launching the TestFlight
+  build must register a fresh production token before release push taps can be
+  validated.
+- Final source proof is 234 Dart files format-clean, Flutter analysis clean,
+  435/435 Flutter tests and 71/71 Edge tests passing, configured Edge handlers
+  type-checking, diff hygiene clean, and a signed iOS profile build succeeding.
+- A fresh App Store `1.0.0 (9)` IPA is 34,766,683 bytes with SHA-256
+  `2d4179b6043cd241ee1365fa03d173918ed8497f553c3775644fd5d14f6128a4`.
+  Strict signature verification passes with Apple Distribution, production
+  APNs, `get-task-allow=false`, `beta-reports-active=true` and Sign in with
+  Apple. The iPhone was not reachable for a post-promotion install in this
+  pass, so the physical feature matrix and TestFlight upload remain open.
+- Two active public service rows still contain accidental durations of zero and
+  9,999,999 minutes. Their real durations require owner confirmation rather
+  than an inferred data correction.
+
+### 2026-09-02 public service duration guard
+
+- Production migration `20260902174021` quarantines the two invalid services:
+  each is now inactive and hidden with a 60-minute review placeholder. Neither
+  had linked appointments, and no booking history was changed.
+- `services_duration_mins_check` is validated in production and rejects base
+  service durations outside 5-1,440 minutes. Flutter repository validation and
+  `get-public-profile` v26 apply the same bounds before a value reaches or
+  leaves the database.
+- Live checks show zero invalid service rows, both affected public pages omit
+  the quarantined service, and a controlled 9,999,999-minute update is rejected
+  by Postgres. Owners can correct and reactivate their service from Settings.
+- Final source proof is analysis-clean with 438/438 Flutter tests and 71/71
+  Edge tests passing. The rebuilt App Store `1.0.0 (9)` IPA is 34,766,747
+  bytes with SHA-256
+  `e8e0df6a5b657a8043049503cf5f33d7b68d760120da92eddeeff59d16145006`.
+
+### 2026-09-02 Build 8 app polish candidate
+
+- The next locally installable beta candidate is version `1.0.0 (8)`. Earlier
+  Build 9 notes describe a superseded internal rehearsal and are retained as
+  history rather than renumbered.
+- A single `WorkloopAppCanvas` now owns the textured light/dark background above
+  the app Navigator. Route scaffolds and retained workspace layers are
+  transparent, so navigation no longer reconstructs or shifts the artwork.
+- Authenticated route gates seed from the current Supabase session and reuse an
+  already-prepared workspace for the same user instead of invalidating shared
+  providers on every routed screen.
+- Owner-created bookings can select the same parent-scoped service add-ons used
+  by public requests. Duration and price are composed from the base service and
+  selected extras before the existing booking workflow snapshots them.
+- Packages remain an intentionally simple catalogue service with one combined
+  name, duration and total price; optional extras can be added after saving.
+- Module identity is limited to restrained header markers and active navigation
+  states. Ordinary content, lists and the persistent canvas stay neutral.
+
+### 2026-09-04 Quiet + Warm rollout and Build 11
+
+- The owner explicitly approved a full Quiet retro + Warm desktop visual reset,
+  superseding the earlier Studio presentation. The app, native icon/splash,
+  public website, private Workloop OS, hosted Auth/transactional emails and
+  Stripe platform branding now share the new identity.
+- iOS 1.0.0 (11) is approved and Testing for the existing 13 private beta testers.
+  A signed profile of the same candidate installed and launched on the iPhone.
+  The Android 11 bundle was signed and validated on an emulator; Play publication
+  and physical Android validation remain open.
+- Analysis is clean; 485 Flutter tests passed with four flag-dependent skips;
+  the actual enabled payment configuration passed its separate five-test suite.
+- Eight editable Canva masters and a reproducible, platform-sized brand kit are
+  ready. Instagram's avatar is live; TikTok awaits completion of account sign-in.
+- Detailed coverage, evidence limits, artifacts and remaining public-launch
+  requirements: `docs/releases/2026-09-04-quiet-warm-rollout.md`.
+
+## 2026-09-05 — email lifecycle expansion
+Deployed customer booking-reminder workers and consent-aware account onboarding, weekly business tips and inactivity journeys. Verified real inbox delivery and both unsubscribe paths. Website email preferences/privacy updated live. App controls implemented and validated; Build 12 preparation is in progress, so do not attribute these controls to Build 11. Details: releases/2026-09-05-email-system.md.
+
+### Owner release hold
+Build 12 TestFlight upload is explicitly on hold pending further requested improvements. No Build 12 upload occurred. Backend/email and public website changes are live; app controls remain local. Final app verification: 488 tests passing, 4 skipped, static analysis clean.
+
+### 2026-09-05 — customer lifecycle email additions
+Booking acknowledgements/declines/changes/cancellations, conditional setup help and the combined weekly summary are live and verified with synthetic inbox delivery. Deliberate payment-request email UI is implemented locally. Full app suite 489 passed / 6 feature-gated skips; enabled-payment suite 7 passed; database 468 assertions; email tests 14; signed profile build passed. Ten additional previews and a complete 76-variant guide were sent to the owner. Website email guidance is public. TestFlight remains explicitly held. Direct-charge refund receipt settings still require real connected-business verification; see releases/2026-09-05-customer-lifecycle-emails.md for evidence and limits.
+
+### 2026-09-05 — Direct business contacts in email
+
+Customer emails now display direct business contact details instead of asking for replies. The new contact editor is local; TestFlight remains on hold. Backend contact resolution is live and all three customer delivery paths passed controlled inbox checks. The collection has 100 user/customer variants plus two internal alerts; 26 exception variants are prepared for verified events/review, not automatically enrolled. Details and evidence: [email contacts and exceptions](releases/2026-09-05-email-contacts-and-exceptions.md).
+
+### 2026-09-05 — Workspace reliability and Quiet + Warm polish
+
+Implemented opaque page transitions, immediate retained tabs, shared business
+data and clock refresh, truthful loading/errors, safer editors and account
+revalidation, simpler Today and stronger continuous navigation/panel frames.
+Removed the visible Business Feed/duplicate Coming up; retained useful incoming
+notifications. Optional local weather and updated native disclosures are ready.
+Weather v1 and website policy v33 are live. **542 Flutter tests passed, six
+configuration skips; eight explicit payment checks passed; analysis clean.**
+Both iOS and Android profile builds pass with card collection enabled. The
+1.0.0 (12) profile installed and launched on the paired iPhone. Interactive
+phone checks and Android smoke results are recorded in the detailed report.
+TestFlight is still on hold. See
+[the app improvement report](releases/2026-09-05-app-improvement-pass.md).
+
+### 2026-09-05 — Final compact navigation and device checks
+
+Owner refinement: the bottom navigation now uses a 64-point row, lower icons
+and vertical dividers extending through the home-indicator safe area. Final
+analysis is clean; **550 Flutter tests pass, six configuration skips**. Final
+iOS and Android profile builds passed. The new iPhone build is installed and
+launched; Android launches on a fresh API 36 emulator with no captured runtime
+errors. Physical iPhone checks confirmed local weather, clean Record income
+transitions and linked tab data before the final bar adjustment. That final
+bar has raster/golden coverage; Mirroring was unavailable for its last physical
+visual check. Full evidence and limits are in the improvement report above.
+**TestFlight remains explicitly on hold.**
+
+
+### 5 September 2026 — further app refinement and reminder groundwork
+
+The current local app has compact working-screen headers (Today retains the
+wordmark), a 52-point navigation row plus safe area, continuous dividers and
+visible-only tap-to-top behavior. Business hierarchy, onboarding occupations,
+first-use guide and additional email access flows are implemented. Adversarial
+review fixed account-switch cleanup races, partial-success setup failures,
+slow-save cache handling and client next-booking selection.
+
+SMS groundwork and the verified-email onboarding boundary are deployed. Texting
+is off: no customer permissions, queued texts or enabled businesses were present
+at verification. Apple browser authentication is configured through its real
+Services ID; final external account/device journeys remain release gates. No
+TestFlight upload is authorized. Refer to the dated app/auth/SMS release reports
+for final tests, build evidence and remaining provider requirements.
+
+### 2026-09-05 — SMS paused; WhatsApp feasibility only
+
+The owner has paused SMS because of its ongoing cost. Text reminders remain off,
+with no Twilio account creation/funding, sender rental, SMS phone-auth activation
+or customer enrollment to proceed while paused. The disabled groundwork is
+retained; email reminders continue independently. This is not a commitment to
+make SMS available later.
+
+WhatsApp reminders are being assessed for feasibility only. Implementation,
+activation, customer enrollment, sending and spending have not been authorized.
+See [the SMS decision and evidence](releases/2026-09-05-booking-sms-reminders.md).
+### 2026-09-05 — Manual WhatsApp implementation follows the SMS pause
+
+The owner authorized a manual booking reminder through WhatsApp: Workloop
+prepares a draft, while the owner reviews and sends in their own WhatsApp app
+or website. Implementation and verification are in progress. Automated email
+reminders continue; SMS remains disabled and no WhatsApp Business API account,
+paid sender or scheduler is being activated. This supersedes the earlier
+feasibility-only status for the **manual action only**. The TestFlight hold
+remains in force.
+
+### 2026-09-05 — Manual WhatsApp reminders implemented in source
+
+Upcoming scheduled bookings now offer **Send WhatsApp reminder**. The action
+reads current booking/client/business details, prepares the saved-business-zone
+message and opens WhatsApp or its website. The owner reviews their sending
+account and message, then sends it themselves. Failed launches retain a flat
+inline draft/copy option; missing phone numbers link to the existing client
+action. No automatic WhatsApp send, paid messaging API, database write or
+delivery claim was added. SMS remains off and email reminders are unchanged.
+
+The existing client WhatsApp action also handles UK/international numbers and
+launch failures safely. The focused reminder/booking/client batch passes
+**38 tests**, scoped analysis reports no issues and the diff whitespace check
+is clean. This supersedes the implementation-in-progress entry above for
+local source. Full integration tests, goldens, builds and physical-device
+handoff verification remain pending root's final checks; TestFlight is still
+on hold. See [the manual WhatsApp report](releases/2026-09-05-manual-whatsapp-reminders.md)
+for files, guards, coverage and limits.
+
+### 2026-09-05 — Settings and notification audit implemented
+
+Local Settings now has distinct owner alerts, customer reminders and Workloop
+email destinations, plus direct account/privacy access. Account actions have
+clearer consequences, failed-edit recovery and stale-account/export guards.
+Maps/appearance save failures are honest, and the maps chooser now remains
+usable on small screens with enlarged text. Client push/local-reminder retries,
+identity changes and deferred notification taps were repaired.
+
+Focused batches passed **17 account, 30 settings/preferences and 23 notification
+client tests**. Full analysis is clean. The first full run had 703 passes, six
+configuration skips and only two intended Settings golden changes; both were
+visually reviewed and updated. Final whole-app rerun/build/device/provider
+verification is pending the integrator's final record. Two reviewed push
+migrations are live, with **647 full database assertions / 129 focused push
+assertions** passing. This is not a new uploaded/installed app claim, and
+permission/registration is not proof of delivery. TestFlight remains held;
+SMS remains off. Details: [settings and notifications](releases/2026-09-05-settings-and-notifications.md).
+
+### 2026-09-05 — Money overview ahead of transaction history
+
+Money now keeps the received total, cash movement, target and payment setup
+above its transaction history. Made and Spent initially show the five most
+recent entries in the selected period; View all exposes the complete matching
+history with its existing edit/delete actions. Expanding or collapsing keeps
+the control and scroll offset in place. Changing the period returns to the
+recent view. Spent places category totals before history, while Owed retains
+its complete overdue-first action queue. Payment setup also remains available
+when using Custom dates; target calculations remain weekly/monthly only.
+
+The focused Money/hierarchy/failure batch passed **40 tests**, including
+**11 new long-history regressions**. Scoped Dart analysis and whitespace checks
+passed. The integrator visually reviewed the two intended Money golden changes
+and their update run passed **2 tests**. The final combined suite and fresh
+native builds remain pending the last notification permission-event integration;
+earlier receipts do not verify that final combination. No records, financial
+calculations, providers or payment activation settings were changed by this
+hierarchy pass. TestFlight remains on hold. Details and limits are appended to
+[the settings and notification report](releases/2026-09-05-settings-and-notifications.md).
+
+### 2026-09-06 — Settings, notification and Money integration verified locally
+
+The final combined source passed full analysis, **718 Flutter tests** (six
+configuration skips), an additional **18 payment-enabled checks**, and fresh
+iOS/Android profile builds. The final app was installed on the owner's iPhone
+and launched at **00:08:45 BST**. Its build-12 token registered an eligible
+active session one second later; the live worker was healthy with no pending
+deliveries. This completes the earlier pending source/build entries, not
+physical notification delivery verification.
+
+Google blocked Android server-key creation with
+`iam.disableServiceAccountKeyCreation`. The owner chose to preserve that policy
+and leave Android push configuration pending. No key/secret or policy exception
+was created. iPhone Mirroring remained unavailable while the phone was in use,
+so native notification-settings round-trip and visible background/terminated
+push/tap checks remain outstanding. No test push or quiet-hour override was
+performed. No TestFlight/Play upload was made. Full receipts, changed files,
+limitations and follow-up checks are in the final integration section of
+[the audit report](releases/2026-09-05-settings-and-notifications.md).
+
+### 2026-09-06 — Dashboard clocks and exact attention actions
+
+The decorative calendar has been removed from Today and its clear-day hero.
+Each booking's analog clock now matches the digital booked start, including
+minute-adjusted hour hands and the newly selected booking when swiping.
+
+Needs attention now retains each active request's identity and opens the exact
+request, payment, task or client after refreshing that record's source. The
+four-row preview reserves an entry for every available attention category before
+filling remaining slots in the existing priority order, so a request backlog
+does not hide every overdue task/payment. No extra inferred note/booking alerts
+were introduced.
+
+Eight clock/dashboard checks and 34 attention/provider/navigation checks pass;
+scoped analysis and whitespace checks are clean. The companion client batch
+passed 63 focused tests. The reviewed backend route repair is live at
+00:24:36 BST, with 96 historical destinations repaired and no notifications
+replayed. Final full-suite, golden, native and device receipts for this combined
+revision remain pending the integrator's handoff.
+These results do not prove physical push delivery or a new installed/uploaded
+build. TestFlight remains held. See
+[dashboard direct actions](releases/2026-09-06-dashboard-direct-actions.md) and
+[notification route repair](releases/2026-09-06-exact-notification-routes.md).
+
+### 2026-09-06 — Dashboard direct actions verified and installed
+
+The combined revision now passes clean analysis, **758 full-suite Flutter tests**
+(six default capability skips), **18 payment-enabled checks** covering those
+skips, and the reviewed dashboard/notification goldens. The final focused
+notification navigation batch is 66 passing checks, including preservation of
+an unsaved draft when another record is opened from an alert.
+
+Fresh iOS and Android profile builds passed. The updated **1.0.0 (12)** app was
+installed and launched on the owner's iPhone at **00:38:18 BST**. This replaces
+the earlier pending native-build state above. Physical notification display/tap
+checks remain unverified because iPhone Mirroring could not reconnect; no test
+push was sent. Android remote push remains pending under the owner's unchanged
+service-account key policy. No TestFlight or Play upload was made.
+
+The final receipt, artifact hashes, original fixture failure and successful
+rerun, files/reasons, and remaining checks are appended to
+[dashboard direct actions](releases/2026-09-06-dashboard-direct-actions.md).
+
+### 2026-09-06 — Consistent monthly income targets
+
+At a glance and Money now share the calendar-month income calculation and
+progress indicator. The goal remains monthly while Money history is filtered
+to Week, Month or Custom. Red means below 50%, amber means 50% to below target,
+and green means reached/exceeded. Penny precision prevents fractional-payment
+sums from leaving a reached target incorrectly amber; percentage and spoken
+status remain available alongside colour.
+
+The monthly-only editor saves the existing monthly setting, supports zero to
+remove it, validates invalid amounts, and owns its controller through the
+closing animation. Source passes clean analysis, 784 full-suite tests, 18
+payment-enabled checks and reviewed goldens. Both native profile builds pass.
+The fresh build 12 was installed on the iPhone at 00:56 BST; launch was blocked
+by the locked phone, and Mirroring by the locked Mac. No store upload occurred.
+See [monthly target changes and verification](releases/2026-09-06-monthly-targets.md)
+for files, the save-lifecycle repair, receipts and remaining physical check.
+
+### 2026-09-06 — Notification settings recipient/channel clarity
+
+Settings now groups **Your alerts** and **Emails to you** under **For you**,
+with **Customer messages** separately under **For your customers**. The Business
+shortcut uses the same destination label. Single paper panels contain flat
+rows; compact icon treatment and consistent header/body spacing preserve the
+Quiet + Warm design without nested content cards.
+
+Your alerts explicitly distinguishes in-app inbox + business push, local phone
+reminders and business-push-only quiet hours. Customer settings distinguish
+automatic email from manual WhatsApp. Email preferences correctly distinguish
+an active limited welcome series from ongoing account tips; this changes the
+presentation, not saved consent/defaults or backend delivery rules. Failed
+email saves are immediately visible. Shared panel Material now correctly
+supports native switch/list-tile feedback.
+
+Final verification: **816 Flutter tests passed, six configuration skips**;
+**63 payment-enabled integration checks** covered the gated cases, and the
+46 focused Settings cases passed. All twelve new light/dark visual captures
+were reviewed before acceptance; existing Settings/Business goldens were
+reviewed and the full suite passed. Full analysis and whitespace checks passed.
+iOS (74.1 MB) and Android (163.1 MB) profile builds succeeded. Local 1.0.0 (12)
+was installed on the iPhone at 01:22 BST; launch was denied at 01:23:20 because
+the phone was locked. Mirroring also found the Mac locked, so final hands-on
+screen and push-delivery verification remains pending. **No store upload**.
+Android remote push remains pending under the owner's retained policy choice.
+
+The source audit also records the existing absence of a Stripe-webhook owner
+payment notification as a separate backend follow-up. Full scope, source file
+reasons, channel matrix, artifact hashes and native limitations are in
+[the Settings clarity receipt](releases/2026-09-06-notification-settings-clarity.md).
+
+### 2026-09-06 — Stable dashboard section loading
+
+Needs attention now reserves a loading space on its first check, with At a
+glance revealed after that check and the initial setup preference settle.
+Background refreshes preserve the accepted same-workspace attention result;
+refresh errors retain it with explicit last-update/retry feedback. Switching
+workspaces clears the acceptance marker. No duplicate business-data cache or
+resolved-screen redesign was introduced.
+
+Verification: clean analysis; **827 full-suite passes, six configuration skips**;
+**18 payment-enabled passes** cover the gated cases; **26 focused dashboard
+and workspace passes**, including 11 new loading regressions. Existing goldens
+passed without updates. iOS and Android profile builds passed. Local build
+**1.0.0 (12)** installed on the iPhone at **01:37 BST**; launching was denied
+because the phone was locked, and Mirroring reported the Mac locked. Physical
+transition observation remains pending. No store upload occurred.
+
+See [dashboard section stability and verification](releases/2026-09-06-dashboard-section-stability.md).
+
+### 2026-09-06 — Net profit and searchable Payments timeline
+
+Money now opens on Overview, with Net profit showing received income minus
+recorded expenses for the selected period. Signed bars distinguish profit and
+loss around a zero line. The monthly income target remains independent.
+
+Payments combines received income and expenses, newest first, with All / Income /
+Expenses filters and whole-period search. The normal preview remains five rows;
+search shows up to 25 matches with a total count and View all results. Spent and
+Owed have independent search. Part-payments and negative adjustments reconcile
+with the totals, and partial-payment details show received and remaining amounts
+using the actual receipt date. Missing expenses cannot produce a falsely complete
+net-profit figure. Existing records, repositories and collection flows are reused.
+
+Final evidence: clean analysis; **863 full-suite passes, six configuration skips**;
+**76 payment-enabled focused passes**; **26 monthly-target passes** after scoping
+older test selectors to the editor and received panel. Two updated and three new
+Money goldens were visually reviewed, accepted and passed in the full run. iOS
+74.2 MB / Android 163.2 MB profile builds passed. Local **1.0.0 (12)** installed
+on the iPhone at **02:02 BST**; launch was denied because the phone was locked,
+and Mirroring also found the Mac locked. Physical Money checks remain pending.
+No store upload, backend deployment or live customer transaction occurred.
+
+See [Money profit/timeline scope, previews and receipt](releases/2026-09-06-money-profit-and-timeline.md).
+
+## 2026-09-06 — Crash reporting candidate implemented
+
+Firebase Crashlytics is now included in source using the existing Firebase app.
+The Dart adapter submits fixed error categories and static code-stack frames,
+without customer/request contents, user IDs, custom logs or Analytics breadcrumbs.
+Native crash diagnostics and installation/session identifiers still follow the
+SDK's data practices. Release configuration defaults reporting on and records the
+choice; local debug reporting stays off. Focused 16 Dart + 19 release/symbol tests
+pass. Full integration, native builds, a device report and readable Firebase
+console receipt remain pending; no TestFlight upload is implied. See the
+[crash-reporting scope and verification](releases/2026-09-06-crash-reporting.md).
+
+## 2026-09-06 — Workloop company operator disclosures
+
+Workloop remains the product/trading name. Haani Enterprise Limited, company
+15758586 (England and Wales), is now identified in app Help/About/legal copy,
+public website/legal/booking/payment pages, private Workloop OS, and live
+email/Auth footers. Public registered-office disclosures retain 35 Well Lane,
+Batley WF17 5HQ; the proposed replacement address has not been filed.
+
+Flutter analysis is clean; 885 tests pass with 6 skips and the signed iOS profile
+build succeeds. No TestFlight upload or new installed app is implied. Both
+websites have verified live disclosures, with private OS access preserved.
+Email rollout uses isolated live bundles and 13 content-only Auth updates;
+triggers, schema, consent, SMTP and authentication settings are unchanged.
+Provider identity changes and Apple/Google/Stripe verification are tracked
+separately from these source/live-content receipts. See
+[operator release evidence](releases/2026-09-06-company-operator-app.md) and
+[email rollout](releases/2026-09-06-email-operator.md).
+
+
+## Current release preparation — 7 September 2026
+
+See [the overnight release record](releases/2026-09-07-launch-preparation.md) for current source/backend/site evidence, lifetime beta access and new pricing. Older brand/build/pricing descriptions above are historical. Public iOS launch remains gated on verified store purchases, public review and genuine merchant payment testing; Android additionally requires external account/push setup.
+
+## Booking corrections — 7 September 2026, local build 14
+
+Requested booking dates now prefill accurately, including the public website's
+older text-only requests. Exact booking links open directly without showing the
+Today list first, and Tomorrow's ordinary time labels no longer append BST/GMT.
+The website-origin correction is live in version 37. Full app tests passed
+1,011 cases; the six capability-gated payment cases were exercised in a separate
+seven-test enabled run. Analysis and the signed iOS profile build are clean.
+Build 14 is compiled locally; phone installation/physical checks remain pending
+device connectivity, and it has not been uploaded to TestFlight. See the
+[integrated receipt and limits](releases/2026-09-07-booking-fixes-build14.md).
+
+## Build 14 upload — 7 September 2026, 08:31 BST
+
+The prior local-only status is superseded: the signed distribution candidate
+**1.0.0 (14)** was uploaded successfully from a frozen clean copy of the tested
+source. Apple reported the package is processing at 08:31:11 BST. Production
+push signing, version/bundle identity and location-purpose strings were verified.
+Root working changes remain intact.
+
+Processing completion and beta tester availability still require verification;
+App Store Connect's browser session has expired. Physical iPhone checks remain
+pending because the user is at work. No public release or availability email was
+sent. See the [upload follow-up and evidence](releases/2026-09-07-booking-fixes-build14.md).
+
+## Android beta candidate — 7 September 2026
+
+Signed APK and Play App Bundle **1.0.0 (14)** are prepared from the same tested
+source as iOS build 14. Signature, version, Android 8+ compatibility, ARM64 native
+alignment and isolated release-emulator startup/navigation checks passed. Google
+Play organisation registration is still pending the permanent owner-login choice,
+fee and verification; neither Play nor Firebase distribution is claimed. Live
+beta configuration confirms verified new Workloop accounts receive lifetime
+access without a purchase. See the [Android beta receipt and limits](releases/2026-09-07-android-beta-build14.md).
+
+
+### 2026-09-07 — Social links and reviewed contact-file imports
+
+Website version 38 is live with four social profiles, a Works with strip and
+`/help/connections`. Locally, client imports now accept UTF-8 vCard 3.0/4.0,
+combine split CSV names, ignore provider type-label columns and allow contact
+exclusion before import. Analysis, 1,018 full-suite tests (six capability skips),
+24 final import checks and the final signed iOS profile build passed. No new
+TestFlight/Android distribution or physical-device import check is claimed.
+See [the scoped release record](releases/2026-09-07-social-links-and-client-imports.md).
+
+## 8 September 2026 — Connected business tools, local delivery
+
+Implemented the four owner-approved phases: quotes/invoices with local PDF
+sharing and connected partial payments; finite recurring bookings; private
+receipt/mileage records; and a scoped 2026/27 sole-trader tax estimate for
+England, Wales and Northern Ireland. The existing Money, booking and expense
+workflows remain the entry points.
+
+Final analysis is clean. The full Flutter suite passed 1,065 tests with six
+capability skips; the payment-enabled run passed all seven cases. Isolated SQL
+replay passed 928 assertions across 30 suites. The signed iOS profile build
+passed, and invoice UI/PDF layouts were visually checked.
+
+These are local source/build results. The three migrations and receipt-aware
+account-deletion endpoint are not deployed, and there is no new TestFlight
+upload. The iPhone was unavailable; authenticated hosted Storage and native
+picker/share checks remain release gates. See
+[files, scope, evidence and deployment order](releases/2026-09-08-business-tools.md).
+
+## 8 September 2026 — Build 16 deployed for the owner
+
+The owner approved deployment and device installation, then explicitly limited
+the new build to themselves. The three feature migrations and receipt-aware
+account-deletion endpoint v31 are now live. Authenticated hosted receipt,
+tenant-isolation, invoice/payment, mileage/tax and recurring-booking checks
+passed; all isolated QA fixtures and credentials were cleaned up.
+
+Build **1.0.0 (16)** was installed and launched on the owner's iPhone over Wi-Fi;
+CoreDevice independently reported build 16. The new Money tools and forms were
+inspected on the phone. Apple upload and processing completed. Only the internal
+group containing the account holder is assigned; the external beta remains on
+build 15. No public App Store submission occurred.
+
+See [the owner-preview receipt and verification limits](releases/2026-09-08-build16-owner-preview.md),
+including interrupted native picker/PDF-share checks and the separate hosted
+account-deletion lifecycle limitation.
+
+## 8 September 2026 — Build 17 business-workflow review
+
+Invoices/quotes now have a main Money destination. Reviewed Invoice setup
+reuses canonical business contacts and supplies legal/term defaults; client
+and booking entry points open the same invoice/payment record. Fixed/percentage
+deposits, dated receipts/refunds, gross VAT reuse, current card balances and
+safe retries are verified. Receipt capture includes camera/library/Files,
+mileage/tax inputs are reviewed, and Tomorrow follows dashboard row styling.
+Profit per job remains outside scope.
+
+Four additive migrations are deployed with matched SQL hashes. Full Flutter
+suite: 1,133 passed; final payment-enabled/timezone subset: 83 passed; SQL:
+1,009 assertions passed. Hosted checks and fixture cleanup passed. Normal
+signed build **1.0.0 (17)** is installed and launched on the owner's iPhone,
+with their sign-in retained. No build-17 TestFlight or external distribution
+occurred. Native PDF/picker cancellation is verified; actual camera capture
+is restricted by iPhone Mirroring and remains a handheld check.
+
+See [the full review, files, evidence and limits](releases/2026-09-08-business-workflow-review.md).
+
+## 8 September 2026 — Build 18 document, receipt and Money refinement
+
+Documents now open inside Workloop before sharing. Receipt photos/PDFs offer
+locally extracted details for review; uncertain values retain manual entry.
+Money prioritizes unpaid balances, cash figures and recent activity before
+planning/setup. Shared external labels fix tax and invoice field presentation.
+
+The owner's fresh-signup problem was traced to a pending deletion blocked by
+Stripe Standard-account closure. After explicit approval, the deployed endpoint
+now verifies OAuth disconnection for that provider-specific case before deleting
+local data. The old Auth identity and workspace are confirmed removed. No schema
+or access-policy change was required.
+
+Full Flutter suite: 1,190 passed with ten capability skips; all eleven separate
+payment-enabled cases passed. Final analysis and 26 affected startup checks
+passed. Eight real Vision fixtures, actual iOS simulator PDF/OCR integration and
+Android native compilation passed. Native checks caught and fixed UIScene
+channel registration and transparent-PNG recognition before installation.
+
+The normal signed **1.0.0 (18)** app is installed and launched on the owner's
+iPhone. CoreDevice confirmed build 18 and its process remained running after
+launch. All 409 recorded source/asset hashes matched the pre-build manifest.
+No TestFlight upload or external tester change occurred. Final physical screen
+review was unavailable because Mirroring reported the phone in use; handheld
+camera/HEIC/share and Android runtime checks remain separate limits.
+
+See [the complete scope, files, evidence and remaining limits](releases/2026-09-08-build18-refinement.md).
+
+## 9 September 2026 — Build 19 private beta release
+
+The owner authorized releasing the reviewed features to the existing beta
+testers. Build **1.0.0 (19)** was uploaded, processed, approved and is now
+**Testing** in Workloop Private Beta for the existing **13 testers**, with the
+existing internal group also assigned. TestFlight description, review notes and
+What to Test were updated. No public App Store submission or new tester was added.
+
+The app's only change after owner build 18 is the matching business-record/receipt
+privacy disclosure and separate 9 September privacy date, plus the build number.
+The full Flutter suite passed 1,190 tests with ten existing skips; analysis,
+focused legal checks, required profile build and signed distribution build passed.
+The original and exact uploaded IPA, frozen source and release evidence are saved
+under `build/release-build19-20260909/app/`. The known vendor StripeTerminal dSYM
+warning remains nonblocking; manual device and public-launch limits are retained.
+
+The website's new feature copy, Money screenshots, privacy notice, metadata and
+FAQ are live at workloop.uk. Existing pricing and access terms were preserved.
+See [app release evidence](releases/2026-09-09-build19-testflight.md),
+[website release evidence](releases/2026-09-09-website-release.md),
+[read-only backend check](releases/2026-09-09-backend-release-check.md) and
+[public privacy worksheet delta](releases/2026-09-09-privacy-disclosures.md).
+
+## 9 September 2026 — Account-access hierarchy, local only
+
+The sign-in and account-creation layout now uses an open brand row, clearer
+welcome typography, shared gutters and space distributed above the form and
+before the legal footer. Compact windows and keyboards remain scrollable;
+account creation stays alongside the primary sign-in workflow.
+
+Analysis passed, all 1,196 Flutter tests passed with ten existing skips, four
+auth screenshot baselines were visually reviewed, and the local iOS profile
+build passed. This refinement was not installed or uploaded. The owner asked
+to hold TestFlight uploads and bundle the remaining tweaks into one release;
+source version `1.0.0+19` is unchanged. See [files, previews and verification
+limits](releases/2026-09-09-auth-hierarchy-local.md).
+
+## 9 September 2026 — Welcome organiser, local only
+
+The welcome screen replaces its process diagram and repeated benefits list with
+one illustrated organiser for the owner's day, clients and money. The shared
+wordmark, paper panel, native artwork, typography and bottom action now follow
+the same visual hierarchy as the revised account-access screen. Onboarding
+steps and data collection are unchanged.
+
+Analysis passed, all 1,197 Flutter tests passed with ten existing skips, and the
+local iOS profile build passed. Light/dark screenshots and compact double-text
+access were checked. No upload, installation or version bump occurred; both
+screen refinements are held for the owner's next combined release. See
+[files, previews and verification limits](releases/2026-09-09-welcome-organiser-local.md).
+
+## 9 September 2026 — Onboarding service descriptions, local only
+
+Onboarding now offers an optional multiline service description, preserves it
+when editing or restoring a draft, and passes it through the save request. A
+new migration writes it into the existing service-description column. The
+editor uses shared labels above the inputs and owns its controllers until the
+sheet is removed, resolving an exit-transition disposal race found by the
+new interaction checks.
+
+Analysis passed, all 1,204 Flutter tests passed with ten existing skips, both
+service-editor previews were reviewed, and the iOS profile build passed. An
+isolated 102-migration replay passed 63 SQL assertions. The new private function
+body matches the hosted implementation except for the description insert;
+security and the guarded public wrapper are preserved.
+
+No deployment, installation, version bump or TestFlight upload occurred. Include
+the migration before distributing the next combined app release. See
+[files, previews and verification limits](releases/2026-09-09-onboarding-service-descriptions-local.md).
+
+## 9 September 2026 — Complete onboarding week, local only
+
+Working hours now shows all seven days in one compact table with Continue fixed
+below it. Active-theme colours fix the light-mode contrast. Standard-size text
+fits without scrolling on 320 × 568, 390 × 844 and 430 × 932 phone layouts,
+including the onboarding header and safe areas. Larger accessibility text can
+scroll the week while Continue remains available. Existing defaults, picker,
+stored values and navigation are preserved.
+
+Analysis passed, all 1,212 Flutter tests passed with ten existing skips, the
+light/dark previews were visually reviewed, and the iOS profile build passed.
+No installation, version bump, backend change or TestFlight upload occurred.
+This joins the other local tweaks for the owner's combined release. See
+[files, previews and verification limits](releases/2026-09-09-onboarding-hours-local.md).
+
+## 9 September 2026 — Consistent theme changes, local only
+
+The app's mutable compatibility colours could leave dark panels or icons behind
+after switching to Light. A mounted-screen pixel test reproduced the fault.
+Compatibility colour reads now resolve immutable values from the local Theme;
+all 47 existing colour pairs are preserved. Open forms and shared surfaces keep
+their controllers, focus, selection and unsaved edits. Sheets/dialogs follow
+their local theme, and date pickers no longer force a dark colour scheme.
+
+Analysis passed, all 1,218 Flutter tests passed with ten existing skips, and the
+local iOS profile build passed. The 26 focused tests include repeated manual and
+pure System changes on mounted screens, an open service editor and date picker.
+One reviewed dashboard Light baseline was corrected because it contained stale
+dark-mode icons; the other baselines were retained and the full comparison passed.
+
+No deployment, installation, version bump or TestFlight upload occurred. This
+joins the held local tweaks for the owner's combined release. See
+[files, root cause and verification limits](releases/2026-09-09-theme-switch-local.md).
+
+## 9 September 2026 — Refined Dark palette, local only
+
+Dark now uses deep charcoal layers, soft ivory text, quieter blue-grey frames
+and powder-blue accents. Warm status colours remain restrained. The existing
+Light palette, layout, typography, workflows and immutable theme-switch behavior
+are unchanged. Native dark launch backgrounds match the new canvas.
+
+Analysis passed, all 1,221 Flutter tests passed with ten existing skips, and the
+local iOS profile build passed. Contrast and mounted-screen state checks passed.
+After visual review, 33 Dark baselines were accepted; all 41 other screenshots,
+including every light-named baseline, remain byte-identical. The full screenshot
+comparison then passed. No installation, version bump, deployment or TestFlight
+upload occurred; this is held with the other tweaks for the combined update.
+See [previews, files and verification limits](releases/2026-09-09-dark-palette-local.md).
+
+## 12 September 2026 — Connected app polish, attachments and document workflows
+
+Bookings, notes and clients now share private camera/photo/file attachments and
+in-app JPEG/PNG/WebP/PDF/text viewing. Note editing preserves one saved identity
+across attachments and retries. Client/task/document links return to the right
+record, stale workspace data cannot expose actions, and failed payment balances
+offer recovery before collection. Quote/invoice actions, dates, VAT labels and
+deposit conversion now follow the corrected document workflow.
+
+The three attachment/deposit/receipt-role migrations are live, and the updated
+account-deletion worker is ACTIVE at version 35. Live privileges, private bucket
+settings and deployed function sources were checked. Security Advisor findings
+did not increase. Analysis passed; all 1,326 Flutter tests passed with one
+configuration skip; SQL checks passed 49 assertions and two Edge cleanup tests.
+The signed iOS profile build 1.0.0 (19) installed and launched on the iPhone
+15 Pro Max. No TestFlight upload occurred. The real checkout matched 826 verified
+inputs from the isolated build used to avoid another task's build-directory race.
+
+Live card collection still requires Stripe account onboarding: no connected
+payment-account rows were present at verification. Native capture/sharing,
+authenticated live file upload and real customer delivery/payment journeys are
+separate remaining checks. See the [changed files, decisions, evidence and
+scope limits](releases/2026-09-12-connected-app-polish.md).
+
+### 2026-09-12 — Booking reminder settings without a chat promise
+
+Settings and Business now call the existing destination **Booking reminders**,
+with a calendar/clock icon and **Automatic email · Manual WhatsApp** subtitle.
+Customer conversations and replies are explicitly handled outside Workloop.
+Automatic email timing, booking updates/contact details and manual WhatsApp
+guidance are separated. A saved-selection summary and one-tap email-reminder
+off action use the existing workspace preference, with guarded saves and no
+change to customer enrollment or delivery rules.
+
+This is local source work for a future combined build. See the
+[change and verification receipt](releases/2026-09-12-booking-reminder-settings.md)
+for file reasons, checks and the remaining device-validation boundary.
+
+### 2026-09-12 — Compact Money overview
+
+Money now groups net profit, received and spent in one cash panel. Profit trends,
+payment history and expense categories open on demand. The monthly goal and card
+settings use flat rows, and changing Money sections returns to the top. Existing
+records, calculations and payment setup remain intact. See the
+[layout and verification receipt](releases/2026-09-12-compact-money.md).
+
+
+### 2026-09-12 — Required and optional form information
+
+Forms now show persistent Required/Optional labels that follow their existing
+save rules, including conditional VAT/deposit/receipt requirements and draft
+versus issue guidance. The client form explicitly says only a name is required.
+Shared wording supports enlarged text and assistive technology. Compact sign-in
+spacing preserves the standard-phone fit; working-hours guidance clarifies that
+all days may be off and enabled blocks must have valid ordered times.
+
+Analysis passed; 1,349 Flutter tests passed with one skipped. Eleven reviewed
+form appearance references passed in the final suite. The development-signed
+iOS profile build succeeded. This is local source/build work; physical form
+entry and manual assistive-technology review remain follow-up checks. See the
+[files, reasons and verification receipt](releases/2026-09-12-form-requirements.md).
+
+
+## 12 September 2026 — Apple trial journey
+
+The approved public model is one Apple calendar month free for eligible new subscribers, then £14.99/month with automatic renewal. Customer screens, pre-setup gating, native eligibility, renewal/cancellation details, restore recovery and service-email reminders are implemented. Backend preparation is deployed with beta preserved and sales/enforcement/reminders still off. Full Flutter verification: 1,411 passed, one skip, analysis clean, signed iOS profile build passed. Public release remains paused; build 20 is older than this change. See `releases/2026-09-12-apple-trial-customer-journey.md` and its backend receipt for evidence and activation gates.

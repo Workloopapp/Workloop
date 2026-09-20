@@ -28,7 +28,15 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Nothing made in this period'), findsOneWidget);
+    expect(find.text('CASH SUMMARY'), findsOneWidget);
+    expect(find.text('Money received'), findsOneWidget);
+    expect(find.text('£0'), findsOneWidget);
+    expect(
+      find.text('Spending and net profit are unavailable.'),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('money-net-profit-total')), findsNothing);
+    expect(find.text('No payments in this period'), findsNothing);
     expect(find.text('Could not load expenses'), findsNothing);
 
     await tester.tap(find.text('Spent'));

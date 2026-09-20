@@ -59,6 +59,14 @@ Private launch-hardening state lives in the unexposed `app_private` schema:
 - `waitlist_email_outbox` stores one durable welcome-delivery job per launch
   signup. It is private, service-role only, leased for delivery, retried with a
   cap, and never exposes recipient or provider state to web or app clients.
+- `account_welcome_email_outbox` stores one durable welcome job when an Auth
+  user first becomes email-verified, including already-confirmed provider
+  signups. It does not backfill existing users, is service-role only, retries
+  for at most 24 hours and cascades with the Auth user.
+- `account_deletion_email_outbox` stores one request-received email and one
+  deletion-complete email per retained deletion request. Both messages are
+  created by database state transitions, remain private, and retry for no more
+  than eight attempts or 24 hours.
 
 ## Table Purposes
 
@@ -222,6 +230,13 @@ Rules:
   record, and validate bounded payloads before writing.
 - Booking creation serialises schedule writes per workspace so the overlap
   check and insert cannot race.
+- Overlap rejection remains the server default. An authenticated owner may
+  bypass it only by sending explicit `allow_overlap=true` after the client has
+  shown the schedule warning; public or implicit writes cannot bypass it.
+- New booking requests store `requested_for` as `timestamptz` together with the
+  matching IANA `requested_timezone`. The public Edge boundary verifies that
+  timezone against the workspace setting. Legacy free-text requests remain
+  readable during the staged mobile rollout.
 - A stable idempotency key is reused for retries. Repeating a completed request
   returns the stored result rather than creating duplicate business records.
 - `app_private.workflow_idempotency` is not available through the client Data
@@ -280,20 +295,25 @@ Recent cleanup:
 
 ## Security Advisor State
 
-Supabase security advisor currently reports only:
+Read-only advisor state checked 2026-09-01:
 
-- Leaked password protection disabled.
-
-There are no current missing-RLS or RLS-enabled-without-policy findings.
-
-This requires Supabase Auth settings and may depend on plan/production stage. It should be enabled before launch.
+- Seven `app_private` outbox/operations tables report the informational
+  `rls_enabled_no_policy` lint. They are intentionally deny-by-default and have
+  no client grants; do not add permissive policies to silence the lint.
+- Seven authenticated application RPCs report the generic
+  `authenticated_security_definer_function_executable` warning. Their purpose
+  is to provide bounded atomic onboarding, booking, task, deletion-state and
+  push-token workflows; each must keep explicit `auth.uid()` and
+  workspace/ownership validation plus narrow EXECUTE grants.
+- The former leaked-password-protection warning was not present in this check.
 
 Performance advisor highlights:
 
-- No remaining unindexed foreign-key warnings after the relationship-integrity
-  migrations.
-- No remaining auth initplan or duplicate legacy-policy warnings.
-- Some indexes are still reported as unused because this is a low-traffic/demo-stage database; keep them when they support foreign keys or planned access patterns.
+- No unindexed-foreign-key, auth-initplan or duplicate-policy warnings were
+  reported.
+- Low beta traffic leaves several relationship, abuse-control and planned-query
+  indexes marked unused. Keep required foreign-key/security-path indexes and
+  review query statistics after representative load before removing any.
 
 ## Naming Conventions
 
@@ -318,10 +338,56 @@ Do not rename these live tables casually. Prefer product-language aliases in UI 
 - For multi-record user actions, prefer one bounded transactional workflow over
   sequential client writes. Require a stable retry key when a repeated request
   could duplicate business records.
+- Scheduled business attention must use stable notification deduplication keys,
+  respect stored notification preferences and remain workspace scoped.
+- Operational health state belongs in `app_private`; client roles must not
+  receive table access or claim/finish execution privileges.
+- Retention jobs must scrub the narrow sensitive payload rather than deleting
+  business or financial records whose retention has a separate legal purpose.
+- A cached Auth session is not sufficient authorization for onboarding. The
+  server-side user must exist and must not have a pending deletion request.
+- Push tokens are device credentials, not user-entered records. Register and
+  reassign them only through membership-checked RPCs, make the provider token
+  globally unique, and remove only the current user's token at sign-out.
+- Remote delivery state belongs in `app_private`. Fan out from the canonical
+  notification row, enforce preferences and local quiet hours before enqueue,
+  use leases and bounded retry, and disable invalid provider tokens without
+  exposing token or provider data to app roles.
+- Public service-role endpoints must verify that the target workspace still
+  has at least one member before returning profile data or accepting a booking
+  request. `booking_requests` also has a before-insert trigger enforcing this
+  invariant because service-role Edge code bypasses RLS.
+- Optional service extras belong to one parent service. Public clients submit
+  only bounded add-on UUIDs; trusted SQL validates workspace, parent, active
+  state, duration and price before creating immutable request snapshots.
+- `booking_request_items` and `appointment_items` are business-history
+  snapshots. Catalogue edits or deletes may clear source identifiers but must
+  not rewrite saved name, duration or price. Legacy intake overloads must pass
+  through the same automatic base-snapshot boundary.
+- Suggested public times are advisory and privacy-bounded. Compute them from
+  trusted workspace hours, timezone, notice, window, buffer and selected item
+  duration; never return appointment identifiers, client data, busy intervals
+  or internal counts.
+- Base service durations are authoritative business inputs and must remain
+  between 5 minutes and 24 hours at both repository and database boundaries.
+  Any corrupt legacy row must be made inactive and private before a bounded
+  fallback is stored; only the owner may review and republish it.
 
 ## Client Secret Rules
 
 - `SUPABASE_ANON_KEY` / publishable key may exist in the client bundle.
 - `service_role` keys must never enter Flutter, `.env`, docs, commits, screenshots, or logs.
+- APNs private keys are server/provider secrets and must never enter Flutter
+  source, repository files, screenshots or logs.
 - `.env` must remain ignored.
 - `.env.example` should document required variables only.
+
+## 2026-09-05 email reminder and account journey boundaries
+Customer reminder timings live in workspace_settings.customer_reminder_minutes and use existing workspace RLS. Recipient mapping, unsubscribe preferences and leased queues live in app_private. Worker endpoints authenticate before using service-only RPCs; the few Auth reads use private security-definer helpers with empty search_path and no anon/authenticated execute grant. Do not grant general service-role access to auth.users to make a worker function work. New verified-account enrolment requires a recorded signup notice; old unsubscribes and consent scope must not be widened. Cancellation, reschedule, recipient changes and preferences are rechecked at delivery. See releases/2026-09-05-email-system.md.
+
+### 2026-09-05 — customer email event boundary
+Customer lifecycle intents are private, leased and deduplicated; the worker rechecks source status, authoritative recipient, expiry and suppression before sending. Payment requests require authenticated workspace membership/MFA and explicit recipient review, with a pending real Stripe checkout transaction and a valid outstanding GBP amount. No caller-supplied URL or arbitrary recipient is accepted. Owner setup/summary context is service-only and reads the current records; no private client notes are included. Public RPC wrappers use invoker security; narrow Auth reads remain inside private definers. See migration 20260905161843.
+
+### 2026-09-05 — Customer-facing business contact contract
+
+`workspace_settings.customer_contact_email` / `customer_contact_phone` are optional validated contact details governed by existing settings RLS/MFA. Explicit business email overrides verified non-relay owner-email fallback; no Auth phone fallback. `public.customer_email_contact(kind,id)` is service-only and invoker, resolving an existing private email intent rather than a caller-supplied workspace. Contact data is frozen at first composition for retry identity; the reminder queue stores only this contact snapshot alongside existing appointment references. See migration `20260905164210_business_email_contact_details.sql` and pgTAP suite 019.

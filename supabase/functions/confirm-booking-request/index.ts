@@ -29,6 +29,17 @@ function isUuid(value: unknown): value is string {
       .test(value);
 }
 
+function normaliseEmail(value: unknown): string {
+  return typeof value === "string" ? value.trim().toLowerCase() : "";
+}
+
+function isValidEmail(value: unknown): value is string {
+  const email = normaliseEmail(value);
+  return email.length >= 3 &&
+    email.length <= 254 &&
+    /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email);
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -92,16 +103,34 @@ Deno.serve(async (req: Request) => {
   if (!isObject(payload.new_contact)) {
     return response(400, { error: "New client details are required" });
   }
-  // The request email captured by the public boundary is authoritative. Never
-  // allow an old or tampered client to redirect either the new contact or the
-  // confirmation email during conversion.
+  const storedRequestEmail = normaliseEmail(storedRequest.email);
+  const submittedRequestEmail = isObject(payload.new_contact)
+    ? normaliseEmail(payload.new_contact["email"])
+    : "";
+  const trustedEmail = isValidEmail(storedRequestEmail)
+    ? storedRequestEmail
+    : isValidEmail(submittedRequestEmail)
+    ? submittedRequestEmail
+    : "";
+
+  if (
+    !isValidEmail(storedRequestEmail) &&
+    isValidEmail(trustedEmail)
+  ) {
+    await userClient
+      .from("booking_requests")
+      .update({ email: trustedEmail })
+      .eq("id", bookingRequestId)
+      .is("email", null);
+  }
+
+  // The public request email is authoritative when present; if it is absent we
+  // accept the owner's explicit email input for legacy requests.
   const trustedPayload = {
     ...payload,
     new_contact: {
       ...payload.new_contact,
-      email: typeof storedRequest.email === "string"
-        ? storedRequest.email
-        : null,
+      email: isValidEmail(trustedEmail) ? trustedEmail : null,
     },
   };
 

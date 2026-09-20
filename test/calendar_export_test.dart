@@ -38,4 +38,33 @@ void main() {
 
     expect(ics, isNot(contains('BEGIN:VEVENT')));
   });
+  test(
+    'cancelled snapshot retains UID and carries updated cancellation state',
+    () {
+      final booking = <String, dynamic>{
+        'id': 'booking-cancelled',
+        'title': 'Window cleaning',
+        'start_time': '2026-09-14T09:00:00Z',
+        'status': 'confirmed',
+        'updated_at': '2026-09-12T09:00:00Z',
+      };
+      final active = buildWorkloopIcs([
+        booking,
+      ], generatedAt: DateTime.utc(2026, 9, 12, 9));
+      final cancelled = buildWorkloopIcs([
+        {
+          ...booking,
+          'status': 'cancelled',
+          'updated_at': '2026-09-12T10:00:00Z',
+        },
+      ], generatedAt: DateTime.utc(2026, 9, 12, 10));
+      expect(active, contains('UID:booking-cancelled@workloop'));
+      expect(cancelled, contains('UID:booking-cancelled@workloop'));
+      expect(active, contains('STATUS:CONFIRMED'));
+      expect(cancelled, contains('STATUS:CANCELLED'));
+      expect(cancelled, contains('TRANSP:TRANSPARENT'));
+      expect(cancelled, contains('LAST-MODIFIED:20260912T100000Z'));
+      expect(cancelled, isNot(contains('STATUS:CONFIRMED')));
+    },
+  );
 }

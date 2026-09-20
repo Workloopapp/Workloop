@@ -8,6 +8,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/theme/app_theme.dart';
 import '../../shared/repositories/auth_repository.dart';
 import '../../shared/widgets/slate_ui.dart';
+import '../../shared/widgets/workloop_form_field.dart';
 
 class MfaChallengeScreen extends ConsumerStatefulWidget {
   final VoidCallback onVerified;
@@ -114,25 +115,29 @@ class _MfaChallengeScreenState extends ConsumerState<MfaChallengeScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const SizedBox(height: AppSpacing.xl),
-          const Icon(
+          Icon(
             LucideIcons.shieldCheck,
-            color: AppColors.accentPrimary,
+            color: AppColors.of(context).accentPrimary,
             size: 36,
           ),
           const SizedBox(height: AppSpacing.lg),
-          const Text(
+          Text(
             'Confirm it is you.',
             style: TextStyle(
-              color: AppColors.t1,
+              color: AppColors.of(context).t1,
               fontSize: 28,
               height: 1.08,
               fontWeight: FontWeight.w700,
             ),
           ),
           const SizedBox(height: AppSpacing.sm),
-          const Text(
+          Text(
             'Enter the current code from the authenticator app linked to Workloop.',
-            style: TextStyle(color: AppColors.t3, fontSize: 15, height: 1.45),
+            style: TextStyle(
+              color: AppColors.of(context).t3,
+              fontSize: 15,
+              height: 1.45,
+            ),
           ),
           const SizedBox(height: AppSpacing.xl),
           TextField(
@@ -147,7 +152,10 @@ class _MfaChallengeScreenState extends ConsumerState<MfaChallengeScreen> {
               FilteringTextInputFormatter.digitsOnly,
               LengthLimitingTextInputFormatter(6),
             ],
-            decoration: const InputDecoration(labelText: '6-digit code'),
+            decoration: const InputDecoration(
+              floatingLabelBehavior: FloatingLabelBehavior.always,
+              label: WorkloopFieldLabel('6-digit code', isRequired: true),
+            ),
             onSubmitted: (_) => _verify(),
           ),
           if (_error != null) ...[
@@ -285,28 +293,29 @@ class _MfaSetupScreenState extends ConsumerState<MfaSetupScreen> {
   }
 
   Future<void> _removeFactor(Factor factor) async {
-    final confirmed = await showModalBottomSheet<bool>(
+    final confirmed = await showWorkloopBottomSheet<bool>(
       context: context,
-      useSafeArea: true,
-      backgroundColor: Colors.transparent,
-      barrierColor: SlateTheme.of(context).scrim,
       builder: (sheetContext) => SlateSheetFrame(
+        scrollable: true,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
+            Text(
               'Turn off two-factor security?',
               style: TextStyle(
-                color: AppColors.t1,
+                color: AppColors.of(sheetContext).t1,
                 fontSize: 18,
                 fontWeight: FontWeight.w700,
               ),
             ),
             const SizedBox(height: AppSpacing.xs),
-            const Text(
+            Text(
               'Your account will return to password or social sign-in only. You can set up an authenticator again at any time.',
-              style: TextStyle(color: AppColors.t3, height: 1.4),
+              style: TextStyle(
+                color: AppColors.of(sheetContext).t3,
+                height: 1.4,
+              ),
             ),
             const SizedBox(height: AppSpacing.xl),
             SlateButton(
@@ -391,21 +400,31 @@ class _MfaSetupScreenState extends ConsumerState<MfaSetupScreen> {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
+          Text(
             'Protect your business data even if your password or social account is compromised.',
-            style: TextStyle(color: AppColors.t2, fontSize: 15, height: 1.45),
+            style: TextStyle(
+              color: AppColors.of(context).t2,
+              fontSize: 15,
+              height: 1.45,
+            ),
           ),
           const SizedBox(height: AppSpacing.md),
-          const WorkloopSurface(
+          WorkloopSurface(
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(LucideIcons.smartphone, color: AppColors.accentPrimary),
+                Icon(
+                  LucideIcons.smartphone,
+                  color: AppColors.of(context).accentPrimary,
+                ),
                 SizedBox(width: AppSpacing.sm),
                 Expanded(
                   child: Text(
                     'Use any standards-based authenticator app. Workloop never sends the setup secret to another service.',
-                    style: TextStyle(color: AppColors.t2, height: 1.4),
+                    style: TextStyle(
+                      color: AppColors.of(context).t2,
+                      height: 1.4,
+                    ),
                   ),
                 ),
               ],
@@ -424,16 +443,16 @@ class _MfaSetupScreenState extends ConsumerState<MfaSetupScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const WorkloopSurface(
+        WorkloopSurface(
           child: Row(
             children: [
-              Icon(LucideIcons.shieldCheck, color: AppColors.green),
+              Icon(LucideIcons.shieldCheck, color: AppColors.of(context).green),
               SizedBox(width: AppSpacing.sm),
               Expanded(
                 child: Text(
                   'Two-factor security is on.',
                   style: TextStyle(
-                    color: AppColors.t1,
+                    color: AppColors.of(context).t1,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
@@ -447,7 +466,10 @@ class _MfaSetupScreenState extends ConsumerState<MfaSetupScreen> {
         for (final factor in state.factors)
           WorkloopListRow(
             showDivider: false,
-            leading: const Icon(LucideIcons.smartphone, color: AppColors.t2),
+            leading: Icon(
+              LucideIcons.smartphone,
+              color: AppColors.of(context).t2,
+            ),
             title: Text(factor.friendlyName ?? 'Authenticator app'),
             subtitle: Text('Added ${_formatDate(factor.createdAt)}'),
             trailing: TextButton(
@@ -456,9 +478,13 @@ class _MfaSetupScreenState extends ConsumerState<MfaSetupScreen> {
             ),
           ),
         const SizedBox(height: AppSpacing.md),
-        const Text(
+        Text(
           'Removing your only authenticator turns off two-factor protection for this account.',
-          style: TextStyle(color: AppColors.t3, fontSize: 13, height: 1.4),
+          style: TextStyle(
+            color: AppColors.of(context).t3,
+            fontSize: 13,
+            height: 1.4,
+          ),
         ),
       ],
     );
@@ -475,18 +501,18 @@ class _MfaSetupScreenState extends ConsumerState<MfaSetupScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
+        Text(
           'Scan this code.',
           style: TextStyle(
-            color: AppColors.t1,
+            color: AppColors.of(context).t1,
             fontSize: 22,
             fontWeight: FontWeight.w700,
           ),
         ),
         const SizedBox(height: AppSpacing.xs),
-        const Text(
+        Text(
           'In your authenticator app, add an account and scan the QR code.',
-          style: TextStyle(color: AppColors.t3, height: 1.4),
+          style: TextStyle(color: AppColors.of(context).t3, height: 1.4),
         ),
         const SizedBox(height: AppSpacing.md),
         Center(
@@ -510,10 +536,10 @@ class _MfaSetupScreenState extends ConsumerState<MfaSetupScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
+              Text(
                 'Manual setup key',
                 style: TextStyle(
-                  color: AppColors.t1,
+                  color: AppColors.of(context).t1,
                   fontWeight: FontWeight.w700,
                 ),
               ),
@@ -562,7 +588,10 @@ class _MfaSetupScreenState extends ConsumerState<MfaSetupScreen> {
             FilteringTextInputFormatter.digitsOnly,
             LengthLimitingTextInputFormatter(6),
           ],
-          decoration: const InputDecoration(labelText: '6-digit code'),
+          decoration: const InputDecoration(
+            floatingLabelBehavior: FloatingLabelBehavior.always,
+            label: WorkloopFieldLabel('6-digit code', isRequired: true),
+          ),
           onSubmitted: (_) => _confirmEnrollment(),
         ),
         const SizedBox(height: AppSpacing.md),
